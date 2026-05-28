@@ -1,0 +1,22 @@
+{
+    "name": "RuiQuant - A 股 AI 研究助手",
+    "short_name": "RuiQuant",
+    "description": "个人 A 股 AI 研究助手",
+    "start_url": "/",
+    "display": "standalone",
+    "background_color": "#0D1117",
+    "theme_color": "#FF4444",
+    "orientation": "portrait",
+    "icons": [
+        {
+            "src": "/static/icon-192.png",
+            "sizes": "192x192",
+            "type": "image/png"
+        },
+        {
+            "src": "/static/icon-512.png",
+            "sizes": "512x512",
+            "type": "image/png"
+        }
+    ]
+}

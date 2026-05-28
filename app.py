@@ -16,6 +16,17 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# PWA 支持
+st.markdown("""
+<link rel="manifest" href="/static/manifest.json">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="RuiQuant">
+<link rel="apple-touch-icon" href="/static/icon.svg">
+<meta name="theme-color" content="#0D1117">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+""", unsafe_allow_html=True)
+
 # 自定义样式（专业金融深色风格）
 st.markdown("""
 <style>

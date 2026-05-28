@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="100" fill="#0D1117"/>
+  <text x="256" y="200" text-anchor="middle" fill="#FF4444" font-size="120" font-weight="bold" font-family="Arial">RQ</text>
+  <text x="256" y="320" text-anchor="middle" fill="#E6EDF3" font-size="48" font-family="Arial">AI 研究助手</text>
+  <rect x="100" y="380" width="312" height="8" rx="4" fill="#FF4444"/>
+</svg>
