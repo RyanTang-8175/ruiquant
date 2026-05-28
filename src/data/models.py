@@ -4,7 +4,7 @@
 """
 
 from datetime import datetime, date
-from sqlalchemy import Column, Integer, String, Float, Date, DateTime, Boolean
+from sqlalchemy import Column, Integer, String, Float, Date, DateTime, Boolean, UniqueConstraint
 from src.utils.database import Base
 
 
@@ -12,12 +12,12 @@ class StockBasic(Base):
     """股票基础信息"""
     __tablename__ = "stock_basic"
 
-    code = Column(String(10), primary_key=True)  # 股票代码
-    name = Column(String(50), nullable=False)     # 股票名称
-    sector = Column(String(50))                   # 行业
-    list_date = Column(Date)                      # 上市日期
-    is_st = Column(Boolean, default=False)        # 是否ST
-    is_active = Column(Boolean, default=True)     # 是否活跃
+    code = Column(String(10), primary_key=True)
+    name = Column(String(50), nullable=False)
+    sector = Column(String(50))
+    list_date = Column(Date)
+    is_st = Column(Boolean, default=False)
+    is_active = Column(Boolean, default=True)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
 
@@ -26,17 +26,21 @@ class DailyQuote(Base):
     __tablename__ = "daily_quote"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    code = Column(String(10), nullable=False, index=True)  # 股票代码
-    trade_date = Column(Date, nullable=False, index=True)  # 交易日期
-    open = Column(Float)        # 开盘价
-    high = Column(Float)        # 最高价
-    low = Column(Float)         # 最低价
-    close = Column(Float)       # 收盘价
-    volume = Column(Float)      # 成交量
-    amount = Column(Float)      # 成交额
-    change_pct = Column(Float)  # 涨跌幅
-    turnover_rate = Column(Float)  # 换手率
+    code = Column(String(10), nullable=False, index=True)
+    trade_date = Column(Date, nullable=False, index=True)
+    open = Column(Float)
+    high = Column(Float)
+    low = Column(Float)
+    close = Column(Float)
+    volume = Column(Integer)  # 改为 Integer
+    amount = Column(Float)
+    change_pct = Column(Float)
+    turnover_rate = Column(Float)
     created_at = Column(DateTime, default=datetime.now)
+
+    __table_args__ = (
+        UniqueConstraint('code', 'trade_date', name='uq_daily_quote_code_date'),
+    )
 
 
 class TechnicalIndicator(Base):
@@ -44,8 +48,8 @@ class TechnicalIndicator(Base):
     __tablename__ = "technical_indicator"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    code = Column(String(10), nullable=False, index=True)  # 股票代码
-    trade_date = Column(Date, nullable=False, index=True)  # 交易日期
+    code = Column(String(10), nullable=False, index=True)
+    trade_date = Column(Date, nullable=False, index=True)
 
     # 均线
     ma5 = Column(Float)
@@ -73,3 +77,7 @@ class TechnicalIndicator(Base):
     boll_lower = Column(Float)
 
     created_at = Column(DateTime, default=datetime.now)
+
+    __table_args__ = (
+        UniqueConstraint('code', 'trade_date', name='uq_indicator_code_date'),
+    )
