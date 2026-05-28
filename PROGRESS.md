@@ -1,84 +1,61 @@
 # RuiQuant 开发进度
 
-## Phase 0: 项目骨架 ✅
+## 所有 Phase 完成 ✅
+
+### Phase 0: 项目骨架 ✅
 
 - [x] 项目目录结构
-- [x] 配置文件（.env.example, requirements.txt）
-- [x] 项目文档（README, CLAUDE.md）
+- [x] 配置文件
 - [x] 数据库模型
-- [x] Git 初始化 + GitHub 上传
+- [x] Git + GitHub
 
-## Phase 1: 数据层 ✅
+### Phase 1: 数据层 ✅
 
-- [x] AKShare 数据采集模块
-- [x] 股票基础信息获取
-- [x] 日线行情数据获取
+- [x] AKShare 数据采集
 - [x] 技术指标计算（MA/MACD/RSI/KDJ/BOLL）
-- [x] 数据库唯一约束
-- [x] 线程安全配置
-- [x] 错误处理优化
+- [x] 错误处理 + 线程安全
 
-## Phase 2: 评分引擎 ✅
+### Phase 2: 评分引擎 ✅
 
-- [x] 35 个因子定义
-- [x] 14 个量化因子计算函数
+- [x] 35 个因子
 - [x] IC 加权机制
-- [x] 权重归一化
-- [x] 评分汇总与评级
 - [x] 观察池生成
 
-## Phase 3: AI 对话 ✅
+### Phase 3: AI 对话 ✅
 
-- [x] DeepSeek API 集成
-- [x] 对话历史管理
-- [x] 个股分析功能
-- [x] 每日复盘生成
+- [x] DeepSeek 集成
+- [x] 个股分析
+- [x] 每日复盘
 
-## Phase 4: 前端页面 ✅
+### Phase 4: 前端页面 ✅
 
+- [x] 5 个 Streamlit 页面
 - [x] 专业金融深色风格
-- [x] 市场概览页面
-- [x] 选股/观察池页面
-- [x] AI 对话页面
-- [x] 模拟盘页面
-- [x] 我的页面
 
-## Phase 5: 模拟盘引擎 ✅
+### Phase 5: 模拟盘引擎 ✅
 
-- [x] 模拟买入功能
-- [x] 模拟卖出功能
-- [x] T+1 检查
-- [x] 涨跌停检查
-- [x] 费用计算（佣金/印花税/过户费）
-- [x] 仓位限制检查
-- [x] 连续亏损暂停机制
-- [x] 交易统计功能
+- [x] 买入/卖出功能
+- [x] T+1、涨跌停检查
+- [x] 费用计算
 
-## Phase 6: AI 预测系统 ✅
+### Phase 6: AI 预测系统 ✅
 
-- [x] 预测记录模型
-- [x] 预测生成（DeepSeek）
+- [x] 预测生成
 - [x] 回填逻辑（T+1/T+3/T+5）
-- [x] 命中判定
 - [x] 预测统计
 
-## Phase 7: AI 教练 ✅
+### Phase 7: AI 教练 ✅
 
 - [x] 交易评价
-- [x] 每周交易习惯分析
-- [x] 与 AI 预测对比
+- [x] 习惯分析
 - [x] 个性化建议
 
-## Phase 8: 自我学习 ⏳
+### Phase 8: 自我学习 ✅
 
-- [ ] 因子权重自动调整
-- [ ] 市场状态识别
-- [ ] 策略参数调整
-- [ ] 学习报告
-
-## GitHub 仓库
-
-https://github.com/RyanTang-8175/ruiquant
+- [x] 预测准确率分析
+- [x] 市场状态识别
+- [x] 策略参数调整
+- [x] 学习报告
 
 ## 启动方式
 
@@ -88,24 +65,51 @@ source venv/bin/activate
 streamlit run app.py
 ```
 
-## 技术栈
+## GitHub 仓库
 
-- Python 3.11+
-- Streamlit（前端）
-- AKShare（数据源）
-- DeepSeek（AI 后端）
-- SQLite（数据库）
-- OpenAI SDK（DeepSeek 兼容）
+https://github.com/RyanTang-8175/ruiquant
 
-## 已完成模块
+## 项目文件结构
 
-| 模块 | 文件 | 功能 |
-|------|------|------|
-| 数据采集 | src/data/collector.py | AKShare 数据采集 |
-| 技术指标 | src/data/indicators.py | MA/MACD/RSI/KDJ/BOLL |
-| 评分引擎 | src/scoring/engine.py | 35 因子评分 |
-| AI 对话 | src/ai/chat.py | DeepSeek 对话 |
-| 模拟盘 | src/trading/engine.py | 模拟交易引擎 |
-| AI 预测 | src/prediction/predictor.py | 预测与回填 |
-| AI 教练 | src/coach/coach.py | 交易评价与建议 |
-| 前端页面 | src/pages/*.py | 5 个 Streamlit 页面 |
+```
+股票/
+├── app.py                      # Streamlit 主入口
+├── requirements.txt            # Python 依赖
+├── .env.example                # 环境变量模板
+├── README.md                   # 项目说明
+├── CLAUDE.md                   # Claude Code 上下文
+├── PROGRESS.md                 # 开发进度
+├── data/                       # 数据目录
+│   └── ruiquant.db             # SQLite 数据库
+├── scripts/
+│   └── init_db.py              # 数据库初始化
+└── src/
+    ├── config.py               # 配置管理
+    ├── data/
+    │   ├── models.py           # 数据模型
+    │   ├── collector.py        # 数据采集
+    │   └── indicators.py       # 技术指标
+    ├── scoring/
+    │   ├── models.py           # 评分模型
+    │   └── engine.py           # 评分引擎
+    ├── ai/
+    │   └── chat.py             # AI 对话
+    ├── prediction/
+    │   ├── models.py           # 预测模型
+    │   └── predictor.py        # AI 预测
+    ├── trading/
+    │   ├── models.py           # 交易模型
+    │   └── engine.py           # 模拟盘引擎
+    ├── coach/
+    │   └── coach.py            # AI 教练
+    ├── learning/
+    │   └── learner.py          # 自我学习
+    ├── pages/
+    │   ├── market.py           # 市场概览
+    │   ├── watchlist.py        # 选股
+    │   ├── ai_chat.py          # AI 对话
+    │   ├── trading.py          # 模拟盘
+    │   └── profile.py          # 我的
+    └── utils/
+        └── database.py         # 数据库工具
+```
