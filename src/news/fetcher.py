@@ -1,127 +1,126 @@
 """
 新闻抓取器
-多源抓取：东方财富、新浪财经
+使用 AKShare 获取财联社电报 + 东方财富新闻
 """
 
-import re
 import logging
-import hashlib
-import requests
+import re
 from datetime import datetime
 from typing import List, Dict
 
 logger = logging.getLogger(__name__)
 
-HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Accept': '*/*',
-    'Accept-Language': 'zh-CN,zh;q=0.9',
-    'Referer': 'https://finance.eastmoney.com/',
-}
 
+def fetch_cls_news(limit: int = 30) -> List[Dict]:
+    """获取财联社电报快讯（最权威的A股实时新闻）"""
+    try:
+        import akshare as ak
+        df = ak.stock_info_global_cls()
+        if df is None or df.empty:
+            return []
 
-class NewsFetcher:
-    """多源财经新闻抓取器"""
-
-    def fetch_eastmoney(self, limit: int = 30) -> List[Dict]:
-        """从东方财富抓取财经新闻"""
         news = []
-        try:
-            url = "https://np-listapi.eastmoney.com/comm/web/getNewsByColumns"
-            params = {
-                "client": "web",
-                "biz": "web_news_feeds",
-                "column": "357",
-                "order": "1",
-                "page_index": "1",
-                "page_size": str(limit),
-                "req_trace": str(int(datetime.now().timestamp() * 1000)),
-            }
-            resp = requests.get(url, params=params, headers=HEADERS, timeout=15)
-            resp.raise_for_status()
-            data = resp.json()
-            items = data.get("data", {}).get("list", [])
+        for _, row in df.head(limit).iterrows():
+            title = str(row.get("标题", "") or row.get("内容", ""))[:100]
+            content = str(row.get("内容", "") or "")
+            # 清理HTML标签
+            title = re.sub(r'<[^>]+>', '', title).strip()
+            content = re.sub(r'<[^>]+>', '', content).strip()
 
-            for item in items:
-                pub_time = item.get("showTime", "")
-                try:
-                    pub_dt = datetime.strptime(pub_time, "%Y-%m-%d %H:%M:%S")
-                except (ValueError, TypeError):
-                    pub_dt = datetime.now()
-
-                title = (item.get("title", "") or "").strip()
-                content = (item.get("summary", "") or "").strip()
-                if title:
-                    news.append({
-                        "title": title,
-                        "content": content,
-                        "source": "eastmoney",
-                        "url": item.get("uniqueUrl", "") or item.get("url", ""),
-                        "published_at": pub_dt,
-                        "category": "macro",
-                    })
-            logger.info(f"东方财富: 抓取 {len(news)} 条")
-        except Exception as e:
-            logger.warning(f"东方财富抓取失败: {e}")
+            if title:
+                news.append({
+                    "title": title,
+                    "content": content,
+                    "source": "cls",
+                    "published_at": str(row.get("时间", "")),
+                    "category": "macro",
+                })
+        logger.info(f"财联社: 抓取 {len(news)} 条")
         return news
+    except ImportError:
+        logger.warning("akshare 未安装，跳过财联社新闻")
+        return []
+    except Exception as e:
+        logger.warning(f"财联社抓取失败: {e}")
+        return []
 
-    def fetch_sina(self, limit: int = 30) -> List[Dict]:
-        """从新浪财经抓取财经新闻"""
+
+def fetch_stock_news(code: str, limit: int = 10) -> List[Dict]:
+    """获取个股新闻（东方财富）"""
+    try:
+        import akshare as ak
+        df = ak.stock_news_em(symbol=code)
+        if df is None or df.empty:
+            return []
+
         news = []
-        try:
-            url = "https://feed.mix.sina.com.cn/api/roll/get"
-            params = {
-                "pageid": "153",
-                "lid": "2516",
-                "k": "",
-                "num": str(limit),
-                "page": "1",
-                "r": "0.1",
-            }
-            resp = requests.get(url, params=params, headers=HEADERS, timeout=15)
-            resp.raise_for_status()
-            data = resp.json()
-            items = data.get("result", {}).get("data", [])
+        for _, row in df.head(limit).iterrows():
+            title = str(row.get("新闻标题", ""))[:100]
+            content = str(row.get("新闻内容", ""))
+            url = str(row.get("新闻链接", ""))
+            source = str(row.get("文章来源", ""))
+            pub_time = str(row.get("发布时间", ""))
 
-            for item in items:
-                pub_ts = int(item.get("ctime", 0))
-                pub_dt = datetime.fromtimestamp(pub_ts) if pub_ts > 1000000000 else datetime.now()
+            title = re.sub(r'<[^>]+>', '', title).strip()
+            content = re.sub(r'<[^>]+>', '', content).strip()
 
-                title = (item.get("title", "") or "").strip()
-                if title:
-                    news.append({
-                        "title": title,
-                        "content": (item.get("intro", "") or item.get("summary", "")).strip(),
-                        "source": "sina",
-                        "url": item.get("url", ""),
-                        "published_at": pub_dt,
-                        "category": "macro",
-                    })
-            logger.info(f"新浪财经: 抓取 {len(news)} 条")
-        except Exception as e:
-            logger.warning(f"新浪财经抓取失败: {e}")
+            if title:
+                news.append({
+                    "title": title,
+                    "content": content[:200],
+                    "source": source or "eastmoney",
+                    "url": url,
+                    "published_at": pub_time,
+                    "category": "company",
+                })
+        logger.info(f"个股新闻 {code}: {len(news)} 条")
         return news
+    except Exception as e:
+        logger.warning(f"个股新闻抓取失败 {code}: {e}")
+        return []
 
-    def fetch_all(self, limit_per_source: int = 20) -> List[Dict]:
-        """从所有源抓取并去重"""
-        all_news = []
-        all_news.extend(self.fetch_eastmoney(limit_per_source))
-        all_news.extend(self.fetch_sina(limit_per_source))
 
-        result = self._deduplicate(all_news)
-        logger.info(f"总计抓取 {len(result)} 条去重新闻")
-        return result
+def fetch_eastmoney_news(limit: int = 20) -> List[Dict]:
+    """东方财富财经新闻（备用）"""
+    import requests
+    news = []
+    try:
+        url = "https://np-listapi.eastmoney.com/comm/web/getNewsByColumns"
+        params = {
+            "client": "web",
+            "biz": "web_news_feeds",
+            "column": "357",
+            "order": "1",
+            "page_index": "1",
+            "page_size": str(limit),
+            "req_trace": str(int(datetime.now().timestamp() * 1000)),
+        }
+        headers = {'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.eastmoney.com/'}
+        resp = requests.get(url, params=params, headers=headers, timeout=10)
+        items = resp.json().get("data", {}).get("list", [])
 
-    def _deduplicate(self, news: List[Dict]) -> List[Dict]:
-        """根据标题去重"""
-        seen = set()
-        unique = []
-        for item in news:
-            title = item.get("title", "")
-            if not title or len(title) < 4:
-                continue
-            key = hashlib.md5(title[:20].encode()).hexdigest()
-            if key not in seen:
-                seen.add(key)
-                unique.append(item)
-        return unique
+        for item in items:
+            title = re.sub(r'<[^>]+>', '', str(item.get("title", ""))).strip()
+            content = re.sub(r'<[^>]+>', '', str(item.get("summary", ""))).strip()
+            if title:
+                news.append({
+                    "title": title,
+                    "content": content,
+                    "source": "eastmoney",
+                    "url": item.get("uniqueUrl", ""),
+                    "published_at": item.get("showTime", ""),
+                    "category": "macro",
+                })
+        logger.info(f"东方财富: 抓取 {len(news)} 条")
+    except Exception as e:
+        logger.warning(f"东方财富抓取失败: {e}")
+    return news
+
+
+def fetch_all_news(limit: int = 30) -> List[Dict]:
+    """抓取所有新闻源"""
+    all_news = []
+    all_news.extend(fetch_cls_news(limit))
+    if len(all_news) < 5:
+        all_news.extend(fetch_eastmoney_news(limit))
+    return all_news[:limit]

@@ -1,12 +1,10 @@
 # RuiQuant 依赖
 
-# 数据源
-baostock>=0.8.8
+# 数据源 - 实时行情
+requests>=2.31.0
 
 # Web 框架
 streamlit>=1.30.0
-fastapi>=0.109.0
-uvicorn>=0.25.0
 
 # 数据库
 sqlalchemy>=2.0.0
@@ -24,10 +22,7 @@ apscheduler>=3.10.0
 
 # 工具
 python-dotenv>=1.0.0
-requests>=2.31.0
-pyyaml>=6.0.0
+pyjwt>=2.8.0
 
 # 开发
 pytest>=7.4.0
-black>=23.0.0
-flake8>=6.0.0
