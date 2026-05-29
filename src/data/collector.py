@@ -175,27 +175,34 @@ class DataCollector:
                     DailyQuote.trade_date == trade_date
                 ).first()
 
+                # 处理 NaN 值
+                volume = row.get('成交量', 0)
+                if pd.isna(volume):
+                    volume = 0
+                else:
+                    volume = int(volume)
+
                 if existing:
-                    existing.open = row.get('开盘')
-                    existing.high = row.get('最高')
-                    existing.low = row.get('最低')
-                    existing.close = row.get('收盘')
-                    existing.volume = int(row.get('成交量', 0))
-                    existing.amount = row.get('成交额')
-                    existing.change_pct = row.get('涨跌幅')
-                    existing.turnover_rate = row.get('换手率')
+                    existing.open = row.get('开盘') if not pd.isna(row.get('开盘')) else None
+                    existing.high = row.get('最高') if not pd.isna(row.get('最高')) else None
+                    existing.low = row.get('最低') if not pd.isna(row.get('最低')) else None
+                    existing.close = row.get('收盘') if not pd.isna(row.get('收盘')) else None
+                    existing.volume = volume
+                    existing.amount = row.get('成交额') if not pd.isna(row.get('成交额')) else None
+                    existing.change_pct = row.get('涨跌幅') if not pd.isna(row.get('涨跌幅')) else None
+                    existing.turnover_rate = row.get('换手率') if not pd.isna(row.get('换手率')) else None
                 else:
                     quote = DailyQuote(
                         code=code,
                         trade_date=trade_date,
-                        open=row.get('开盘'),
-                        high=row.get('最高'),
-                        low=row.get('最低'),
-                        close=row.get('收盘'),
-                        volume=int(row.get('成交量', 0)),
-                        amount=row.get('成交额'),
-                        change_pct=row.get('涨跌幅'),
-                        turnover_rate=row.get('换手率')
+                        open=row.get('开盘') if not pd.isna(row.get('开盘')) else None,
+                        high=row.get('最高') if not pd.isna(row.get('最高')) else None,
+                        low=row.get('最低') if not pd.isna(row.get('最低')) else None,
+                        close=row.get('收盘') if not pd.isna(row.get('收盘')) else None,
+                        volume=volume,
+                        amount=row.get('成交额') if not pd.isna(row.get('成交额')) else None,
+                        change_pct=row.get('涨跌幅') if not pd.isna(row.get('涨跌幅')) else None,
+                        turnover_rate=row.get('换手率') if not pd.isna(row.get('换手率')) else None
                     )
                     self.db.add(quote)
                 saved += 1
