@@ -1,7 +1,7 @@
 # RuiQuant 依赖
 
 # 数据源
-akshare>=1.18.0
+baostock>=0.8.8
 
 # Web 框架
 streamlit>=1.30.0
@@ -17,6 +17,7 @@ openai>=1.10.0
 # 数据处理
 pandas>=2.1.0
 numpy>=1.26.0
+plotly>=5.18.0
 
 # 定时任务
 apscheduler>=3.10.0

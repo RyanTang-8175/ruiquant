@@ -1,6 +1,6 @@
 """
 AI 对话模块
-使用 DeepSeek 实现股票分析对话
+支持工具调用的专业 A 股分析助手
 """
 
 import json
@@ -8,33 +8,42 @@ import logging
 from datetime import datetime
 from openai import OpenAI
 from src.config import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL
+from src.ai.tools import TOOLS
+from src.ai.tool_executor import ToolExecutor
 
 logger = logging.getLogger(__name__)
 
-# 系统 Prompt
-SYSTEM_PROMPT = """你是 RuiQuant AI 股票助手，一个专业的 A 股短线分析师。
+SYSTEM_PROMPT = """你是 RuiQuant AI，一个专业的 A 股短线分析助手。
 
-你的职责：
-1. 基于程序计算好的数值数据，撰写分析解释文字
-2. 回答用户关于股票、市场、板块的问题
-3. 帮助用户理解技术指标和评分结果
+你拥有以下工具能力，应该主动使用它们来获取数据和进行分析：
+- get_stock_quote: 获取个股最新行情
+- get_technical_analysis: 获取技术指标（均线、MACD、RSI、KDJ、布林带）
+- get_scoring_result: 获取量化评分（35因子评分系统）
+- get_market_snapshot: 获取市场整体概况
+- get_watchlist: 获取观察池高评分股票
+- get_news: 获取最新财经新闻
+- get_financial_data: 获取基本面数据
+- get_positions: 获取模拟盘持仓
+- get_kline_data: 获取K线数据
+
+分析流程：
+1. 当用户问某只股票时，先用 get_stock_quote 获取最新行情
+2. 用 get_technical_analysis 获取技术指标
+3. 用 get_scoring_result 获取量化评分
+4. 用 get_news 获取相关新闻
+5. 综合以上数据给出分析结论
 
 规则：
-1. 不要自行计算任何数值指标，只使用提供的数据
-2. 不要给出明确的"买入"或"卖出"建议，只做客观分析
-3. 使用中文，语言简洁专业
-4. 如果用户要求执行模拟交易操作，提醒用户确认
-
-你可以帮助用户：
-- 分析个股的技术面和基本面
-- 解读市场走势和板块轮动
-- 理解评分引擎的结果
-- 查看观察池和模拟盘状态
+1. 所有数值数据必须来自工具调用，不要编造数据
+2. 可以给出明确的操作建议（如"建议关注"、"谨慎追高"），但必须说明依据
+3. 分析要结构化：技术面 + 消息面 + 综合判断
+4. 使用中文，语言专业简洁
+5. 提到具体股票时，带上代码和名称
 """
 
 
 class AIChat:
-    """AI 对话管理器"""
+    """AI 对话管理器（支持工具调用）"""
 
     def __init__(self):
         self.client = OpenAI(
@@ -42,42 +51,73 @@ class AIChat:
             base_url=DEEPSEEK_BASE_URL
         )
         self.model = DEEPSEEK_MODEL
-        self.history = []  # 对话历史
+        self.history = []
+        self.tool_executor = ToolExecutor()
+        self._tools_used = []  # 记录最近一次对话使用的工具
 
     def chat(self, user_message: str, context: dict = None) -> str:
-        """与 AI 对话"""
+        """与 AI 对话（支持多轮工具调用）"""
         try:
-            # 构建消息
             messages = [{"role": "system", "content": SYSTEM_PROMPT}]
 
-            # 添加上下文（如果有）
             if context:
                 context_text = self._format_context(context)
                 messages.append({"role": "system", "content": f"当前数据上下文：\n{context_text}"})
 
-            # 添加历史对话
-            for h in self.history[-10:]:  # 保留最近 10 轮
+            for h in self.history[-10:]:
                 messages.append({"role": "user", "content": h["question"]})
                 messages.append({"role": "assistant", "content": h["answer"]})
 
-            # 添加当前问题
             messages.append({"role": "user", "content": user_message})
 
-            # 调用 DeepSeek
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                temperature=0.7,
-                max_tokens=2000
-            )
+            self._tools_used = []
 
-            answer = response.choices[0].message.content
+            # 工具调用循环（最多 5 轮）
+            answer = ""
+            for _ in range(5):
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=messages,
+                    tools=TOOLS,
+                    tool_choice="auto",
+                    temperature=0.7,
+                    max_tokens=2000,
+                )
 
-            # 保存到历史
+                choice = response.choices[0]
+
+                # 没有工具调用，结束
+                if not choice.message.tool_calls:
+                    answer = choice.message.content or ""
+                    break
+
+                # 处理工具调用
+                messages.append(choice.message)
+                for tool_call in choice.message.tool_calls:
+                    func_name = tool_call.function.name
+                    try:
+                        args = json.loads(tool_call.function.arguments)
+                    except json.JSONDecodeError:
+                        args = {}
+
+                    self._tools_used.append(func_name)
+                    logger.info(f"AI 调用工具: {func_name}({args})")
+
+                    result = self.tool_executor.execute(func_name, args)
+
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "content": result,
+                    })
+            else:
+                answer = "分析过程中调用了过多工具，请尝试更具体的问题。"
+
             self.history.append({
                 "question": user_message,
                 "answer": answer,
-                "timestamp": datetime.now().isoformat()
+                "timestamp": datetime.now().isoformat(),
+                "tools_used": self._tools_used.copy(),
             })
 
             return answer
@@ -86,65 +126,37 @@ class AIChat:
             logger.error(f"AI 对话失败: {e}")
             return f"抱歉，AI 暂时无法响应。错误：{str(e)}"
 
+    def get_last_tools_used(self) -> list:
+        """获取最近一次对话使用的工具列表"""
+        return self._tools_used
+
     def _format_context(self, context: dict) -> str:
         """格式化上下文数据"""
         parts = []
         if "market_snapshot" in context:
             snap = context["market_snapshot"]
-            parts.append(f"市场快照：上涨{snap.get('up_count', 0)}家，下跌{snap.get('down_count', 0)}家，涨停{snap.get('limit_up_count', 0)}家，跌停{snap.get('limit_down_count', 0)}家")
+            parts.append(f"市场快照：上涨{snap.get('up_count', 0)}家，下跌{snap.get('down_count', 0)}家")
         if "stock_info" in context:
             info = context["stock_info"]
-            parts.append(f"股票信息：{info.get('name', '')}（{info.get('code', '')}），当前价{info.get('price', 0)}，涨跌幅{info.get('change_pct', 0)}%")
+            parts.append(f"股票：{info.get('name', '')}（{info.get('code', '')}），价格{info.get('price', 0)}")
         if "score" in context:
             score = context["score"]
-            parts.append(f"评分：{score.get('total_score', 0)}分，评级{score.get('rating', '')}")
+            parts.append(f"评分：{score.get('total_score', 0)}分，{score.get('rating', '')}")
         return "\n".join(parts)
 
     def analyze_stock(self, stock_info: dict, score_info: dict) -> str:
-        """分析个股"""
-        prompt = f"""请分析以下股票：
-
-股票：{stock_info.get('name', '')}（{stock_info.get('code', '')}）
-当前价：{stock_info.get('price', 0)} 元
-涨跌幅：{stock_info.get('change_pct', 0)}%
-成交量：{stock_info.get('volume', 0)}
-换手率：{stock_info.get('turnover_rate', 0)}%
-
-评分结果：
-总分：{score_info.get('total_score', 0)}/100
-评级：{score_info.get('rating', '')}
-
-因子详情：
-{json.dumps(score_info.get('factors', {}), ensure_ascii=False, indent=2)}
-
-请用 3-5 句话分析该股票的当前状态，重点说明：
-1. 技术面的主要特征
-2. 需要关注的风险点
-3. 适合什么样的操作风格"""
-
+        """分析个股（兼容旧接口）"""
+        prompt = f"请对 {stock_info.get('name', '')}（{stock_info.get('code', '')}）做全面的技术面和消息面分析"
         return self.chat(prompt)
 
     def generate_daily_review(self, market_data: dict) -> str:
-        """生成每日复盘"""
-        prompt = f"""基于以下市场数据，撰写今日 A 股复盘报告。
-
-市场数据：
-- 上涨家数：{market_data.get('up_count', 0)}
-- 下跌家数：{market_data.get('down_count', 0)}
-- 涨停家数：{market_data.get('limit_up_count', 0)}
-- 跌停家数：{market_data.get('limit_down_count', 0)}
-- 成交额：{market_data.get('total_amount_yi', 0)} 亿
-
-请按以下结构撰写复盘（每个部分 2-3 句话）：
-1. 市场整体判断
-2. 情绪指标解读
-3. 明日观察点"""
-
-        return self.chat(prompt)
+        """生成每日复盘（兼容旧接口）"""
+        return self.chat("帮我做一个今日市场复盘，分析大盘走势和情绪")
 
     def clear_history(self):
         """清空对话历史"""
         self.history = []
+        self._tools_used = []
 
     def get_history(self) -> list:
         """获取对话历史"""

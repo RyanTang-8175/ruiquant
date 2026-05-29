@@ -16,6 +16,7 @@ from src.data.models import StockBasic, DailyQuote, TechnicalIndicator
 from src.scoring.models import ScoreRecord
 from src.prediction.models import Prediction
 from src.trading.models import PaperAccount, Position, Trade
+from src.news.models import NewsItem
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

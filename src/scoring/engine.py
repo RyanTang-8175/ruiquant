@@ -3,6 +3,7 @@
 35 个因子，5 大类，IC 加权，自动优化
 """
 
+import json
 import logging
 import numpy as np
 import pandas as pd
@@ -60,13 +61,37 @@ DEFAULT_WEIGHTS = {
     'volume_price_corr': 0.01,
 }
 
+# 动态权重文件路径
+WEIGHTS_FILE = "data/factor_weights.json"
+
+
+def _load_dynamic_weights() -> dict:
+    """从文件加载动态权重，不存在则用默认"""
+    try:
+        with open(WEIGHTS_FILE, 'r') as f:
+            weights = json.load(f)
+            if weights and isinstance(weights, dict):
+                return weights
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
+    return DEFAULT_WEIGHTS.copy()
+
+
+def save_dynamic_weights(weights: dict):
+    """保存动态权重到文件"""
+    import os
+    os.makedirs(os.path.dirname(WEIGHTS_FILE), exist_ok=True)
+    with open(WEIGHTS_FILE, 'w') as f:
+        json.dump(weights, f, indent=2)
+
 
 class ScoringEngine:
     """评分引擎"""
 
     def __init__(self):
         self.db = SessionLocal()
-        self.weights = self._normalize_weights(DEFAULT_WEIGHTS.copy())
+        raw_weights = _load_dynamic_weights()
+        self.weights = self._normalize_weights(raw_weights)
 
     def _normalize_weights(self, weights: dict) -> dict:
         """归一化权重，确保总和为 1.0"""
@@ -250,7 +275,7 @@ class ScoringEngine:
 
     def calc_volume_price_divergence(self, df: pd.DataFrame) -> float:
         """量价背离因子"""
-        if len(df) < 5:
+        if len(df) < 10:
             return 50
         price_change = (df['close'].iloc[-1] - df['close'].iloc[-5]) / df['close'].iloc[-5]
         vol_change = (df['volume'].iloc[-5:].mean() - df['volume'].iloc[-10:-5].mean()) / df['volume'].iloc[-10:-5].mean()
@@ -427,7 +452,130 @@ class ScoringEngine:
         else:
             return 25
 
+    # ============ 新增因子 ============
+
+    def calc_blast_rate(self, df: pd.DataFrame) -> float:
+        """爆量率因子 — 成交量相对 20 日均量的倍数"""
+        if len(df) < 20:
+            return 50
+        today_vol = df['volume'].iloc[-1]
+        avg_vol = df['volume'].iloc[-20:].mean()
+        if pd.isna(avg_vol) or avg_vol == 0:
+            return 50
+        ratio = today_vol / avg_vol
+        if ratio > 5.0:
+            return 90
+        elif ratio > 3.0:
+            return 80
+        elif ratio > 2.0:
+            return 65
+        elif ratio > 1.2:
+            return 55
+        elif ratio > 0.8:
+            return 45
+        else:
+            return 30
+
+    def calc_amihud_illiquidity(self, df: pd.DataFrame) -> float:
+        """非流动性因子（Amihud）— |收益率| / 成交额"""
+        if len(df) < 20:
+            return 50
+        recent = df.iloc[-20:]
+        returns = recent['close'].pct_change().dropna()
+        amounts = recent['amount'].iloc[1:]
+        # 避免除零
+        amounts = amounts.replace(0, np.nan)
+        illiquidity = (returns.abs() / amounts).mean()
+        if pd.isna(illiquidity):
+            return 50
+        # 低非流动性（高流动性）更好
+        # 归一化到合理范围
+        if illiquidity < 1e-8:
+            return 70
+        elif illiquidity < 5e-8:
+            return 60
+        elif illiquidity < 1e-7:
+            return 50
+        elif illiquidity < 5e-7:
+            return 40
+        else:
+            return 30
+
+    def calc_limit_up_streak(self, df: pd.DataFrame) -> float:
+        """连板因子 — 连续涨停天数"""
+        if len(df) < 2:
+            return 50
+        streak = 0
+        for i in range(len(df) - 1, 0, -1):
+            if df['change_pct'].iloc[i] is not None and df['change_pct'].iloc[i] >= 9.9:
+                streak += 1
+            else:
+                break
+        if streak >= 3:
+            return 90
+        elif streak == 2:
+            return 75
+        elif streak == 1:
+            return 60
+        else:
+            return 45
+
+    def calc_market_temperature(self, df: pd.DataFrame) -> float:
+        """市场温度因子 — 基于近 5 日涨跌幅度"""
+        if len(df) < 5:
+            return 50
+        recent_5d = (df['close'].iloc[-1] - df['close'].iloc[-5]) / df['close'].iloc[-5]
+        if pd.isna(recent_5d):
+            return 50
+        if recent_5d > 0.05:
+            return 80
+        elif recent_5d > 0.02:
+            return 65
+        elif recent_5d > -0.02:
+            return 50
+        elif recent_5d > -0.05:
+            return 35
+        else:
+            return 20
+
+    def calc_boll_position(self, ind: pd.DataFrame) -> float:
+        """布林带位置因子"""
+        if ind.empty:
+            return 50
+        latest = ind.iloc[-1]
+        upper = latest.get('boll_upper')
+        lower = latest.get('boll_lower')
+        middle = latest.get('boll_middle')
+        if pd.isna(upper) or pd.isna(lower) or pd.isna(middle) or upper == lower:
+            return 50
+        # 用最近的收盘价（从指标数据里没有 close，用 ma5 代替近似）
+        price = latest.get('ma5', middle)
+        if pd.isna(price):
+            return 50
+        position = (price - lower) / (upper - lower)
+        if position > 0.9:
+            return 25  # 接近上轨，超买
+        elif position > 0.7:
+            return 45
+        elif position > 0.3:
+            return 65  # 中间区域
+        elif position > 0.1:
+            return 70
+        else:
+            return 55  # 接近下轨，可能反弹
+
     # ============ 汇总评分 ============
+
+    # 已实现的因子列表
+    IMPLEMENTED_FACTORS = [
+        'short_term_reversal', 'turnover_rate', 'idio_volatility',
+        'volume_ratio', 'abnormal_turnover', 'volume_price_divergence',
+        'trend', 'rsi', 'macd', 'kdj', 'kline_pattern',
+        'intraday_intensity', 'high_52w_ratio', 'volume_price_corr',
+        # 新增因子
+        'blast_rate', 'amihud_illiquidity', 'limit_up_streak',
+        'market_temperature', 'boll_position',
+    ]
 
     def score_stock(self, code: str) -> dict:
         """计算单只股票的评分"""
@@ -437,7 +585,7 @@ class ScoringEngine:
         if df.empty:
             return None
 
-        # 计算所有因子
+        # 计算所有已实现的因子
         factors = {
             'short_term_reversal': self.calc_short_term_reversal(df),
             'turnover_rate': self.calc_turnover_rate(df),
@@ -453,15 +601,22 @@ class ScoringEngine:
             'intraday_intensity': self.calc_intraday_intensity(df),
             'high_52w_ratio': self.calc_high_52w_ratio(df),
             'volume_price_corr': self.calc_volume_price_corr(df),
+            'blast_rate': self.calc_blast_rate(df),
+            'amihud_illiquidity': self.calc_amihud_illiquidity(df),
+            'limit_up_streak': self.calc_limit_up_streak(df),
+            'market_temperature': self.calc_market_temperature(df),
+            'boll_position': self.calc_boll_position(ind),
         }
 
-        # 计算加权总分
-        total_score = 0
-        for factor_name, score in factors.items():
-            weight = self.weights.get(factor_name, 0.01)
-            total_score += score * weight
+        # 只对已实现的因子做权重归一化
+        active_weights = {k: self.weights.get(k, 0.01) for k in factors}
+        total_weight = sum(active_weights.values())
+        if total_weight > 0:
+            normalized = {k: v / total_weight for k, v in active_weights.items()}
+        else:
+            normalized = {k: 1.0 / len(factors) for k in factors}
 
-        # 归一化到 0-100
+        total_score = sum(factors[k] * normalized[k] for k in factors)
         total_score = min(100, max(0, total_score))
 
         # 确定评级
@@ -501,9 +656,7 @@ class ScoringEngine:
                 result['name'] = stock.name
                 results.append(result)
 
-        # 按分数排序
         results.sort(key=lambda x: x['total_score'], reverse=True)
-
         logger.info(f"评分完成: {len(results)} 只股票")
         return results
 
@@ -542,7 +695,50 @@ class ScoringEngine:
         return saved
 
     def get_watchlist(self, min_score: float = 65, limit: int = 20) -> list:
-        """获取观察池"""
+        """获取观察池（从缓存读取，不重新计算）"""
+        try:
+            # 查最新评分日期
+            latest = self.db.query(ScoreRecord.score_date).order_by(
+                ScoreRecord.score_date.desc()
+            ).first()
+
+            if not latest:
+                # 没有缓存，触发一次全量评分
+                logger.info("无缓存评分，触发全量评分...")
+                results = self.score_all_stocks()
+                self.save_scores(results)
+                return [r for r in results if r['total_score'] >= min_score][:limit]
+
+            records = self.db.query(ScoreRecord).filter(
+                ScoreRecord.score_date == latest[0],
+                ScoreRecord.total_score >= min_score
+            ).order_by(ScoreRecord.total_score.desc()).limit(limit).all()
+
+            return [{
+                'code': r.code,
+                'name': r.name,
+                'total_score': r.total_score,
+                'rating': r.rating,
+                'factors': {
+                    'trend': r.trend_score or 50,
+                    'short_term_reversal': r.reversal_score or 50,
+                    'volume_ratio': r.volume_ratio_score or 50,
+                    'turnover_rate': r.turnover_score or 50,
+                    'idio_volatility': r.volatility_score or 50,
+                    'volume_price_corr': r.volume_price_corr_score or 50,
+                    'volume_price_divergence': r.divergence_score or 50,
+                    'kline_pattern': r.kline_score or 50,
+                    'rsi': r.rsi_score or 50,
+                    'macd': r.macd_score or 50,
+                }
+            } for r in records]
+
+        except Exception as e:
+            logger.error(f"读取观察池失败: {e}")
+            return []
+
+    def rescore_all(self) -> int:
+        """全量重新评分（供手动刷新和定时任务调用）"""
         results = self.score_all_stocks()
-        watchlist = [r for r in results if r['total_score'] >= min_score]
-        return watchlist[:limit]
+        saved = self.save_scores(results)
+        return saved

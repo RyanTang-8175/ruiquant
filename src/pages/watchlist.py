@@ -60,9 +60,10 @@ def render_watchlist_page():
     col1, col2 = st.columns(2)
     with col1:
         if st.button("🔄 刷新评分", use_container_width=True, type="primary"):
-            with st.spinner("正在重新计算..."):
+            with st.spinner("正在重新计算所有股票评分..."):
                 try:
                     engine = ScoringEngine()
+                    engine.rescore_all()
                     results = engine.get_watchlist(min_score=0, limit=100)
                     engine.close()
                     st.session_state['watchlist'] = results
@@ -107,6 +108,26 @@ def render_watchlist_page():
 
     st.markdown("---")
 
+    # 批量获取最新价格（避免 N+1 查询）
+    display_codes = [s['code'] for s in results[:limit]]
+    price_map = {}
+    if display_codes:
+        from sqlalchemy import func
+        db = SessionLocal()
+        try:
+            subq = db.query(
+                DailyQuote.code,
+                func.max(DailyQuote.trade_date).label('max_date')
+            ).filter(DailyQuote.code.in_(display_codes)).group_by(DailyQuote.code).subquery()
+            quotes_list = db.query(DailyQuote).join(
+                subq,
+                (DailyQuote.code == subq.c.code) & (DailyQuote.trade_date == subq.c.max_date)
+            ).all()
+            for q in quotes_list:
+                price_map[q.code] = q
+        finally:
+            db.close()
+
     # 显示股票列表（可点击）
     for i, stock in enumerate(results[:limit]):
         score = stock['total_score']
@@ -116,29 +137,16 @@ def render_watchlist_page():
         # 评级颜色
         if rating == "强关注":
             rating_color = "#FF4444"
-            bg_color = "#FF444415"
         elif rating == "观察":
             rating_color = "#4488FF"
-            bg_color = "#4488FF15"
         elif rating == "中性":
             rating_color = "#FFB800"
-            bg_color = "#FFB80015"
         else:
             rating_color = "#888888"
-            bg_color = "#88888815"
 
-        # 获取实时价格
-        db = SessionLocal()
-        try:
-            quote = db.query(DailyQuote).filter(
-                DailyQuote.code == stock['code']
-            ).order_by(DailyQuote.trade_date.desc()).first()
-
-            price = quote.close if quote else 0
-            change_pct = quote.change_pct if quote else 0
-            amount = quote.amount if quote else 0
-        finally:
-            db.close()
+        quote = price_map.get(stock['code'])
+        price = quote.close if quote else 0
+        change_pct = quote.change_pct if quote else 0
 
         # 因子详情
         factor_names = {

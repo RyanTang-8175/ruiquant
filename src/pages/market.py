@@ -126,6 +126,14 @@ def render_market_page():
 
                 st.markdown("<br>", unsafe_allow_html=True)
 
+                # 批量获取股票名称（避免 N+1 查询）
+                all_codes = [q.code for q in quotes]
+                name_map = {}
+                if all_codes:
+                    stocks = db.query(StockBasic).filter(StockBasic.code.in_(all_codes)).all()
+                    for s in stocks:
+                        name_map[s.code] = s.name
+
                 # 涨幅榜 / 跌幅榜 / 成交额榜
                 tab1, tab2, tab3 = st.tabs(["📈 涨幅榜", "📉 跌幅榜", "💰 成交额榜"])
 
@@ -136,25 +144,31 @@ def render_market_page():
                     )[:15]
 
                     for i, q in enumerate(top_gainers):
-                        stock = db.query(StockBasic).filter(StockBasic.code == q.code).first()
-                        name = stock.name if stock else q.code
-                        st.markdown(f"""
-                        <div class="stock-card">
-                            <div style="display: flex; justify-content: space-between; align-items: center;">
-                                <div style="display: flex; align-items: center; gap: 1rem;">
-                                    <span style="color: #6b7280; font-size: 0.85rem; width: 20px;">{i+1}</span>
-                                    <div>
-                                        <div style="color: #E6EDF3; font-weight: 600;">{name}</div>
-                                        <div style="color: #6b7280; font-size: 0.8rem;">{q.code}</div>
+                        name = name_map.get(q.code, q.code)
+                        col_info, col_btn = st.columns([5, 1])
+                        with col_info:
+                            st.markdown(f"""
+                            <div class="stock-card">
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <div style="display: flex; align-items: center; gap: 1rem;">
+                                        <span style="color: #6b7280; font-size: 0.85rem; width: 20px;">{i+1}</span>
+                                        <div>
+                                            <div style="color: #E6EDF3; font-weight: 600;">{name}</div>
+                                            <div style="color: #6b7280; font-size: 0.8rem;">{q.code}</div>
+                                        </div>
+                                    </div>
+                                    <div style="text-align: right;">
+                                        <div class="price-up" style="font-size: 1.1rem;">¥{q.close:.2f}</div>
+                                        <div class="price-up">+{q.change_pct:.2f}%</div>
                                     </div>
                                 </div>
-                                <div style="text-align: right;">
-                                    <div class="price-up" style="font-size: 1.1rem;">¥{q.close:.2f}</div>
-                                    <div class="price-up">+{q.change_pct:.2f}%</div>
-                                </div>
                             </div>
-                        </div>
-                        """, unsafe_allow_html=True)
+                            """, unsafe_allow_html=True)
+                        with col_btn:
+                            if st.button("查看", key=f"g_{q.code}", use_container_width=True):
+                                st.session_state['current_page'] = 'stock_detail'
+                                st.session_state['selected_stock'] = q.code
+                                st.rerun()
 
                 with tab2:
                     top_losers = sorted(
@@ -163,25 +177,31 @@ def render_market_page():
                     )[:15]
 
                     for i, q in enumerate(top_losers):
-                        stock = db.query(StockBasic).filter(StockBasic.code == q.code).first()
-                        name = stock.name if stock else q.code
-                        st.markdown(f"""
-                        <div class="stock-card">
-                            <div style="display: flex; justify-content: space-between; align-items: center;">
-                                <div style="display: flex; align-items: center; gap: 1rem;">
-                                    <span style="color: #6b7280; font-size: 0.85rem; width: 20px;">{i+1}</span>
-                                    <div>
-                                        <div style="color: #E6EDF3; font-weight: 600;">{name}</div>
-                                        <div style="color: #6b7280; font-size: 0.8rem;">{q.code}</div>
+                        name = name_map.get(q.code, q.code)
+                        col_info, col_btn = st.columns([5, 1])
+                        with col_info:
+                            st.markdown(f"""
+                            <div class="stock-card">
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <div style="display: flex; align-items: center; gap: 1rem;">
+                                        <span style="color: #6b7280; font-size: 0.85rem; width: 20px;">{i+1}</span>
+                                        <div>
+                                            <div style="color: #E6EDF3; font-weight: 600;">{name}</div>
+                                            <div style="color: #6b7280; font-size: 0.8rem;">{q.code}</div>
+                                        </div>
+                                    </div>
+                                    <div style="text-align: right;">
+                                        <div class="price-down" style="font-size: 1.1rem;">¥{q.close:.2f}</div>
+                                        <div class="price-down">{q.change_pct:.2f}%</div>
                                     </div>
                                 </div>
-                                <div style="text-align: right;">
-                                    <div class="price-down" style="font-size: 1.1rem;">¥{q.close:.2f}</div>
-                                    <div class="price-down">{q.change_pct:.2f}%</div>
-                                </div>
                             </div>
-                        </div>
-                        """, unsafe_allow_html=True)
+                            """, unsafe_allow_html=True)
+                        with col_btn:
+                            if st.button("查看", key=f"l_{q.code}", use_container_width=True):
+                                st.session_state['current_page'] = 'stock_detail'
+                                st.session_state['selected_stock'] = q.code
+                                st.rerun()
 
                 with tab3:
                     top_volume = sorted(
@@ -190,30 +210,103 @@ def render_market_page():
                     )[:15]
 
                     for i, q in enumerate(top_volume):
-                        stock = db.query(StockBasic).filter(StockBasic.code == q.code).first()
-                        name = stock.name if stock else q.code
-                        st.markdown(f"""
-                        <div class="stock-card">
-                            <div style="display: flex; justify-content: space-between; align-items: center;">
-                                <div style="display: flex; align-items: center; gap: 1rem;">
-                                    <span style="color: #6b7280; font-size: 0.85rem; width: 20px;">{i+1}</span>
-                                    <div>
-                                        <div style="color: #E6EDF3; font-weight: 600;">{name}</div>
-                                        <div style="color: #6b7280; font-size: 0.8rem;">{q.code}</div>
+                        name = name_map.get(q.code, q.code)
+                        col_info, col_btn = st.columns([5, 1])
+                        with col_info:
+                            st.markdown(f"""
+                            <div class="stock-card">
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <div style="display: flex; align-items: center; gap: 1rem;">
+                                        <span style="color: #6b7280; font-size: 0.85rem; width: 20px;">{i+1}</span>
+                                        <div>
+                                            <div style="color: #E6EDF3; font-weight: 600;">{name}</div>
+                                            <div style="color: #6b7280; font-size: 0.8rem;">{q.code}</div>
+                                        </div>
+                                    </div>
+                                    <div style="text-align: right;">
+                                        <div style="color: #FFB800; font-size: 1.1rem;">{q.amount/1e8:.1f}亿</div>
+                                        <div style="color: {'#FF4444' if q.change_pct and q.change_pct > 0 else '#00E676'};">{q.change_pct:+.2f}%</div>
                                     </div>
                                 </div>
-                                <div style="text-align: right;">
-                                    <div style="color: #FFB800; font-size: 1.1rem;">{q.amount/1e8:.1f}亿</div>
-                                    <div style="color: {'#FF4444' if q.change_pct and q.change_pct > 0 else '#00E676'};">{q.change_pct:+.2f}%</div>
-                                </div>
                             </div>
-                        </div>
-                        """, unsafe_allow_html=True)
+                            """, unsafe_allow_html=True)
+                        with col_btn:
+                            if st.button("查看", key=f"v_{q.code}", use_container_width=True):
+                                st.session_state['current_page'] = 'stock_detail'
+                                st.session_state['selected_stock'] = q.code
+                                st.rerun()
 
             else:
                 st.warning("暂无数据，请先采集")
         else:
             st.warning("暂无数据，请先采集")
+
+        # 新闻板块
+        st.markdown("---")
+        st.subheader("📰 财经快讯")
+
+        # 抓取按钮
+        col_news1, col_news2 = st.columns([1, 4])
+        with col_news1:
+            if st.button("🔄 抓取新闻", key="fetch_news_btn"):
+                with st.spinner("抓取中..."):
+                    try:
+                        from src.news.fetcher import NewsFetcher
+                        from src.news.analyzer import NewsAnalyzer
+                        fetcher = NewsFetcher()
+                        news = fetcher.fetch_all(limit_per_source=10)
+                        if news:
+                            analyzer = NewsAnalyzer()
+                            analyzed = analyzer.analyze_batch(news)
+                            analyzer.save_news(analyzed)
+                            analyzer.close()
+                            st.success(f"抓取 {len(news)} 条新闻")
+                        else:
+                            st.warning("未抓取到新闻")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"抓取失败: {e}")
+
+        # 显示新闻
+        try:
+            from src.news.analyzer import NewsAnalyzer
+            analyzer = NewsAnalyzer()
+            recent_news = analyzer.get_recent_news(limit=15)
+            analyzer.close()
+
+            if recent_news:
+                for item in recent_news:
+                    sentiment = item.get("sentiment_score")
+                    if sentiment is not None:
+                        if sentiment > 0.2:
+                            tag = '<span style="background:#FF444430;color:#FF4444;padding:2px 6px;border-radius:4px;font-size:0.75rem;">利好</span>'
+                        elif sentiment < -0.2:
+                            tag = '<span style="background:#00E67630;color:#00E676;padding:2px 6px;border-radius:4px;font-size:0.75rem;">利空</span>'
+                        else:
+                            tag = '<span style="background:#88888830;color:#888;padding:2px 6px;border-radius:4px;font-size:0.75rem;">中性</span>'
+                    else:
+                        tag = ""
+
+                    source_emoji = {"eastmoney": "📊", "sina": "📰", "cls": "⚡"}.get(item.get("source", ""), "📌")
+                    time_str = item.get("published_at", "")[:16]
+
+                    st.markdown(f"""
+                    <div style="padding: 0.6rem 0; border-bottom: 1px solid #1e2738;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <div style="flex: 1;">
+                                {tag}
+                                <span style="color: #E6EDF3; margin-left: 0.3rem;">{item['title']}</span>
+                            </div>
+                            <div style="color: #6b7280; font-size: 0.75rem; white-space: nowrap; margin-left: 1rem;">
+                                {source_emoji} {time_str}
+                            </div>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+            else:
+                st.info("暂无新闻，点击上方按钮抓取")
+        except Exception as e:
+            st.info("新闻模块加载中...")
 
     finally:
         db.close()

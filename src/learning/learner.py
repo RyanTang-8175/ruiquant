@@ -95,11 +95,12 @@ class SelfLearningEngine:
         return stats
 
     def analyze_factor_performance(self) -> dict:
-        """分析各因子的表现"""
-        # 获取最近的评分记录
+        """分析各因子与实际收益的 IC（信息系数）"""
         from src.scoring.models import ScoreRecord
+        import numpy as np
         cutoff = datetime.now() - timedelta(days=30)
 
+        # 获取有评分的股票代码
         records = self.db.query(ScoreRecord).filter(
             ScoreRecord.score_date >= cutoff
         ).all()
@@ -107,11 +108,7 @@ class SelfLearningEngine:
         if not records:
             return {"message": "暂无评分记录"}
 
-        # 分析每个因子与实际收益的相关性
-        # 这里简化处理，实际应该用 IC 计算
-        factor_stats = {}
-
-        # 获取预测记录来关联因子分数和实际收益
+        # 获取已完成的预测
         predictions = self.db.query(Prediction).filter(
             Prediction.status == "completed",
             Prediction.prediction_date >= cutoff
@@ -120,18 +117,92 @@ class SelfLearningEngine:
         if not predictions:
             return {"message": "暂无已完成的预测"}
 
-        # 简化的因子分析：统计每个因子在命中预测中的平均分数
-        hit_predictions = [p for p in predictions if p.hit_t1]
-        miss_predictions = [p for p in predictions if not p.hit_t1]
+        # 建立 code -> 预测收益 的映射
+        code_returns = {}
+        for p in predictions:
+            if p.actual_return_t1 is not None:
+                code_returns[p.code] = p.actual_return_t1
 
-        factor_stats = {
-            "total_predictions": len(predictions),
-            "hit_count": len(hit_predictions),
-            "miss_count": len(miss_predictions),
-            "hit_rate": round(len(hit_predictions) / len(predictions), 4) if predictions else 0
+        if not code_returns:
+            return {"message": "暂无实际收益数据"}
+
+        # 分析每个因子的 IC
+        factor_columns = {
+            'trend_score': 'trend',
+            'reversal_score': 'short_term_reversal',
+            'volume_ratio_score': 'volume_ratio',
+            'turnover_score': 'turnover_rate',
+            'volatility_score': 'idio_volatility',
+            'rsi_score': 'rsi',
+            'macd_score': 'macd',
+            'kline_score': 'kline_pattern',
         }
 
-        return factor_stats
+        factor_ics = {}
+        for col_name, factor_name in factor_columns.items():
+            factor_scores = []
+            actual_returns = []
+            for r in records:
+                score_val = getattr(r, col_name, None)
+                if score_val is not None and r.code in code_returns:
+                    factor_scores.append(score_val)
+                    actual_returns.append(code_returns[r.code])
+
+            if len(factor_scores) >= 10:
+                # 计算 Spearman rank correlation (IC)
+                from scipy import stats as scipy_stats
+                try:
+                    ic, _ = scipy_stats.spearmanr(factor_scores, actual_returns)
+                    if not np.isnan(ic):
+                        factor_ics[factor_name] = round(ic, 4)
+                except Exception:
+                    # 如果 scipy 不可用，用简单的 Pearson 近似
+                    arr_x = np.array(factor_scores)
+                    arr_y = np.array(actual_returns)
+                    if arr_x.std() > 0 and arr_y.std() > 0:
+                        ic = np.corrcoef(arr_x, arr_y)[0, 1]
+                        if not np.isnan(ic):
+                            factor_ics[factor_name] = round(ic, 4)
+
+        return {
+            "total_predictions": len(predictions),
+            "total_scores": len(records),
+            "matched": len(code_returns),
+            "factor_ics": factor_ics,
+        }
+
+    def adjust_factor_weights(self) -> dict:
+        """根据因子 IC 值动态调整权重"""
+        from src.scoring.engine import DEFAULT_WEIGHTS, save_dynamic_weights
+        import numpy as np
+
+        analysis = self.analyze_factor_performance()
+        factor_ics = analysis.get("factor_ics", {})
+
+        if not factor_ics:
+            logger.info("无因子 IC 数据，使用默认权重")
+            return {"message": "无因子 IC 数据"}
+
+        # 基于 IC 值调整权重
+        # 策略：IC > 0 的因子增加权重，IC < 0 的因子降低权重
+        new_weights = DEFAULT_WEIGHTS.copy()
+
+        for factor_name, ic in factor_ics.items():
+            if factor_name in new_weights:
+                # 用 IC 值作为乘数：IC 越高权重越大
+                # 限制调整幅度在 0.5x ~ 2.0x
+                multiplier = max(0.5, min(2.0, 1.0 + ic * 5))
+                new_weights[factor_name] = DEFAULT_WEIGHTS[factor_name] * multiplier
+
+        # 保存新权重
+        save_dynamic_weights(new_weights)
+        logger.info(f"因子权重已调整，基于 {len(factor_ics)} 个因子的 IC 值")
+
+        return {
+            "adjusted_factors": len(factor_ics),
+            "factor_ics": factor_ics,
+            "new_weights": {k: round(v, 4) for k, v in new_weights.items()},
+        }
 
     def calculate_market_state(self) -> str:
         """识别市场状态（牛市/熊市/震荡）"""
@@ -252,7 +323,11 @@ class SelfLearningEngine:
         params = self.adjust_strategy_params(market_state)
         logger.info(f"策略参数: {params}")
 
-        # 4. 生成学习报告
+        # 4. 分析因子表现并调整权重
+        factor_result = self.adjust_factor_weights()
+        logger.info(f"因子权重调整: {factor_result.get('adjusted_factors', 0)} 个因子")
+
+        # 5. 生成学习报告
         report = self.generate_learning_report()
         logger.info("学习报告已生成")
 
@@ -260,5 +335,6 @@ class SelfLearningEngine:
             "accuracy": accuracy,
             "market_state": market_state,
             "params": params,
+            "factor_weights": factor_result,
             "report": report
         }

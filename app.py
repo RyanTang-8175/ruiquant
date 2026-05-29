@@ -157,6 +157,14 @@ st.markdown("""
         margin: 1.5rem 0;
     }
 
+    /* 页面标题 */
+    .main-header {
+        font-size: 1.8rem;
+        font-weight: 800;
+        color: #E6EDF3;
+        margin-bottom: 1rem;
+    }
+
     /* 标题样式 */
     h1, h2, h3 {
         color: #E6EDF3;
@@ -194,6 +202,17 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
+
+# 启动定时任务调度器
+@st.cache_resource
+def _start_scheduler():
+    try:
+        from src.scheduler import create_scheduler
+        return create_scheduler()
+    except Exception as e:
+        return None
+
+_start_scheduler()
 
 # 顶部导航
 st.markdown("""
