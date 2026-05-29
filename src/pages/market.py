@@ -145,6 +145,8 @@ def render_market_page():
 
                     for i, q in enumerate(top_gainers):
                         name = name_map.get(q.code, q.code)
+                        _close = q.close or 0
+                        _chg = q.change_pct or 0
                         col_info, col_btn = st.columns([5, 1])
                         with col_info:
                             st.markdown(f"""
@@ -158,8 +160,8 @@ def render_market_page():
                                         </div>
                                     </div>
                                     <div style="text-align: right;">
-                                        <div class="price-up" style="font-size: 1.1rem;">¥{q.close:.2f}</div>
-                                        <div class="price-up">+{q.change_pct:.2f}%</div>
+                                        <div class="price-up" style="font-size: 1.1rem;">¥{_close:.2f}</div>
+                                        <div class="price-up">+{_chg:.2f}%</div>
                                     </div>
                                 </div>
                             </div>
@@ -178,6 +180,8 @@ def render_market_page():
 
                     for i, q in enumerate(top_losers):
                         name = name_map.get(q.code, q.code)
+                        _close = q.close or 0
+                        _chg = q.change_pct or 0
                         col_info, col_btn = st.columns([5, 1])
                         with col_info:
                             st.markdown(f"""
@@ -191,8 +195,8 @@ def render_market_page():
                                         </div>
                                     </div>
                                     <div style="text-align: right;">
-                                        <div class="price-down" style="font-size: 1.1rem;">¥{q.close:.2f}</div>
-                                        <div class="price-down">{q.change_pct:.2f}%</div>
+                                        <div class="price-down" style="font-size: 1.1rem;">¥{_close:.2f}</div>
+                                        <div class="price-down">{_chg:.2f}%</div>
                                     </div>
                                 </div>
                             </div>
@@ -211,6 +215,9 @@ def render_market_page():
 
                     for i, q in enumerate(top_volume):
                         name = name_map.get(q.code, q.code)
+                        _amt = (q.amount or 0) / 1e8
+                        _chg = q.change_pct or 0
+                        _color = '#FF4444' if _chg > 0 else '#00E676' if _chg < 0 else '#888'
                         col_info, col_btn = st.columns([5, 1])
                         with col_info:
                             st.markdown(f"""
@@ -224,8 +231,8 @@ def render_market_page():
                                         </div>
                                     </div>
                                     <div style="text-align: right;">
-                                        <div style="color: #FFB800; font-size: 1.1rem;">{q.amount/1e8:.1f}亿</div>
-                                        <div style="color: {'#FF4444' if q.change_pct and q.change_pct > 0 else '#00E676'};">{q.change_pct:+.2f}%</div>
+                                        <div style="color: #FFB800; font-size: 1.1rem;">{_amt:.1f}亿</div>
+                                        <div style="color: {_color};">{_chg:+.2f}%</div>
                                     </div>
                                 </div>
                             </div>
@@ -304,9 +311,9 @@ def render_market_page():
                     </div>
                     """, unsafe_allow_html=True)
             else:
-                st.info("暂无新闻，点击上方按钮抓取")
+                st.info("暂无新闻，点击上方「抓取新闻」按钮获取")
         except Exception as e:
-            st.info("新闻模块加载中...")
+            st.warning(f"新闻加载异常: {e}")
 
     finally:
         db.close()

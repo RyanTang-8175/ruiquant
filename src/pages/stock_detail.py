@@ -35,7 +35,10 @@ def render_stock_detail_page(code: str):
             return
 
         latest = quotes[0]
-        change_color = '#FF4444' if latest.change_pct and latest.change_pct > 0 else '#00E676'
+        _chg = latest.change_pct or 0
+        _close = latest.close or 0
+        _open = latest.open or 0
+        change_color = '#FF4444' if _chg > 0 else '#00E676' if _chg < 0 else '#888'
 
         # 页面标题
         st.markdown(f"""
@@ -45,10 +48,10 @@ def render_stock_detail_page(code: str):
                 <span style="color: #888; margin-left: 0.5rem; font-size: 1.2rem;">{code}</span>
             </div>
             <div style="text-align: right;">
-                <span style="font-size: 2rem; font-weight: bold; color: {change_color};">¥{latest.close:.2f}</span>
+                <span style="font-size: 2rem; font-weight: bold; color: {change_color};">¥{_close:.2f}</span>
                 <br>
                 <span style="color: {change_color}; font-size: 1.2rem;">
-                    {latest.change_pct:+.2f}% {latest.close - latest.open:+.2f}
+                    {_chg:+.2f}% {_close - _open:+.2f}
                 </span>
             </div>
         </div>
@@ -56,12 +59,12 @@ def render_stock_detail_page(code: str):
 
         # 核心指标卡片
         metrics = [
-            ("开盘", f"{latest.open:.2f}"),
-            ("最高", f"{latest.high:.2f}"),
-            ("最低", f"{latest.low:.2f}"),
-            ("成交量", f"{latest.volume/10000:.0f}万"),
-            ("成交额", f"{latest.amount/1e8:.1f}亿"),
-            ("换手率", f"{latest.turnover_rate:.2f}%"),
+            ("开盘", f"{latest.open or 0:.2f}"),
+            ("最高", f"{latest.high or 0:.2f}"),
+            ("最低", f"{latest.low or 0:.2f}"),
+            ("成交量", f"{(latest.volume or 0)/10000:.0f}万"),
+            ("成交额", f"{(latest.amount or 0)/1e8:.1f}亿"),
+            ("换手率", f"{latest.turnover_rate or 0:.2f}%"),
         ]
         cols = st.columns(6)
         for i, (label, value) in enumerate(metrics):
@@ -119,8 +122,10 @@ def render_stock_detail_page(code: str):
 
         with tab2:
             if HAS_PLOTLY:
+                _close_vals = chart_data['收盘'].fillna(0)
+                _open_vals = chart_data['开盘'].fillna(0)
                 colors = ['#FF4444' if c >= o else '#00E676'
-                          for c, o in zip(chart_data['收盘'], chart_data['开盘'])]
+                          for c, o in zip(_close_vals, _open_vals)]
                 fig_vol = go.Figure(data=[go.Bar(
                     x=chart_data['日期'], y=chart_data['成交量'],
                     marker_color=colors
@@ -197,9 +202,8 @@ def render_stock_detail_page(code: str):
         st.subheader("📊 评分详情")
 
         try:
-            engine = ScoringEngine()
-            score_result = engine.score_stock(code)
-            engine.close()
+            with ScoringEngine() as engine:
+                score_result = engine.score_stock(code)
 
             if score_result:
                 score = score_result['total_score']

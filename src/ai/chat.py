@@ -50,13 +50,18 @@ class AIChat:
         api_key = get_setting("api_key", "DEEPSEEK_API_KEY", "")
         base_url = get_setting("base_url", "DEEPSEEK_BASE_URL", "https://api.deepseek.com")
         self.model = get_setting("model", "DEEPSEEK_MODEL", "deepseek-chat")
-        self.client = OpenAI(api_key=api_key, base_url=base_url)
+        if not api_key:
+            self.client = None
+        else:
+            self.client = OpenAI(api_key=api_key, base_url=base_url)
         self.history = []
         self.tool_executor = ToolExecutor()
         self._tools_used = []
 
     def chat(self, user_message: str, context: dict = None) -> str:
         """与 AI 对话（支持多轮工具调用）"""
+        if not self.client:
+            return "AI 未配置。请在「我的」页面配置 API Key 后使用。"
         try:
             messages = [{"role": "system", "content": SYSTEM_PROMPT}]
 

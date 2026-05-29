@@ -292,14 +292,19 @@ class ScoringEngine:
         else:
             return 50
 
-    def calc_trend(self, ind: pd.DataFrame) -> float:
+    def calc_trend(self, ind: pd.DataFrame, df: pd.DataFrame = None) -> float:
         """均线趋势因子"""
         if ind.empty or len(ind) < 20:
             return 50
         latest = ind.iloc[-1]
         score = 50
         ma5, ma10, ma20 = latest.get('ma5'), latest.get('ma10'), latest.get('ma20')
-        close = latest.get('close', ma5)
+        # 用真实收盘价，不是 ma5
+        close = None
+        if df is not None and not df.empty:
+            close = df['close'].iloc[-1]
+        if close is None or pd.isna(close):
+            close = ma5  # fallback
         if pd.isna(ma5) or pd.isna(ma10) or pd.isna(ma20):
             return 50
         if ma5 > ma10 > ma20:
@@ -538,7 +543,7 @@ class ScoringEngine:
         else:
             return 20
 
-    def calc_boll_position(self, ind: pd.DataFrame) -> float:
+    def calc_boll_position(self, ind: pd.DataFrame, df: pd.DataFrame = None) -> float:
         """布林带位置因子"""
         if ind.empty:
             return 50
@@ -548,8 +553,12 @@ class ScoringEngine:
         middle = latest.get('boll_middle')
         if pd.isna(upper) or pd.isna(lower) or pd.isna(middle) or upper == lower:
             return 50
-        # 用最近的收盘价（从指标数据里没有 close，用 ma5 代替近似）
-        price = latest.get('ma5', middle)
+        # 用真实收盘价
+        price = None
+        if df is not None and not df.empty:
+            price = df['close'].iloc[-1]
+        if price is None or pd.isna(price):
+            price = latest.get('ma5', middle)
         if pd.isna(price):
             return 50
         position = (price - lower) / (upper - lower)
@@ -593,7 +602,7 @@ class ScoringEngine:
             'volume_ratio': self.calc_volume_ratio(df),
             'abnormal_turnover': self.calc_abnormal_turnover(df),
             'volume_price_divergence': self.calc_volume_price_divergence(df),
-            'trend': self.calc_trend(ind),
+            'trend': self.calc_trend(ind, df),
             'rsi': self.calc_rsi(ind),
             'macd': self.calc_macd(ind),
             'kdj': self.calc_kdj(ind),
@@ -605,7 +614,7 @@ class ScoringEngine:
             'amihud_illiquidity': self.calc_amihud_illiquidity(df),
             'limit_up_streak': self.calc_limit_up_streak(df),
             'market_temperature': self.calc_market_temperature(df),
-            'boll_position': self.calc_boll_position(ind),
+            'boll_position': self.calc_boll_position(ind, df),
         }
 
         # 只对已实现的因子做权重归一化
@@ -665,23 +674,28 @@ class ScoringEngine:
         saved = 0
         try:
             for result in results:
+                factors = result['factors']
                 record = ScoreRecord(
                     code=result['code'],
                     name=result.get('name', ''),
                     score_date=result['calculated_at'],
                     total_score=result['total_score'],
                     rating=result['rating'],
-                    trend_score=result['factors'].get('trend'),
-                    reversal_score=result['factors'].get('short_term_reversal'),
-                    volume_ratio_score=result['factors'].get('volume_ratio'),
-                    turnover_score=result['factors'].get('turnover_rate'),
-                    volatility_score=result['factors'].get('idio_volatility'),
-                    volume_price_corr_score=result['factors'].get('volume_price_corr'),
-                    divergence_score=result['factors'].get('volume_price_divergence'),
-                    kline_score=result['factors'].get('kline_pattern'),
-                    rsi_score=result['factors'].get('rsi'),
-                    macd_score=result['factors'].get('macd'),
-                    factor_weights=self.weights
+                    trend_score=factors.get('trend'),
+                    reversal_score=factors.get('short_term_reversal'),
+                    volume_ratio_score=factors.get('volume_ratio'),
+                    turnover_score=factors.get('turnover_rate'),
+                    volatility_score=factors.get('idio_volatility'),
+                    volume_price_corr_score=factors.get('volume_price_corr'),
+                    divergence_score=factors.get('volume_price_divergence'),
+                    kline_score=factors.get('kline_pattern'),
+                    rsi_score=factors.get('rsi'),
+                    macd_score=factors.get('macd'),
+                    capital_flow_score=factors.get('blast_rate'),
+                    market_temp_score=factors.get('market_temperature'),
+                    limit_streak_score=factors.get('limit_up_streak'),
+                    factor_weights=self.weights,
+                    factors_json=factors,
                 )
                 self.db.add(record)
                 saved += 1
@@ -697,13 +711,11 @@ class ScoringEngine:
     def get_watchlist(self, min_score: float = 65, limit: int = 20) -> list:
         """获取观察池（从缓存读取，不重新计算）"""
         try:
-            # 查最新评分日期
             latest = self.db.query(ScoreRecord.score_date).order_by(
                 ScoreRecord.score_date.desc()
             ).first()
 
             if not latest:
-                # 没有缓存，触发一次全量评分
                 logger.info("无缓存评分，触发全量评分...")
                 results = self.score_all_stocks()
                 self.save_scores(results)
@@ -714,24 +726,32 @@ class ScoringEngine:
                 ScoreRecord.total_score >= min_score
             ).order_by(ScoreRecord.total_score.desc()).limit(limit).all()
 
-            return [{
-                'code': r.code,
-                'name': r.name,
-                'total_score': r.total_score,
-                'rating': r.rating,
-                'factors': {
-                    'trend': r.trend_score or 50,
-                    'short_term_reversal': r.reversal_score or 50,
-                    'volume_ratio': r.volume_ratio_score or 50,
-                    'turnover_rate': r.turnover_score or 50,
-                    'idio_volatility': r.volatility_score or 50,
-                    'volume_price_corr': r.volume_price_corr_score or 50,
-                    'volume_price_divergence': r.divergence_score or 50,
-                    'kline_pattern': r.kline_score or 50,
-                    'rsi': r.rsi_score or 50,
-                    'macd': r.macd_score or 50,
-                }
-            } for r in records]
+            results = []
+            for r in records:
+                # 优先用 factors_json（完整数据），否则用单独列
+                if r.factors_json:
+                    factors = r.factors_json
+                else:
+                    factors = {
+                        'trend': r.trend_score or 50,
+                        'short_term_reversal': r.reversal_score or 50,
+                        'volume_ratio': r.volume_ratio_score or 50,
+                        'turnover_rate': r.turnover_score or 50,
+                        'idio_volatility': r.volatility_score or 50,
+                        'volume_price_corr': r.volume_price_corr_score or 50,
+                        'volume_price_divergence': r.divergence_score or 50,
+                        'kline_pattern': r.kline_score or 50,
+                        'rsi': r.rsi_score or 50,
+                        'macd': r.macd_score or 50,
+                    }
+                results.append({
+                    'code': r.code,
+                    'name': r.name,
+                    'total_score': r.total_score,
+                    'rating': r.rating,
+                    'factors': factors,
+                })
+            return results
 
         except Exception as e:
             logger.error(f"读取观察池失败: {e}")

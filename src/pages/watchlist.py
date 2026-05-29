@@ -48,9 +48,8 @@ def render_watchlist_page():
     if 'watchlist' not in st.session_state or not st.session_state['watchlist']:
         with st.spinner("正在计算评分..."):
             try:
-                engine = ScoringEngine()
-                results = engine.get_watchlist(min_score=0, limit=100)
-                engine.close()
+                with ScoringEngine() as engine:
+                    results = engine.get_watchlist(min_score=0, limit=100)
                 st.session_state['watchlist'] = results
             except Exception as e:
                 st.error(f"评分失败: {e}")
@@ -62,10 +61,9 @@ def render_watchlist_page():
         if st.button("🔄 刷新评分", use_container_width=True, type="primary"):
             with st.spinner("正在重新计算所有股票评分..."):
                 try:
-                    engine = ScoringEngine()
-                    engine.rescore_all()
-                    results = engine.get_watchlist(min_score=0, limit=100)
-                    engine.close()
+                    with ScoringEngine() as engine:
+                        engine.rescore_all()
+                        results = engine.get_watchlist(min_score=0, limit=100)
                     st.session_state['watchlist'] = results
                     st.success(f"评分完成！共 {len(results)} 只股票")
                 except Exception as e:

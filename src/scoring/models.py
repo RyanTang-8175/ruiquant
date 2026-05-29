@@ -50,4 +50,7 @@ class ScoreRecord(Base):
     # 因子权重（JSON）
     factor_weights = Column(JSON)         # 各因子权重
 
+    # 所有因子分数快照（JSON）
+    factors_json = Column(JSON)           # 完整因子分数字典
+
     created_at = Column(DateTime, default=datetime.now)

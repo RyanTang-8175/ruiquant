@@ -111,7 +111,7 @@ st.markdown("""
     .price-down { color: #00E676; font-weight: 700; }
     .price-flat { color: #888; }
 
-    /* 按钮样式 */
+    /* 按钮样式 - 主要操作 */
     .stButton>button {
         background: linear-gradient(135deg, #FF4444 0%, #e63939 100%);
         color: white;
@@ -125,6 +125,40 @@ st.markdown("""
     .stButton>button:hover {
         background: linear-gradient(135deg, #FF6666 0%, #FF4444 100%);
         box-shadow: 0 4px 15px rgba(255, 68, 68, 0.3);
+    }
+    /* 次要按钮 */
+    .stButton>button[kind="secondary"],
+    div[data-testid="stForm"] .stButton>button {
+        background: transparent;
+        color: #888;
+        border: 1px solid #2d3748;
+    }
+    div[data-testid="stForm"] .stButton>button:hover {
+        background: #1a1f2e;
+        color: #E6EDF3;
+        border-color: #4a5568;
+        box-shadow: none;
+    }
+    /* 导航按钮 */
+    div[data-testid="stHorizontalBlock"] > div:first-child .stButton>button,
+    div[data-testid="stHorizontalBlock"] > div:nth-child(2) .stButton>button,
+    div[data-testid="stHorizontalBlock"] > div:nth-child(3) .stButton>button,
+    div[data-testid="stHorizontalBlock"] > div:nth-child(4) .stButton>button,
+    div[data-testid="stHorizontalBlock"] > div:nth-child(5) .stButton>button {
+        background: #1a1f2e;
+        color: #888;
+        border: 1px solid #1e2738;
+        font-size: 0.85rem;
+        padding: 0.5rem 1rem;
+    }
+    div[data-testid="stHorizontalBlock"] > div:first-child .stButton>button:hover,
+    div[data-testid="stHorizontalBlock"] > div:nth-child(2) .stButton>button:hover,
+    div[data-testid="stHorizontalBlock"] > div:nth-child(3) .stButton>button:hover,
+    div[data-testid="stHorizontalBlock"] > div:nth-child(4) .stButton>button:hover,
+    div[data-testid="stHorizontalBlock"] > div:nth-child(5) .stButton>button:hover {
+        background: #2d3748;
+        color: #E6EDF3;
+        border-color: #4a5568;
     }
 
     /* 侧边栏 */

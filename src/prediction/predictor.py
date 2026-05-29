@@ -25,7 +25,10 @@ class PredictionEngine:
         api_key = get_setting("api_key", "DEEPSEEK_API_KEY", "")
         base_url = get_setting("base_url", "DEEPSEEK_BASE_URL", "https://api.deepseek.com")
         self.model = get_setting("model", "DEEPSEEK_MODEL", "deepseek-chat")
-        self.client = OpenAI(api_key=api_key, base_url=base_url)
+        if api_key:
+            self.client = OpenAI(api_key=api_key, base_url=base_url)
+        else:
+            self.client = None
 
     def close(self):
         try:
@@ -47,6 +50,8 @@ class PredictionEngine:
 
     def generate_prediction(self, code: str, name: str, score_info: dict) -> dict:
         """为单只股票生成预测"""
+        if not self.client:
+            return None
         # 获取最近行情
         quote = self.db.query(DailyQuote).filter(
             DailyQuote.code == code

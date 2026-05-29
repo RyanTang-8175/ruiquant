@@ -103,18 +103,17 @@ def render_trading_page():
             st.markdown("<div style='height: 28px'></div>", unsafe_allow_html=True)
             if st.button("📥 买入", key="buy_btn", use_container_width=True):
                 if buy_code:
-                    engine = TradingEngine()
-                    price = engine.get_current_price(buy_code.strip())
-                    if price:
-                        result = engine.execute_buy(buy_code.strip(), price, buy_qty)
-                        if result["success"]:
-                            st.success(f"买入成功！{buy_code} {buy_qty}股 × {price:.2f}")
-                            st.rerun()
+                    with TradingEngine() as engine:
+                        price = engine.get_current_price(buy_code.strip())
+                        if price:
+                            result = engine.execute_buy(buy_code.strip(), price, buy_qty)
+                            if result["success"]:
+                                st.success(f"买入成功！{buy_code} {buy_qty}股 × {price:.2f}")
+                                st.rerun()
+                            else:
+                                st.error(result["reason"])
                         else:
-                            st.error(result["reason"])
-                    else:
-                        st.error(f"未找到股票 {buy_code} 的行情数据")
-                    engine.close()
+                            st.error(f"未找到股票 {buy_code} 的行情数据")
                 else:
                     st.warning("请输入股票代码")
 

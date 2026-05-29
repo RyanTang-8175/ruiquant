@@ -102,6 +102,8 @@ class TradingEngine:
     def can_buy(self, code: str, price: float, quantity: int) -> tuple:
         """检查是否可以买入"""
         account = self.get_account()
+        if not account:
+            return False, "模拟盘账户未初始化"
 
         # 检查账户状态
         if account.status != "active":
@@ -302,11 +304,15 @@ class TradingEngine:
     def get_positions(self) -> list:
         """获取所有持仓"""
         account = self.get_account()
+        if not account:
+            return []
         return self.db.query(Position).filter(Position.account_id == account.id).all()
 
     def get_trades(self, limit: int = 50) -> list:
         """获取交易记录"""
         account = self.get_account()
+        if not account:
+            return []
         return self.db.query(Trade).filter(
             Trade.account_id == account.id
         ).order_by(Trade.created_at.desc()).limit(limit).all()
@@ -314,6 +320,8 @@ class TradingEngine:
     def get_stats(self) -> dict:
         """获取交易统计"""
         account = self.get_account()
+        if not account:
+            return {"total_trades": 0, "win_rate": 0, "avg_profit": 0, "avg_loss": 0, "profit_loss_ratio": 0, "total_pnl": 0}
         trades = self.db.query(Trade).filter(
             Trade.account_id == account.id,
             Trade.direction == "sell"

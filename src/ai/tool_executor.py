@@ -25,6 +25,18 @@ class ToolExecutor:
         except Exception:
             pass
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.close()
+
+    def close(self):
+        try:
+            self.db.close()
+        except Exception:
+            pass
+
     def execute(self, tool_name: str, arguments: dict) -> str:
         """执行工具调用，返回 JSON 字符串"""
         handlers = {

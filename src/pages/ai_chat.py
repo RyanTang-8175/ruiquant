@@ -65,9 +65,9 @@ def render_ai_chat_page():
         if st.button("🎯 技术分析", use_container_width=True):
             if stock_code.strip():
                 st.session_state['quick_question'] = f"对 {stock_code.strip()} 做详细的技术分析，包括均线、MACD、RSI"
+                st.rerun()
             else:
                 st.warning("请先输入股票代码")
-            st.rerun()
     with col8:
         if st.button("💼 我的持仓", use_container_width=True):
             st.session_state['quick_question'] = "分析一下我的模拟盘持仓情况"
@@ -78,8 +78,11 @@ def render_ai_chat_page():
     # 处理快捷问题
     if 'quick_question' in st.session_state:
         question = st.session_state.pop('quick_question')
-        with st.spinner("AI 分析中..."):
-            ai.chat(question)
+        try:
+            with st.spinner("AI 分析中..."):
+                ai.chat(question)
+        except Exception as e:
+            st.error(f"AI 响应失败: {e}")
         st.rerun()
 
     # 显示对话历史

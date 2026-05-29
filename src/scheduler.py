@@ -81,11 +81,10 @@ def create_scheduler() -> BackgroundScheduler:
         replace_existing=True
     )
 
-    # 盘中：新闻抓取（周一到周五 9:30-15:00 每30分钟）
+    # 盘中：新闻抓取（周一到周五每30分钟）
     scheduler.add_job(
         _fetch_news_job, 'interval',
         minutes=30, day_of_week='mon-fri',
-        hours='9-14',
         id='news_fetch', name='新闻抓取',
         replace_existing=True
     )
