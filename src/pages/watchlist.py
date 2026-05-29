@@ -1,5 +1,5 @@
 """
-选股/观察池页面 - 重新设计
+选股/观察池页面 - 自动加载评分
 """
 
 import streamlit as st
@@ -36,25 +36,37 @@ def render_watchlist_page():
     st.markdown("---")
 
     # 筛选条件
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3 = st.columns(3)
     with col1:
-        min_score = st.slider("最低评分", 0, 100, 60)
+        min_score = st.slider("最低评分", 0, 100, 50)
     with col2:
         limit = st.number_input("显示数量", 5, 100, 30)
     with col3:
         rating_filter = st.selectbox("评级筛选", ["全部", "强关注", "观察", "中性", "不追"])
-    with col4:
-        st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("🔄 计算评分", use_container_width=True, type="primary"):
-            with st.spinner("正在计算评分..."):
-                try:
-                    engine = ScoringEngine()
-                    results = engine.get_watchlist(min_score=min_score, limit=limit)
-                    engine.close()
-                    st.session_state['watchlist'] = results
-                    st.success(f"评分完成！共 {len(results)} 只股票")
-                except Exception as e:
-                    st.error(f"评分失败: {e}")
+
+    # 自动加载评分（如果还没有数据）
+    if 'watchlist' not in st.session_state or not st.session_state['watchlist']:
+        with st.spinner("正在计算评分..."):
+            try:
+                engine = ScoringEngine()
+                results = engine.get_watchlist(min_score=0, limit=100)
+                engine.close()
+                st.session_state['watchlist'] = results
+            except Exception as e:
+                st.error(f"评分失败: {e}")
+                st.session_state['watchlist'] = []
+
+    # 刷新按钮
+    if st.button("🔄 刷新评分", use_container_width=True, type="primary"):
+        with st.spinner("正在重新计算..."):
+            try:
+                engine = ScoringEngine()
+                results = engine.get_watchlist(min_score=0, limit=100)
+                engine.close()
+                st.session_state['watchlist'] = results
+                st.success(f"评分完成！共 {len(results)} 只股票")
+            except Exception as e:
+                st.error(f"评分失败: {e}")
 
     st.markdown("---")
 
@@ -62,12 +74,15 @@ def render_watchlist_page():
     results = st.session_state.get('watchlist', [])
 
     if not results:
-        st.info("暂无评分数据，请点击「计算评分」按钮")
+        st.warning("暂无评分数据，请先采集数据")
         return
 
     # 评级筛选
     if rating_filter != "全部":
         results = [r for r in results if r['rating'] == rating_filter]
+
+    # 评分筛选
+    results = [r for r in results if r['total_score'] >= min_score]
 
     if not results:
         st.warning("没有符合条件的股票")
@@ -91,7 +106,7 @@ def render_watchlist_page():
     st.markdown("---")
 
     # 显示股票列表
-    for i, stock in enumerate(results):
+    for i, stock in enumerate(results[:limit]):
         score = stock['total_score']
         rating = stock['rating']
         factors = stock.get('factors', {})
@@ -119,52 +134,73 @@ def render_watchlist_page():
 
             price = quote.close if quote else 0
             change_pct = quote.change_pct if quote else 0
+            volume = quote.volume if quote else 0
+            amount = quote.amount if quote else 0
         finally:
             db.close()
 
         # 显示卡片
-        with st.container():
-            st.markdown(f"""
-            <div style="background: {bg_color}; padding: 1.2rem; border-radius: 12px; border: 1px solid {rating_color}30; margin-bottom: 0.5rem;">
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <div>
-                        <span style="font-size: 1.2rem; font-weight: bold; color: #E6EDF3;">{stock.get('name', stock['code'])}</span>
-                        <span style="color: #888; margin-left: 0.5rem;">{stock['code']}</span>
-                    </div>
-                    <div style="text-align: right;">
-                        <span style="font-size: 1.5rem; font-weight: bold; color: {rating_color};">{score:.0f}</span>
-                        <span style="color: #888; margin-left: 0.5rem;">分</span>
-                    </div>
+        st.markdown(f"""
+        <div style="background: {bg_color}; padding: 1.2rem; border-radius: 12px; border: 1px solid {rating_color}30; margin-bottom: 0.8rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <span style="font-size: 1.2rem; font-weight: bold; color: #E6EDF3;">{stock.get('name', stock['code'])}</span>
+                    <span style="color: #888; margin-left: 0.5rem;">{stock['code']}</span>
                 </div>
-                <div style="display: flex; justify-content: space-between; margin-top: 0.5rem;">
-                    <div>
-                        <span style="color: #E6EDF3;">现价: {price:.2f}</span>
-                        <span style="color: {'#FF4444' if change_pct > 0 else '#00E676'}; margin-left: 1rem;">{change_pct:+.2f}%</span>
-                    </div>
-                    <div>
-                        <span style="background: {rating_color}; color: white; padding: 2px 10px; border-radius: 12px; font-size: 0.9rem;">{rating}</span>
-                    </div>
+                <div style="text-align: right;">
+                    <span style="font-size: 1.8rem; font-weight: bold; color: {rating_color};">{score:.0f}</span>
+                    <span style="color: #888; margin-left: 0.3rem;">分</span>
                 </div>
-                <div style="margin-top: 0.8rem; display: flex; gap: 1rem; flex-wrap: wrap;">
-            """, unsafe_allow_html=True)
+            </div>
+            <div style="display: flex; justify-content: space-between; margin-top: 0.8rem; flex-wrap: wrap; gap: 0.5rem;">
+                <div style="flex: 1; min-width: 120px;">
+                    <div style="color: #888; font-size: 0.8rem;">现价</div>
+                    <div style="color: #E6EDF3; font-size: 1.1rem;">¥{price:.2f}</div>
+                </div>
+                <div style="flex: 1; min-width: 120px;">
+                    <div style="color: #888; font-size: 0.8rem;">涨跌幅</div>
+                    <div style="color: {'#FF4444' if change_pct > 0 else '#00E676'}; font-size: 1.1rem;">{change_pct:+.2f}%</div>
+                </div>
+                <div style="flex: 1; min-width: 120px;">
+                    <div style="color: #888; font-size: 0.8rem;">成交额</div>
+                    <div style="color: #FFB800; font-size: 1.1rem;">{amount/1e8:.1f}亿</div>
+                </div>
+                <div style="flex: 1; min-width: 120px;">
+                    <div style="color: #888; font-size: 0.8rem;">评级</div>
+                    <div><span style="background: {rating_color}; color: white; padding: 2px 10px; border-radius: 12px;">{rating}</span></div>
+                </div>
+            </div>
+            <div style="margin-top: 0.8rem; display: flex; gap: 0.8rem; flex-wrap: wrap;">
+        """, unsafe_allow_html=True)
 
-            # 因子详情
-            factor_items = []
-            for k, v in sorted(factors.items(), key=lambda x: x[1], reverse=True)[:6]:
-                factor_name = {
-                    'short_term_reversal': '反转',
-                    'turnover_rate': '换手',
-                    'volume_ratio': '量比',
-                    'trend': '趋势',
-                    'rsi': 'RSI',
-                    'macd': 'MACD',
-                    'sector_heat': '板块',
-                    'idio_volatility': '波动',
-                    'kline_pattern': 'K线',
-                    'intraday_intensity': '强度',
-                }.get(k, k)
-                color = '#FF4444' if v > 60 else '#00E676' if v < 40 else '#888'
-                factor_items.append(f'<span style="color: {color}; font-size: 0.85rem;">{factor_name}: {v:.0f}</span>')
+        # 因子详情
+        factor_names = {
+            'short_term_reversal': '反转',
+            'turnover_rate': '换手率',
+            'volume_ratio': '量比',
+            'abnormal_turnover': '异常换手',
+            'volume_price_divergence': '量价背离',
+            'trend': '均线趋势',
+            'rsi': 'RSI',
+            'macd': 'MACD',
+            'kdj': 'KDJ',
+            'kline_pattern': 'K线形态',
+            'intraday_intensity': '日内强度',
+            'idio_volatility': '波动率',
+            'high_52w_ratio': '52周高点',
+            'volume_price_corr': '量价相关',
+        }
 
-            st.markdown(" | ".join(factor_items), unsafe_allow_html=True)
-            st.markdown("</div></div>", unsafe_allow_html=True)
+        factor_items = []
+        for k, v in sorted(factors.items(), key=lambda x: x[1], reverse=True)[:8]:
+            name = factor_names.get(k, k)
+            if v >= 70:
+                color = '#FF4444'
+            elif v >= 50:
+                color = '#FFB800'
+            else:
+                color = '#00E676'
+            factor_items.append(f'<span style="color: {color}; font-size: 0.85rem;">{name}: {v:.0f}</span>')
+
+        st.markdown(" | ".join(factor_items), unsafe_allow_html=True)
+        st.markdown("</div></div>", unsafe_allow_html=True)
