@@ -49,7 +49,7 @@ def fetch_eastmoney_news(limit: int = 20) -> List[Dict]:
     try:
         url = "https://np-listapi.eastmoney.com/comm/web/getNewsByColumns"
         params = {
-            "client": "web", "biz": "web_news_feeds", "column": "357",
+            "client": "web", "biz": "web_news_feeds", "column": "350",
             "order": "1", "page_index": "1", "page_size": str(limit),
             "req_trace": str(int(datetime.now().timestamp() * 1000)),
         }

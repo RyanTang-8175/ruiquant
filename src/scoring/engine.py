@@ -119,7 +119,21 @@ class ScoringEngine:
             pass
 
     def get_stock_data(self, code: str, days: int = 60) -> pd.DataFrame:
-        """获取股票数据"""
+        """获取股票数据（优先用实时API，回退到数据库）"""
+        try:
+            from src.data.realtime import get_kline
+            klines = get_kline(code, period="101", count=days)
+            if klines:
+                df = pd.DataFrame(klines)
+                df = df.rename(columns={'date': 'trade_date'})
+                # 确保有 turnover_rate 列（实时API可能没有）
+                if 'turnover_rate' not in df.columns:
+                    df['turnover_rate'] = 0.0
+                return df
+        except Exception:
+            pass
+
+        # 回退到数据库
         quotes = self.db.query(DailyQuote).filter(
             DailyQuote.code == code
         ).order_by(DailyQuote.trade_date.desc()).limit(days).all()
@@ -129,48 +143,57 @@ class ScoringEngine:
 
         df = pd.DataFrame([{
             'trade_date': q.trade_date,
-            'open': q.open,
-            'high': q.high,
-            'low': q.low,
-            'close': q.close,
-            'volume': q.volume,
-            'amount': q.amount,
-            'change_pct': q.change_pct,
-            'turnover_rate': q.turnover_rate,
+            'open': q.open, 'high': q.high, 'low': q.low,
+            'close': q.close, 'volume': q.volume, 'amount': q.amount,
+            'change_pct': q.change_pct, 'turnover_rate': q.turnover_rate,
         } for q in quotes])
-
         df = df.sort_values('trade_date').reset_index(drop=True)
         return df
 
     def get_indicators(self, code: str, days: int = 60) -> pd.DataFrame:
-        """获取技术指标"""
-        indicators = self.db.query(TechnicalIndicator).filter(
-            TechnicalIndicator.code == code
-        ).order_by(TechnicalIndicator.trade_date.desc()).limit(days).all()
-
-        if not indicators:
+        """获取技术指标（从K线数据实时计算）"""
+        df = self.get_stock_data(code, days)
+        if df.empty or len(df) < 5:
             return pd.DataFrame()
 
-        df = pd.DataFrame([{
-            'trade_date': i.trade_date,
-            'ma5': i.ma5,
-            'ma10': i.ma10,
-            'ma20': i.ma20,
-            'ma60': i.ma60,
-            'macd': i.macd,
-            'macd_signal': i.macd_signal,
-            'macd_hist': i.macd_hist,
-            'rsi_6': i.rsi_6,
-            'rsi_12': i.rsi_12,
-            'kdj_k': i.kdj_k,
-            'kdj_d': i.kdj_d,
-            'kdj_j': i.kdj_j,
-            'boll_upper': i.boll_upper,
-            'boll_middle': i.boll_middle,
-            'boll_lower': i.boll_lower,
-        } for i in indicators])
+        close = df['close']
+        high = df['high']
+        low = df['low']
 
-        df = df.sort_values('trade_date').reset_index(drop=True)
+        # 均线
+        df['ma5'] = close.rolling(5).mean()
+        df['ma10'] = close.rolling(10).mean()
+        df['ma20'] = close.rolling(20).mean()
+        df['ma60'] = close.rolling(60).mean()
+
+        # MACD
+        ema12 = close.ewm(span=12).mean()
+        ema26 = close.ewm(span=26).mean()
+        df['macd'] = ema12 - ema26
+        df['macd_signal'] = df['macd'].ewm(span=9).mean()
+        df['macd_hist'] = 2 * (df['macd'] - df['macd_signal'])
+
+        # RSI
+        delta = close.diff()
+        gain = delta.clip(lower=0).rolling(6).mean()
+        loss = (-delta.clip(upper=0)).rolling(6).mean()
+        rs = gain / loss.replace(0, np.nan)
+        df['rsi_6'] = 100 - (100 / (1 + rs))
+
+        # KDJ
+        low_min = low.rolling(9).min()
+        high_max = high.rolling(9).max()
+        rsv = (close - low_min) / (high_max - low_min).replace(0, np.nan) * 100
+        df['kdj_k'] = rsv.ewm(com=2).mean()
+        df['kdj_d'] = df['kdj_k'].ewm(com=2).mean()
+        df['kdj_j'] = 3 * df['kdj_k'] - 2 * df['kdj_d']
+
+        # 布林带
+        df['boll_middle'] = close.rolling(20).mean()
+        std20 = close.rolling(20).std()
+        df['boll_upper'] = df['boll_middle'] + 2 * std20
+        df['boll_lower'] = df['boll_middle'] - 2 * std20
+
         return df
 
     # ============ 因子计算函数 ============
@@ -646,23 +669,28 @@ class ScoringEngine:
             'calculated_at': datetime.now()
         }
 
-    def score_all_stocks(self) -> list:
-        """计算所有股票的评分"""
-        stocks = self.db.query(StockBasic).filter(
-            StockBasic.is_active == True,
-            StockBasic.is_st == False
-        ).all()
+    def score_all_stocks(self, limit: int = 100) -> list:
+        """评分热门股票（用实时API获取活跃股票，不扫描全库）"""
+        try:
+            from src.data.realtime import get_top_stocks
+            # 获取成交额最大的股票（活跃股）
+            stocks = get_top_stocks(sort_field="f6", asc=False, limit=limit)
+        except Exception:
+            # 回退到数据库
+            stocks_db = self.db.query(StockBasic).filter(
+                StockBasic.is_active == True, StockBasic.is_st == False
+            ).limit(limit).all()
+            stocks = [{"code": s.code, "name": s.name} for s in stocks_db]
 
         results = []
-        total = len(stocks)
-
         for i, stock in enumerate(stocks):
-            if (i + 1) % 500 == 0:
-                logger.info(f"评分进度: {i + 1}/{total}")
-
-            result = self.score_stock(stock.code)
+            code = stock.get("code", "")
+            name = stock.get("name", code)
+            if not code:
+                continue
+            result = self.score_stock(code)
             if result:
-                result['name'] = stock.name
+                result['name'] = name
                 results.append(result)
 
         results.sort(key=lambda x: x['total_score'], reverse=True)
