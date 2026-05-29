@@ -1,11 +1,12 @@
 """
 数据采集模块
-使用 AKShare 获取 A 股数据
+使用 baostock 获取 A 股数据（更稳定）
 """
 
+import os
 import time
 import logging
-import akshare as ak
+import baostock as bs
 import pandas as pd
 from datetime import datetime, date, timedelta
 from sqlalchemy.orm import Session
@@ -15,28 +16,33 @@ from src.utils.database import SessionLocal
 
 logger = logging.getLogger(__name__)
 
-# AKShare 列名映射（兼容不同版本）
-COLUMN_MAP = {
-    '日期': 'trade_date',
-    '开盘': 'open',
-    '收盘': 'close',
-    '最高': 'high',
-    '最低': 'low',
-    '成交量': 'volume',
-    '成交额': 'amount',
-    '涨跌幅': 'change_pct',
-    '换手率': 'turnover_rate',
-}
-
 
 class DataCollector:
     """数据采集器"""
 
     def __init__(self):
         self.db = SessionLocal()
+        self._login()
+
+    def _login(self):
+        """登录 baostock"""
+        try:
+            lg = bs.login()
+            if lg.error_code != '0':
+                logger.error(f"baostock 登录失败: {lg.error_msg}")
+        except Exception as e:
+            logger.error(f"baostock 登录异常: {e}")
+
+    def _logout(self):
+        """登出 baostock"""
+        try:
+            bs.logout()
+        except Exception:
+            pass
 
     def close(self):
-        """关闭数据库连接"""
+        """关闭连接"""
+        self._logout()
         try:
             self.db.close()
         except Exception:
@@ -50,6 +56,7 @@ class DataCollector:
 
     def __del__(self):
         try:
+            self._logout()
             self.db.close()
         except Exception:
             pass
@@ -57,33 +64,59 @@ class DataCollector:
     def get_stock_list(self) -> pd.DataFrame:
         """获取所有 A 股股票列表"""
         try:
-            df = ak.stock_info_a_code_name()
+            rs = bs.query_stock_basic()
+            data = []
+            while rs.next():
+                data.append(rs.get_row_data())
+            df = pd.DataFrame(data, columns=rs.fields)
+            # 只保留 A 股
+            df = df[df['type'] == '1']
             logger.info(f"获取到 {len(df)} 只股票")
             return df
         except Exception as e:
             logger.error(f"获取股票列表失败: {e}")
             return pd.DataFrame()
 
-    def get_realtime_quotes(self) -> pd.DataFrame:
-        """获取所有 A 股实时行情"""
-        try:
-            df = ak.stock_zh_a_spot_em()
-            logger.info(f"获取到 {len(df)} 只股票的实时行情")
-            return df
-        except Exception as e:
-            logger.error(f"获取实时行情失败: {e}")
-            return pd.DataFrame()
-
     def get_daily_history(self, code: str, start_date: str, end_date: str) -> pd.DataFrame:
         """获取单只股票的历史日线数据"""
         try:
-            df = ak.stock_zh_a_hist(
-                symbol=code,
-                period="daily",
+            # 转换代码格式：000001 -> sh.000001 或 sz.000001
+            if code.startswith('6'):
+                bs_code = f"sh.{code}"
+            else:
+                bs_code = f"sz.{code}"
+
+            rs = bs.query_history_k_data_plus(
+                bs_code,
+                "date,open,high,low,close,volume,amount,turn,pctChg",
                 start_date=start_date,
                 end_date=end_date,
-                adjust="qfq"
+                frequency="d",
+                adjustflag="2"  # 前复权
             )
+
+            data = []
+            while rs.next():
+                data.append(rs.get_row_data())
+
+            if not data:
+                return pd.DataFrame()
+
+            df = pd.DataFrame(data, columns=rs.fields)
+            # 转换数据类型
+            for col in ['open', 'high', 'low', 'close', 'volume', 'amount', 'turn', 'pctChg']:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+            df = df.rename(columns={
+                'date': '日期',
+                'open': '开盘',
+                'high': '最高',
+                'low': '最低',
+                'close': '收盘',
+                'volume': '成交量',
+                'amount': '成交额',
+                'turn': '换手率',
+                'pctChg': '涨跌幅'
+            })
             return df
         except Exception as e:
             logger.error(f"获取 {code} 历史数据失败: {e}")
@@ -95,10 +128,14 @@ class DataCollector:
         try:
             for _, row in stock_list.iterrows():
                 code = row.get('code', '')
-                name = row.get('name', '')
+                name = row.get('code_name', '')
 
                 if not code or pd.isna(code):
                     continue
+
+                # 去掉前缀 sh. 或 sz.
+                if '.' in code:
+                    code = code.split('.')[1]
 
                 existing = self.db.query(StockBasic).filter(StockBasic.code == code).first()
                 if existing:
@@ -128,12 +165,10 @@ class DataCollector:
         """保存日线数据到数据库"""
         saved = 0
         try:
-            # 开始前先清理可能的脏数据
             self.db.rollback()
 
             for _, row in df.iterrows():
-                # 列名兼容处理
-                trade_date = pd.to_datetime(row.get('日期', row.get('trade_date', None))).date()
+                trade_date = pd.to_datetime(row['日期']).date()
 
                 existing = self.db.query(DailyQuote).filter(
                     DailyQuote.code == code,
@@ -141,26 +176,26 @@ class DataCollector:
                 ).first()
 
                 if existing:
-                    existing.open = row.get('开盘', row.get('open', None))
-                    existing.high = row.get('最高', row.get('high', None))
-                    existing.low = row.get('最低', row.get('low', None))
-                    existing.close = row.get('收盘', row.get('close', None))
-                    existing.volume = int(row.get('成交量', row.get('volume', 0)))
-                    existing.amount = row.get('成交额', row.get('amount', None))
-                    existing.change_pct = row.get('涨跌幅', row.get('change_pct', None))
-                    existing.turnover_rate = row.get('换手率', row.get('turnover_rate', None))
+                    existing.open = row.get('开盘')
+                    existing.high = row.get('最高')
+                    existing.low = row.get('最低')
+                    existing.close = row.get('收盘')
+                    existing.volume = int(row.get('成交量', 0))
+                    existing.amount = row.get('成交额')
+                    existing.change_pct = row.get('涨跌幅')
+                    existing.turnover_rate = row.get('换手率')
                 else:
                     quote = DailyQuote(
                         code=code,
                         trade_date=trade_date,
-                        open=row.get('开盘', row.get('open', None)),
-                        high=row.get('最高', row.get('high', None)),
-                        low=row.get('最低', row.get('low', None)),
-                        close=row.get('收盘', row.get('close', None)),
-                        volume=int(row.get('成交量', row.get('volume', 0))),
-                        amount=row.get('成交额', row.get('amount', None)),
-                        change_pct=row.get('涨跌幅', row.get('change_pct', None)),
-                        turnover_rate=row.get('换手率', row.get('turnover_rate', None))
+                        open=row.get('开盘'),
+                        high=row.get('最高'),
+                        low=row.get('最低'),
+                        close=row.get('收盘'),
+                        volume=int(row.get('成交量', 0)),
+                        amount=row.get('成交额'),
+                        change_pct=row.get('涨跌幅'),
+                        turnover_rate=row.get('换手率')
                     )
                     self.db.add(quote)
                 saved += 1
@@ -192,16 +227,17 @@ class DataCollector:
 
         # 3. 获取历史日线数据
         logger.info(f"3. 获取最近 {days} 天的历史数据...")
-        end_date = date.today().strftime("%Y%m%d")
-        start_date = (date.today() - timedelta(days=days)).strftime("%Y%m%d")
+        end_date = date.today().strftime("%Y-%m-%d")
+        start_date = (date.today() - timedelta(days=days)).strftime("%Y-%m-%d")
 
         total = len(stock_list)
         success = 0
         fail = 0
-        consecutive_fails = 0
 
         for i, (_, row) in enumerate(stock_list.iterrows()):
             code = row['code']
+            if '.' in code:
+                code = code.split('.')[1]
 
             if (i + 1) % 100 == 0:
                 logger.info(f"  进度: {i + 1}/{total} ({(i + 1) / total * 100:.1f}%)")
@@ -211,21 +247,12 @@ class DataCollector:
                 result = self.save_daily_quotes(code, df)
                 if result > 0:
                     success += 1
-                    consecutive_fails = 0
                 else:
                     fail += 1
-                    consecutive_fails += 1
             else:
                 fail += 1
-                consecutive_fails += 1
 
-            # 连续失败过多时增加等待时间
-            if consecutive_fails > 10:
-                logger.warning(f"连续失败 {consecutive_fails} 次，等待 5 秒...")
-                time.sleep(5)
-                consecutive_fails = 0
-            else:
-                time.sleep(0.3)
+            time.sleep(0.1)
 
         logger.info(f"采集完成: 成功 {success}, 失败 {fail}")
 
@@ -233,7 +260,6 @@ class DataCollector:
         """获取市场快照（使用 SQL 聚合优化）"""
         today = date.today()
 
-        # 先尝试今天的数据
         result = self.db.execute(text("""
             SELECT
                 COUNT(*) as total,
@@ -248,7 +274,6 @@ class DataCollector:
         """), {"today": today}).fetchone()
 
         if result[0] == 0:
-            # 没有今天的数据，获取最近一天
             latest = self.db.execute(text("""
                 SELECT trade_date FROM daily_quote
                 ORDER BY trade_date DESC LIMIT 1
