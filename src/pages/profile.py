@@ -3,7 +3,7 @@
 """
 
 import streamlit as st
-from src.config import DEEPSEEK_API_KEY, INITIAL_CAPITAL
+from src.config import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL, INITIAL_CAPITAL, save_settings
 
 
 def render_profile_page():
@@ -108,14 +108,67 @@ def render_profile_page():
 
     st.markdown("---")
 
-    # 设置
-    st.subheader("⚙️ 设置")
+    # ========== AI 模型配置 ==========
+    st.subheader("⚙️ AI 模型配置")
+    st.caption("支持 DeepSeek、OpenAI、智谱、月之暗面等 OpenAI 兼容接口")
 
-    with st.expander("DeepSeek API 配置"):
-        masked_key = ("*" * 8) if DEEPSEEK_API_KEY else "未配置"
-        st.write(f"API Key: {masked_key}")
-        st.caption("在 .env 文件中配置 DEEPSEEK_API_KEY")
+    with st.form("ai_config_form"):
+        new_key = st.text_input(
+            "API Key",
+            value=DEEPSEEK_API_KEY,
+            type="password",
+            help="输入你的 API Key"
+        )
+        new_url = st.text_input(
+            "API Base URL",
+            value=DEEPSEEK_BASE_URL,
+            help="例如: https://api.deepseek.com / https://api.openai.com / https://open.bigmodel.cn/api/paas/v4"
+        )
+        new_model = st.text_input(
+            "模型名称",
+            value=DEEPSEEK_MODEL,
+            help="例如: deepseek-chat / gpt-4o / glm-4-flash"
+        )
 
+        col_save, col_test = st.columns(2)
+        with col_save:
+            submitted = st.form_submit_button("💾 保存配置", use_container_width=True)
+        with col_test:
+            test_btn = st.form_submit_button("🧪 测试连接", use_container_width=True)
+
+        if submitted:
+            save_settings({
+                "api_key": new_key,
+                "base_url": new_url,
+                "model": new_model,
+            })
+            # 清除 AI 缓存，下次使用新配置
+            if 'ai_chat' in st.session_state:
+                del st.session_state['ai_chat']
+            st.success("配置已保存！AI 对话将使用新配置。")
+            st.rerun()
+
+        if test_btn:
+            if not new_key:
+                st.error("请先填写 API Key")
+            else:
+                with st.spinner("测试中..."):
+                    try:
+                        from openai import OpenAI
+                        client = OpenAI(api_key=new_key, base_url=new_url)
+                        resp = client.chat.completions.create(
+                            model=new_model,
+                            messages=[{"role": "user", "content": "你好，请回复'连接成功'"}],
+                            max_tokens=20,
+                        )
+                        reply = resp.choices[0].message.content
+                        st.success(f"连接成功！模型回复: {reply}")
+                    except Exception as e:
+                        st.error(f"连接失败: {e}")
+
+    st.markdown("---")
+
+    # 其他设置
     with st.expander("模拟盘配置"):
         st.write(f"初始资金: ¥{INITIAL_CAPITAL:,.0f}")
         st.caption("在 .env 文件中配置 INITIAL_CAPITAL")

@@ -8,7 +8,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional
 from openai import OpenAI
-from src.config import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL
+from src.config import get_setting
 from src.utils.database import SessionLocal
 from src.news.models import NewsItem
 
@@ -20,10 +20,14 @@ class NewsAnalyzer:
 
     def __init__(self):
         self.db = SessionLocal()
-        if DEEPSEEK_API_KEY:
-            self.client = OpenAI(api_key=DEEPSEEK_API_KEY, base_url=DEEPSEEK_BASE_URL)
+        api_key = get_setting("api_key", "DEEPSEEK_API_KEY", "")
+        if api_key:
+            base_url = get_setting("base_url", "DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+            self.model = get_setting("model", "DEEPSEEK_MODEL", "deepseek-chat")
+            self.client = OpenAI(api_key=api_key, base_url=base_url)
         else:
             self.client = None
+            self.model = None
 
     def close(self):
         try:
@@ -54,7 +58,7 @@ class NewsAnalyzer:
 
         try:
             response = self.client.chat.completions.create(
-                model=DEEPSEEK_MODEL,
+                model=self.model,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.2,
                 max_tokens=2000,

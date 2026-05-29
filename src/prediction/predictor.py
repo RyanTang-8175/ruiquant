@@ -12,7 +12,7 @@ from src.prediction.models import Prediction
 from src.data.models import DailyQuote, StockBasic
 from src.scoring.engine import ScoringEngine
 from src.utils.database import SessionLocal
-from src.config import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL
+from src.config import get_setting
 
 logger = logging.getLogger(__name__)
 
@@ -22,11 +22,10 @@ class PredictionEngine:
 
     def __init__(self):
         self.db = SessionLocal()
-        self.client = OpenAI(
-            api_key=DEEPSEEK_API_KEY,
-            base_url=DEEPSEEK_BASE_URL
-        )
-        self.model = DEEPSEEK_MODEL
+        api_key = get_setting("api_key", "DEEPSEEK_API_KEY", "")
+        base_url = get_setting("base_url", "DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+        self.model = get_setting("model", "DEEPSEEK_MODEL", "deepseek-chat")
+        self.client = OpenAI(api_key=api_key, base_url=base_url)
 
     def close(self):
         try:

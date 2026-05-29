@@ -1,8 +1,10 @@
 """
 RuiQuant 配置管理
+支持 .env 文件和 app 内设置（settings.json 优先）
 """
 
 import os
+import json
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -12,17 +14,54 @@ load_dotenv()
 # 项目根目录
 BASE_DIR = Path(__file__).parent.parent
 
+# 设置文件路径
+SETTINGS_FILE = BASE_DIR / "data" / "settings.json"
+
+
+def _load_settings() -> dict:
+    """从 settings.json 加载设置"""
+    try:
+        if SETTINGS_FILE.exists():
+            with open(SETTINGS_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+    except (json.JSONDecodeError, IOError):
+        pass
+    return {}
+
+
+def save_settings(settings: dict):
+    """保存设置到 settings.json"""
+    SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    # 合并已有设置
+    current = _load_settings()
+    current.update(settings)
+    with open(SETTINGS_FILE, 'w', encoding='utf-8') as f:
+        json.dump(current, f, indent=2, ensure_ascii=False)
+
+
+def get_setting(key: str, env_key: str = None, default: str = "") -> str:
+    """获取设置值，优先级：settings.json > 环境变量 > 默认值"""
+    settings = _load_settings()
+    if key in settings and settings[key]:
+        return settings[key]
+    if env_key:
+        val = os.getenv(env_key, "")
+        if val:
+            return val
+    return default
+
+
 # 数据库配置
-DATABASE_PATH = os.getenv("DATABASE_PATH", "data/ruiquant.db")
+DATABASE_PATH = get_setting("database_path", "DATABASE_PATH", "data/ruiquant.db")
 DATABASE_URL = f"sqlite:///{BASE_DIR / DATABASE_PATH}"
 
-# DeepSeek 配置
-DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
-DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
-DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
+# AI 配置（可从 app 内修改）
+DEEPSEEK_API_KEY = get_setting("api_key", "DEEPSEEK_API_KEY", "")
+DEEPSEEK_BASE_URL = get_setting("base_url", "DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+DEEPSEEK_MODEL = get_setting("model", "DEEPSEEK_MODEL", "deepseek-chat")
 
 # 模拟盘配置
-INITIAL_CAPITAL = float(os.getenv("INITIAL_CAPITAL", "100000"))
+INITIAL_CAPITAL = float(get_setting("initial_capital", "INITIAL_CAPITAL", "100000"))
 
 # 交易规则
 COMMISSION_RATE = 0.00025  # 佣金万2.5
@@ -41,6 +80,6 @@ DAILY_LOSS_LIMIT = -0.05  # 单日亏损5%暂停交易
 CONSECUTIVE_LOSS_LIMIT = 3  # 连续3笔亏损暂停
 
 # 日志配置
-LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+LOG_LEVEL = get_setting("log_level", "LOG_LEVEL", "INFO")
 LOG_DIR = BASE_DIR / "logs"
 LOG_DIR.mkdir(exist_ok=True)

@@ -7,7 +7,7 @@ import json
 import logging
 from datetime import datetime
 from openai import OpenAI
-from src.config import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL
+from src.config import get_setting
 from src.ai.tools import TOOLS
 from src.ai.tool_executor import ToolExecutor
 
@@ -46,14 +46,14 @@ class AIChat:
     """AI 对话管理器（支持工具调用）"""
 
     def __init__(self):
-        self.client = OpenAI(
-            api_key=DEEPSEEK_API_KEY,
-            base_url=DEEPSEEK_BASE_URL
-        )
-        self.model = DEEPSEEK_MODEL
+        # 动态读取最新配置（支持 app 内修改）
+        api_key = get_setting("api_key", "DEEPSEEK_API_KEY", "")
+        base_url = get_setting("base_url", "DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+        self.model = get_setting("model", "DEEPSEEK_MODEL", "deepseek-chat")
+        self.client = OpenAI(api_key=api_key, base_url=base_url)
         self.history = []
         self.tool_executor = ToolExecutor()
-        self._tools_used = []  # 记录最近一次对话使用的工具
+        self._tools_used = []
 
     def chat(self, user_message: str, context: dict = None) -> str:
         """与 AI 对话（支持多轮工具调用）"""
