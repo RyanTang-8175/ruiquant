@@ -27,7 +27,7 @@ st.markdown("""
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 """, unsafe_allow_html=True)
 
-# 自定义样式（专业金融深色风格）
+# 自定义样式
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
@@ -42,27 +42,6 @@ st.markdown("""
         border-bottom: 2px solid #FF4444;
         margin-bottom: 1rem;
     }
-
-    .metric-card {
-        background: linear-gradient(135deg, #1A1A2E 0%, #16213E 100%);
-        padding: 1.2rem;
-        border-radius: 12px;
-        border: 1px solid #2D3748;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
-    }
-
-    .stock-up { color: #FF4444; font-weight: 600; }
-    .stock-down { color: #00E676; font-weight: 600; }
-    .stock-flat { color: #888888; }
-
-    .score-high { color: #FF4444; font-size: 1.5rem; font-weight: 700; }
-    .score-mid { color: #FFB800; font-size: 1.5rem; font-weight: 700; }
-    .score-low { color: #888888; font-size: 1.5rem; font-weight: 700; }
-
-    .rating-strong { background: #FF444422; color: #FF4444; padding: 4px 12px; border-radius: 20px; font-weight: 600; }
-    .rating-watch { background: #4488FF22; color: #4488FF; padding: 4px 12px; border-radius: 20px; font-weight: 600; }
-    .rating-neutral { background: #88888822; color: #888888; padding: 4px 12px; border-radius: 20px; font-weight: 600; }
-    .rating-avoid { background: #33333322; color: #666666; padding: 4px 12px; border-radius: 20px; font-weight: 600; }
 
     .stButton>button {
         background: linear-gradient(135deg, #FF4444 0%, #CC0000 100%);
@@ -84,10 +63,15 @@ st.markdown("""
     div[data-testid="stSidebar"] .stRadio label {
         color: #E6EDF3;
     }
+
+    /* 隐藏 Streamlit 默认菜单 */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
 </style>
 """, unsafe_allow_html=True)
 
-# 侧边栏导航
+# 侧边栏
 st.sidebar.markdown("""
 <div style="text-align: center; padding: 1rem 0;">
     <h1 style="color: #FF4444; margin: 0;">RuiQuant</h1>
@@ -97,11 +81,27 @@ st.sidebar.markdown("""
 
 st.sidebar.markdown("---")
 
+# 页面路由
+if 'current_page' not in st.session_state:
+    st.session_state['current_page'] = 'market'
+
+# 导航选项
 page = st.sidebar.radio(
     "导航",
     ["📊 市场概览", "🔍 选股", "🤖 AI 对话", "💰 模拟盘", "👤 我的"],
-    label_visibility="collapsed"
+    label_visibility="collapsed",
+    index=["market", "watchlist", "ai_chat", "trading", "profile"].index(st.session_state['current_page']) if st.session_state['current_page'] in ["market", "watchlist", "ai_chat", "trading", "profile"] else 0
 )
+
+# 更新当前页面
+page_map = {
+    "📊 市场概览": "market",
+    "🔍 选股": "watchlist",
+    "🤖 AI 对话": "ai_chat",
+    "💰 模拟盘": "trading",
+    "👤 我的": "profile"
+}
+st.session_state['current_page'] = page_map.get(page, "market")
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("""
@@ -110,24 +110,36 @@ st.sidebar.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# ============ 页面路由 ============
+# 页面路由
+current = st.session_state['current_page']
 
-if page == "📊 市场概览":
+if current == "market":
     from src.pages.market import render_market_page
     render_market_page()
 
-elif page == "🔍 选股":
+elif current == "watchlist":
     from src.pages.watchlist import render_watchlist_page
     render_watchlist_page()
 
-elif page == "🤖 AI 对话":
+elif current == "stock_detail":
+    from src.pages.stock_detail import render_stock_detail_page
+    code = st.session_state.get('selected_stock', '')
+    if code:
+        render_stock_detail_page(code)
+    else:
+        st.error("未选择股票")
+        if st.button("返回观察池"):
+            st.session_state['current_page'] = 'watchlist'
+            st.rerun()
+
+elif current == "ai_chat":
     from src.pages.ai_chat import render_ai_chat_page
     render_ai_chat_page()
 
-elif page == "💰 模拟盘":
+elif current == "trading":
     from src.pages.trading import render_trading_page
     render_trading_page()
 
-elif page == "👤 我的":
+elif current == "profile":
     from src.pages.profile import render_profile_page
     render_profile_page()
