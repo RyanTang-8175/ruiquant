@@ -100,8 +100,8 @@ def render_stock_detail_page(code: str):
                     close=chart_data['收盘'],
                     increasing_line_color='#FF4444',
                     decreasing_line_color='#00E676',
-                    increasing_fillcolor='#FF444480',
-                    decreasing_fillcolor='#00E67680',
+                    increasing_fillcolor='rgba(255,68,68,0.5)',
+                    decreasing_fillcolor='rgba(0,230,118,0.5)',
                 )])
                 fig.update_layout(
                     template='plotly_dark',
@@ -172,8 +172,8 @@ def render_stock_detail_page(code: str):
                     with col2:
                         fig_rsi = go.Figure()
                         fig_rsi.add_trace(go.Scatter(x=ind_data['日期'], y=ind_data['RSI'], name='RSI', line=dict(color='#FFB800', width=1.5)))
-                        fig_rsi.add_hline(y=70, line_dash="dash", line_color="#FF444480")
-                        fig_rsi.add_hline(y=30, line_dash="dash", line_color="#00E67680")
+                        fig_rsi.add_hline(y=70, line_dash="dash", line_color="rgba(255,68,68,0.5)")
+                        fig_rsi.add_hline(y=30, line_dash="dash", line_color="rgba(0,230,118,0.5)")
                         fig_rsi.update_layout(
                             template='plotly_dark', paper_bgcolor='#0a0e17', plot_bgcolor='#0a0e17',
                             height=300, margin=dict(l=0, r=0, t=30, b=0),
