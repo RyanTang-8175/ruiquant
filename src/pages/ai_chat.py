@@ -1,5 +1,5 @@
 """
-AI 对话页面 — 专业金融分析助手
+AI 助手 - 专业股票分析技能
 """
 
 import streamlit as st
@@ -7,134 +7,117 @@ from src.ai.chat import AIChat
 
 
 def render_ai_chat_page():
-    """渲染 AI 对话页面"""
-    st.markdown('<div class="main-header">🤖 AI 分析助手</div>', unsafe_allow_html=True)
+    st.markdown("## AI 分析助手")
 
-    # 初始化 AI
-    if 'ai_chat' not in st.session_state:
-        st.session_state['ai_chat'] = AIChat()
+    # 初始化
+    if "ai_chat" not in st.session_state:
+        st.session_state["ai_chat"] = AIChat()
+    ai = st.session_state["ai_chat"]
 
-    ai = st.session_state['ai_chat']
-
-    # 股票代码快速输入
-    col_input, col_btn = st.columns([3, 1])
-    with col_input:
-        stock_code = st.text_input("股票代码", placeholder="输入代码后点击快捷分析，如 600519", key="ai_stock_code")
-    with col_btn:
-        st.markdown("<div style='height: 28px'></div>", unsafe_allow_html=True)
-        if st.button("📊 分析此股", key="analyze_stock_btn", use_container_width=True):
+    # 股票输入
+    c1, c2 = st.columns([3, 1])
+    with c1:
+        stock_code = st.text_input("", placeholder="输入股票代码，如 600519", key="ai_code", label_visibility="collapsed")
+    with c2:
+        if st.button("分析该股", key="analyze", use_container_width=True, type="primary"):
             if stock_code.strip():
-                st.session_state['quick_question'] = f"请对 {stock_code.strip()} 做全面的技术面和消息面分析"
+                st.session_state["quick_q"] = f"请对 {stock_code.strip()} 做全面分析"
                 st.rerun()
-            else:
-                st.warning("请输入股票代码")
 
-    st.markdown("---")
-
-    # 快捷操作按钮 - 第一行
-    st.caption("快捷分析")
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        if st.button("📊 今日市场", use_container_width=True):
-            st.session_state['quick_question'] = "帮我分析一下今天的市场整体情况"
+    # 技能按钮
+    st.markdown("### 分析技能")
+    sk1, sk2, sk3, sk4 = st.columns(4)
+    with sk1:
+        if st.button("📊 今日大盘", use_container_width=True):
+            st.session_state["quick_q"] = "分析今日大盘走势，包括三大指数、涨跌家数、成交额、市场情绪"
             st.rerun()
-    with col2:
-        if st.button("🔍 观察池", use_container_width=True):
-            st.session_state['quick_question'] = "今天观察池有哪些值得关注的股票？"
-            st.rerun()
-    with col3:
-        if st.button("📈 帮我选股", use_container_width=True):
-            st.session_state['quick_question'] = "基于当前市场状态，推荐几只值得关注的股票"
-            st.rerun()
-    with col4:
-        if st.button("📝 今日复盘", use_container_width=True):
-            st.session_state['quick_question'] = "帮我做一个今日市场复盘"
-            st.rerun()
-
-    # 快捷操作按钮 - 第二行
-    col5, col6, col7, col8 = st.columns(4)
-    with col5:
+    with sk2:
         if st.button("📰 新闻解读", use_container_width=True):
-            st.session_state['quick_question'] = "解读今天的重大财经新闻对A股的影响"
+            st.session_state["quick_q"] = "解读今天的重要财经新闻，分析对A股的影响"
             st.rerun()
-    with col6:
-        if st.button("💹 板块分析", use_container_width=True):
-            st.session_state['quick_question'] = "分析当前热门板块和板块轮动趋势"
+    with sk3:
+        if st.button("🔥 热门板块", use_container_width=True):
+            st.session_state["quick_q"] = "分析当前热门板块和板块轮动趋势"
             st.rerun()
-    with col7:
-        if st.button("🎯 技术分析", use_container_width=True):
-            if stock_code.strip():
-                st.session_state['quick_question'] = f"对 {stock_code.strip()} 做详细的技术分析，包括均线、MACD、RSI"
-                st.rerun()
-            else:
-                st.warning("请先输入股票代码")
-    with col8:
+    with sk4:
         if st.button("💼 我的持仓", use_container_width=True):
-            st.session_state['quick_question'] = "分析一下我的模拟盘持仓情况"
+            st.session_state["quick_q"] = "查看我的模拟盘持仓，逐只分析并给出操作建议"
+            st.rerun()
+
+    sk5, sk6, sk7, sk8 = st.columns(4)
+    with sk5:
+        if st.button("🎯 智能选股", use_container_width=True):
+            st.session_state["quick_q"] = "基于当前市场状态，推荐3只值得关注的股票，说明理由"
+            st.rerun()
+    with sk6:
+        if st.button("📈 技术分析", use_container_width=True):
+            if stock_code.strip():
+                st.session_state["quick_q"] = f"对 {stock_code.strip()} 做详细技术分析，包括K线形态、均线、MACD、RSI、支撑压力位"
+            else:
+                st.warning("请先输入代码")
+            st.rerun()
+    with sk7:
+        if st.button("⚠️ 风险评估", use_container_width=True):
+            if stock_code.strip():
+                st.session_state["quick_q"] = f"评估 {stock_code.strip()} 的风险，包括基本面风险、技术面风险、行业风险"
+            else:
+                st.warning("请先输入代码")
+            st.rerun()
+    with sk8:
+        if st.button("📝 复盘报告", use_container_width=True):
+            st.session_state["quick_q"] = "生成今日市场复盘报告，包括大盘走势、板块轮动、情绪面、明日展望"
             st.rerun()
 
     st.markdown("---")
 
     # 处理快捷问题
-    if 'quick_question' in st.session_state:
-        question = st.session_state.pop('quick_question')
+    if "quick_q" in st.session_state:
+        q = st.session_state.pop("quick_q")
         try:
-            with st.spinner("AI 分析中..."):
-                ai.chat(question)
+            with st.spinner("分析中..."):
+                ai.chat(q)
         except Exception as e:
-            st.error(f"AI 响应失败: {e}")
+            st.error(f"AI 失败: {e}")
         st.rerun()
 
-    # 显示对话历史
+    # 对话历史
     for msg in ai.get_history():
         with st.chat_message("user"):
             st.write(msg["question"])
         with st.chat_message("assistant"):
             st.write(msg["answer"])
-            tools_used = msg.get("tools_used", [])
-            if tools_used:
-                tool_names = {
-                    "get_stock_quote": "行情",
-                    "get_technical_analysis": "技术指标",
-                    "get_scoring_result": "量化评分",
-                    "get_market_snapshot": "市场概况",
-                    "get_watchlist": "观察池",
-                    "get_news": "新闻",
-                    "get_financial_data": "基本面",
-                    "get_positions": "持仓",
-                    "get_kline_data": "K线",
+            tools = msg.get("tools_used", [])
+            if tools:
+                names = {
+                    "get_stock_quote":"行情","get_technical_analysis":"技术指标",
+                    "get_scoring_result":"评分","get_market_snapshot":"市场概况",
+                    "get_watchlist":"观察池","get_news":"新闻","get_financial_data":"基本面",
+                    "get_positions":"持仓","get_kline_data":"K线",
                 }
-                tags = [f"`{tool_names.get(t, t)}`" for t in tools_used]
-                st.caption(f"🔧 使用了: {', '.join(tags)}")
+                tags = [f"`{names.get(t,t)}`" for t in tools]
+                st.caption(f"工具: {', '.join(tags)}")
 
-    # 输入框
+    # 输入
     if user_input := st.chat_input("问 AI 任何股票问题..."):
         with st.chat_message("user"):
             st.write(user_input)
-
         with st.chat_message("assistant"):
             with st.spinner("思考中..."):
-                response = ai.chat(user_input)
-            st.write(response)
-            tools_used = ai.get_last_tools_used()
-            if tools_used:
-                tool_names = {
-                    "get_stock_quote": "行情",
-                    "get_technical_analysis": "技术指标",
-                    "get_scoring_result": "量化评分",
-                    "get_market_snapshot": "市场概况",
-                    "get_watchlist": "观察池",
-                    "get_news": "新闻",
-                    "get_financial_data": "基本面",
-                    "get_positions": "持仓",
-                    "get_kline_data": "K线",
+                resp = ai.chat(user_input)
+            st.write(resp)
+            tools = ai.get_last_tools_used()
+            if tools:
+                names = {
+                    "get_stock_quote":"行情","get_technical_analysis":"技术指标",
+                    "get_scoring_result":"评分","get_market_snapshot":"市场概况",
+                    "get_watchlist":"观察池","get_news":"新闻","get_financial_data":"基本面",
+                    "get_positions":"持仓","get_kline_data":"K线",
                 }
-                tags = [f"`{tool_names.get(t, t)}`" for t in tools_used]
-                st.caption(f"🔧 使用了: {', '.join(tags)}")
+                tags = [f"`{names.get(t,t)}`" for t in tools]
+                st.caption(f"工具: {', '.join(tags)}")
 
-    # 清空按钮
+    # 清空
     if ai.get_history():
-        st.markdown("---")
-        if st.button("🗑️ 清空对话"):
+        if st.button("清空对话"):
             ai.clear_history()
             st.rerun()

@@ -1,5 +1,6 @@
 """
-市场概览 - 实时行情 + 财经快讯 + 股票搜索
+行情中心 - 参考同花顺/东方财富设计
+实时数据 + 板块热点 + 涨跌榜 + 新闻
 """
 
 import streamlit as st
@@ -7,95 +8,90 @@ from datetime import datetime
 from src.data.realtime import get_top_stocks, get_market_overview, get_realtime_quote
 
 
-def _color_pct(v):
+def _c(v):
+    """涨跌颜色"""
     v = v or 0
     if v > 0: return "#FF4444"
     if v < 0: return "#00E676"
     return "#888"
 
 
-def _fmt_amount(v):
-    if not v: return "0"
+def _amt(v):
+    """成交额格式化"""
+    if not v: return "-"
     if v >= 1e8: return f"{v/1e8:.1f}亿"
     if v >= 1e4: return f"{v/1e4:.0f}万"
     return f"{v:.0f}"
 
 
 def render_market_page():
-    """市场概览"""
-    st.markdown("## 行情中心")
-
-    # 股票搜索
-    search_col1, search_col2 = st.columns([4, 1])
-    with search_col1:
-        search_code = st.text_input("搜索股票", placeholder="输入股票代码，如 600519", key="stock_search", label_visibility="collapsed")
-    with search_col2:
-        if st.button("查询", key="search_btn", use_container_width=True):
-            if search_code.strip():
-                st.session_state["selected_stock"] = search_code.strip()
+    # ===== 搜索栏 =====
+    c1, c2 = st.columns([5, 1])
+    with c1:
+        code = st.text_input("", placeholder="🔍 输入股票代码或名称搜索，如 600519", key="search_input", label_visibility="collapsed")
+    with c2:
+        if st.button("查询", key="go_search", use_container_width=True, type="primary"):
+            if code.strip():
+                st.session_state["selected_stock"] = code.strip()
                 st.session_state["current_page"] = "stock_detail"
                 st.rerun()
 
-    # 大盘指数
+    # ===== 大盘指数 =====
     overview = get_market_overview()
     indices = overview.get("indices", [])
     if indices:
-        cols = st.columns(len(indices))
-        for i, idx in enumerate(indices):
-            with cols[i]:
-                pct = idx.get("change_pct", 0)
-                st.metric(
-                    idx.get("name", ""),
-                    f"{idx.get('price', 0):.2f}",
-                    f"{pct:+.2f}%",
-                    delta_color="off",
-                )
+        idx_html = '<div class="index-strip">'
+        for idx in indices:
+            pct = idx.get("change_pct", 0)
+            color = _c(pct)
+            sign = "+" if pct > 0 else ""
+            idx_html += f'''
+            <div class="index-item">
+                <div class="name">{idx.get("name","")}</div>
+                <div class="price" style="color:{color}">{idx.get("price",0):.2f}</div>
+                <div class="pct" style="color:{color}">{sign}{pct:.2f}%</div>
+            </div>'''
+        idx_html += '</div>'
+        st.markdown(idx_html, unsafe_allow_html=True)
 
-    # 数据更新时间
-    st.caption(f"数据更新时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    st.caption(f"数据更新: {datetime.now().strftime('%H:%M:%S')} | 非交易时间显示上一交易日数据")
 
-    st.markdown("---")
+    # ===== 涨跌榜 =====
+    tab1, tab2, tab3, tab4 = st.tabs(["涨幅榜", "跌幅榜", "成交额", "换手率"])
 
-    # 涨跌榜
-    tab1, tab2, tab3, tab4 = st.tabs(["涨幅榜", "跌幅榜", "成交额榜", "换手率榜"])
-
-    def _render_list(stocks):
+    def _render(stocks, value_key="change_pct", value_fmt="pct"):
         if not stocks:
-            st.info("暂无数据（非交易时间显示上一交易日数据）")
+            st.info("暂无数据")
             return
         for i, s in enumerate(stocks):
-            pct = s.get("change_pct", 0)
-            color = _color_pct(pct)
-            amt = _fmt_amount(s.get("amount", 0))
+            pct = s.get("change_pct", 0) or 0
+            color = _c(pct)
+            price = s.get("price", 0) or 0
+            name = s.get("name", s.get("code", ""))
+            code = s.get("code", "")
+            vol = _amt(s.get("amount", 0))
 
-            c1, c2, c3, c4 = st.columns([1, 3, 2, 2])
-            with c1:
-                st.markdown(f"<div style='color:#6b7280;font-size:0.85rem;text-align:center;padding-top:8px;'>{i+1}</div>", unsafe_allow_html=True)
-            with c2:
-                name = s.get("name", s.get("code", ""))
-                if st.button(f"{name} {s.get('code', '')}", key=f"stk_{s.get('code','')}_{i}", use_container_width=True):
-                    st.session_state["selected_stock"] = s.get("code", "")
-                    st.session_state["current_page"] = "stock_detail"
-                    st.rerun()
-            with c3:
-                st.markdown(f"<div style='text-align:right;color:{color};font-weight:700;font-size:1.1rem;'>¥{s.get('price', 0):.2f}</div>", unsafe_allow_html=True)
-            with c4:
-                st.markdown(f"<div style='text-align:right;color:{color};font-weight:600;'>{pct:+.2f}%</div>", unsafe_allow_html=True)
-                st.caption(f"成交 {amt}")
+            # 点击跳转
+            btn_key = f"stk_{code}_{i}_{value_key}"
+            if st.button(f"  {i+1}   {name}  {code}   ¥{price:.2f}   {pct:+.2f}%   {vol}",
+                        key=btn_key, use_container_width=True):
+                st.session_state["selected_stock"] = code
+                st.session_state["current_page"] = "stock_detail"
+                st.rerun()
 
     with tab1:
-        _render_list(get_top_stocks(sort_field="f3", asc=False, limit=20))
+        _render(get_top_stocks(sort_field="f3", asc=False, limit=20))
     with tab2:
-        _render_list(get_top_stocks(sort_field="f3", asc=True, limit=20))
+        _render(get_top_stocks(sort_field="f3", asc=True, limit=20))
     with tab3:
-        _render_list(get_top_stocks(sort_field="f6", asc=False, limit=20))
+        _render(get_top_stocks(sort_field="f6", asc=False, limit=20))
     with tab4:
-        _render_list(get_top_stocks(sort_field="f8", asc=False, limit=20))
+        _render(get_top_stocks(sort_field="f8", asc=False, limit=20))
 
     st.markdown("---")
 
-    # 财经快讯
-    st.subheader("财经快讯")
+    # ===== 财经快讯 =====
+    st.subheader("📰 财经快讯")
 
     if st.button("刷新新闻", key="refresh_news"):
         st.session_state.pop("cached_news", None)
@@ -104,23 +100,37 @@ def render_market_page():
     if "cached_news" not in st.session_state:
         try:
             from src.news.fetcher import fetch_all_news
-            with st.spinner("加载新闻..."):
+            with st.spinner("加载中..."):
                 st.session_state["cached_news"] = fetch_all_news(20)
         except Exception as e:
             st.session_state["cached_news"] = []
-            st.warning(f"新闻加载失败: {e}")
 
-    news_list = st.session_state.get("cached_news", [])
-    if not news_list:
-        st.info("暂无新闻，点击「刷新新闻」获取")
+    news = st.session_state.get("cached_news", [])
+    if not news:
+        st.info("暂无新闻")
     else:
-        for item in news_list:
+        for item in news:
             title = item.get("title", "")
-            source = {"cls": "财联社", "eastmoney": "东方财富"}.get(item.get("source", ""), item.get("source", ""))
-            pub_time = item.get("published_at", "")
+            src = {"cls": "财联社", "eastmoney": "东方财富"}.get(item.get("source", ""), "")
+            t = item.get("published_at", "")
             content = item.get("content", "")
 
-            with st.expander(f"📰 {title}", expanded=False):
-                st.caption(f"{source} | {pub_time}")
-                if content and content != title:
+            # 新闻标签
+            tag = ""
+            if any(k in title for k in ["涨", "牛", "利好", "突破"]):
+                tag = '<span class="news-tag hot">利好</span>'
+            elif any(k in title for k in ["跌", "利空", "风险", "暴"]):
+                tag = '<span class="news-tag hot" style="background:#00E67630;color:#00E676">利空</span>'
+            elif any(k in title for k in ["政策", "监管", "央行", "国务院"]):
+                tag = '<span class="news-tag policy">政策</span>'
+
+            st.markdown(f"""
+            <div class="news-item">
+                <div class="title">{tag}{title}</div>
+                <div class="meta">{src} · {t}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            if content and content != title:
+                with st.expander("展开详情"):
                     st.markdown(content)
