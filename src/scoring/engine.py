@@ -104,7 +104,7 @@ class ScoringEngine:
                     total_score=r['total_score'],rating=r['rating'],
                     trend_score=f.get('trend'),reversal_score=f.get('short_term_reversal'),
                     volume_ratio_score=f.get('volume_ratio'),turnover_score=f.get('turnover'),
-                    volatility_score=f.get('volatility'),factors_json=f,factor_weights=self.weights)
+                    volatility_score=f.get('volatility'))
                 self.db.add(rec); s+=1
             self.db.commit()
         except Exception as e: self.db.rollback(); logger.error(f"save: {e}")
