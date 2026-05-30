@@ -24,7 +24,7 @@ def render_watchlist_page():
             if sel_ind != "全部": stocks = [s for s in stocks if s['code'] in set(SW_INDUSTRY.get(sel_ind,[]))]
             if sel_con != "全部": stocks = [s for s in stocks if s['code'] in set(CONCEPTS.get(sel_con,[]))]
             if kw.strip(): stocks = search_stocks(kw, stocks)
-            to_score = stocks[:200]
+            to_score = stocks[:30]  # 首次加载只评分Top30
             results = []
             try:
                 with ScoringEngine() as e:
