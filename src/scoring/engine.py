@@ -83,7 +83,7 @@ class ScoringEngine:
 
     def score_all_stocks(self, limit: int = 80) -> list:
         from src.data.realtime import get_top_stocks
-        stocks=get_top_stocks(sort_field="f6",asc=False,limit=limit)
+        stocks=get_top_stocks(sort_field="amount",asc=False,limit=limit)
         results=[]
         for s in (stocks or []):
             cd=s.get("code","")
