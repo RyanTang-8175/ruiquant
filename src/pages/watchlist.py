@@ -1,8 +1,9 @@
-"""选股 — 搜索 + 行业 + 概念 + 评分"""
+"""选股 — 排行榜数据 + 行业/概念筛选 + 评分"""
 
 import streamlit as st
 from src.scoring.engine import ScoringEngine
-from src.data.stock_list import fetch_all_stocks, search_stocks, SW_INDUSTRY, CONCEPTS
+from src.data.realtime import get_top_stocks
+from src.data.stock_list import SW_INDUSTRY, CONCEPTS
 
 def render_watchlist_page():
     st.markdown("## 选股")
@@ -19,19 +20,28 @@ def render_watchlist_page():
         st.session_state.pop("sr", None); st.rerun()
 
     if "sr" not in st.session_state:
-        with st.spinner("加载中..."):
-            stocks = fetch_all_stocks()
-            if sel_ind != "全部": stocks = [s for s in stocks if s['code'] in set(SW_INDUSTRY.get(sel_ind,[]))]
-            if sel_con != "全部": stocks = [s for s in stocks if s['code'] in set(CONCEPTS.get(sel_con,[]))]
-            if kw.strip(): stocks = search_stocks(kw, stocks)
-            to_score = stocks[:30]  # 首次加载只评分Top30
+        with st.spinner("评分中..."):
+            stocks = get_top_stocks(sort_field="amount", asc=False, limit=100)
+
+            if sel_ind != "全部":
+                ind_codes = set(SW_INDUSTRY.get(sel_ind, []))
+                stocks = [s for s in stocks if s['code'] in ind_codes]
+            if sel_con != "全部":
+                con_codes = set(CONCEPTS.get(sel_con, []))
+                stocks = [s for s in stocks if s['code'] in con_codes]
+
+            if kw.strip():
+                kwu = kw.strip().upper()
+                stocks = [s for s in stocks if kwu in s.get('code','') or kwu in s.get('name','').upper()]
+
             results = []
             try:
                 with ScoringEngine() as e:
-                    for s in to_score:
+                    for s in stocks:
                         r = e.score_stock(s['code'])
                         if r: r['name'] = s.get('name', r.get('code','')); results.append(r)
             except Exception as ex: st.error(f"评分失败: {ex}")
+
             results.sort(key=lambda x: x['total_score'], reverse=True)
             st.session_state["sr"] = results
 
@@ -58,7 +68,7 @@ def render_watchlist_page():
         name = s.get("name", s["code"]); code = s["code"]
         factors = s.get("factors", {})
         top = sorted(factors.items(), key=lambda x: x[1], reverse=True)[:5]
-        ft = " · ".join(f"{fn.get(k,k)}:{v:.0f}" for k, v in top)
+        ft = " . ".join(f"{fn.get(k,k)}:{v:.0f}" for k, v in top)
 
         st.markdown(f'<div style="display:flex;align-items:center;padding:.5rem .7rem;background:#131510;border:1px solid #2A2B26;margin-bottom:.2rem;"><div style="color:#6B6C68;font-family:JetBrains Mono,monospace;font-size:.72rem;width:26px;text-align:center;">{i+1}</div><div style="flex:1;margin-left:.4rem;"><span style="color:#E8E8E5;font-weight:600;font-size:.9rem;">{name}</span><span style="color:#6B6C68;font-family:JetBrains Mono,monospace;font-size:.68rem;margin-left:.3rem;">{code}</span><div style="color:#6B6C68;font-size:.72rem;margin-top:.1rem;">{ft}</div></div><div style="text-align:center;"><div style="font-size:1.3rem;font-weight:700;color:{clr};font-family:JetBrains Mono,monospace;">{score:.0f}</div><span style="background:{clr};color:#fff;padding:1px 8px;font-family:JetBrains Mono,monospace;font-size:.7rem;">{rating}</span></div></div>', unsafe_allow_html=True)
 
