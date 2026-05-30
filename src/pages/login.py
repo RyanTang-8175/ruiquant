@@ -11,7 +11,7 @@ def render_login_page():
         st.markdown("""
         <div style="text-align:center;padding:3rem 0 1rem;">
             <span style="font-size:3.5rem;font-weight:900;color:#f53b47;">R</span>
-            <span style="font-size:3.5rem;font-weight:900;color:#e8ecf1;">uiQuant</span>
+            <span style="font-size:3.5rem;font-weight:900;color:#e8ecf1;">Rui</span>
             <p style="color:#6b7388;font-size:0.9rem;">A 股 AI 研究助手</p>
         </div>
         """, unsafe_allow_html=True)

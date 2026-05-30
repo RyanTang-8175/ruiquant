@@ -736,53 +736,16 @@ class ScoringEngine:
 
         return saved
 
-    def get_watchlist(self, min_score: float = 65, limit: int = 20) -> list:
-        """获取观察池（从缓存读取，不重新计算）"""
+    def get_watchlist(self, min_score: float = 50, limit: int = 30) -> list:
+        """获取观察池 — 直接用实时API评分Top股票"""
         try:
-            latest = self.db.query(ScoreRecord.score_date).order_by(
-                ScoreRecord.score_date.desc()
-            ).first()
-
-            if not latest:
-                logger.info("无缓存评分，触发全量评分...")
-                results = self.score_all_stocks()
-                self.save_scores(results)
-                return [r for r in results if r['total_score'] >= min_score][:limit]
-
-            records = self.db.query(ScoreRecord).filter(
-                ScoreRecord.score_date == latest[0],
-                ScoreRecord.total_score >= min_score
-            ).order_by(ScoreRecord.total_score.desc()).limit(limit).all()
-
-            results = []
-            for r in records:
-                # 优先用 factors_json（完整数据），否则用单独列
-                if r.factors_json:
-                    factors = r.factors_json
-                else:
-                    factors = {
-                        'trend': r.trend_score or 50,
-                        'short_term_reversal': r.reversal_score or 50,
-                        'volume_ratio': r.volume_ratio_score or 50,
-                        'turnover_rate': r.turnover_score or 50,
-                        'idio_volatility': r.volatility_score or 50,
-                        'volume_price_corr': r.volume_price_corr_score or 50,
-                        'volume_price_divergence': r.divergence_score or 50,
-                        'kline_pattern': r.kline_score or 50,
-                        'rsi': r.rsi_score or 50,
-                        'macd': r.macd_score or 50,
-                    }
-                results.append({
-                    'code': r.code,
-                    'name': r.name,
-                    'total_score': r.total_score,
-                    'rating': r.rating,
-                    'factors': factors,
-                })
-            return results
-
+            results = self.score_all_stocks(limit=max(limit*3, 100))
+            if results:
+                try: self.save_scores(results)
+                except: pass
+            return [r for r in results if r['total_score']>=min_score][:limit]
         except Exception as e:
-            logger.error(f"读取观察池失败: {e}")
+            logger.error(f"观察池失败: {e}")
             return []
 
     def rescore_all(self) -> int:

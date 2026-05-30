@@ -1,5 +1,5 @@
 """
-RuiQuant v4.1 — 个人 A 股 AI 研究助手
+RQuant v4.1 — 个人 A 股 AI 研究助手
 """
 
 import streamlit as st
@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 st.set_page_config(
-    page_title="RuiQuant · A股AI研究助手",
+    page_title="RQuant · A股AI研究助手",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="collapsed"
@@ -143,8 +143,10 @@ code { color: var(--amber); background: #1a2030; padding: 1px 4px; border-radius
 </style>
 """, unsafe_allow_html=True)
 
-# ======== 登录 ========
-st.session_state.setdefault("logged_in", False)
+# ======== 登录（持久化）========
+from src.config import get_setting
+st.session_state.setdefault("logged_in", bool(get_setting("phone","","")))
+
 if not st.session_state["logged_in"]:
     from src.pages.login import render_login_page
     render_login_page()
@@ -156,7 +158,7 @@ st.markdown(f"""
 <div class="topbar">
     <div style="display:flex;align-items:baseline;gap:0.5rem;">
         <span style="font-size:1.5rem;font-weight:900;color:var(--red);">R</span>
-        <span style="font-size:1.5rem;font-weight:900;color:var(--text);">uiQuant</span>
+        <span style="font-size:1.5rem;font-weight:900;color:var(--text);">ui</span>
         <span style="color:var(--muted);font-size:0.68rem;">A股AI研</span>
     </div>
     <span style="color:var(--muted);font-size:0.72rem;">{get_setting('phone','','')[:11]}</span>
@@ -168,7 +170,7 @@ st.session_state.setdefault("current_page", "market")
 st.session_state.setdefault("selected_stock", "")
 
 # ======== 导航 ========
-tabs = [("market","行情","📈"), ("ai_chat","AI","🤖"), ("trading","交易","💰"), ("profile","我的","⚙️")]
+tabs = [("market","行情","📈"), ("watchlist","选股","🔍"), ("ai_chat","AI","🤖"), ("trading","交易","💰"), ("profile","我的","⚙️")]
 cur = st.session_state["current_page"]
 
 tab_html = '<div class="tab-bar">'
@@ -191,6 +193,9 @@ page = st.session_state["current_page"]
 if page == "market":
     from src.pages.market import render_market_page
     render_market_page()
+elif page == "watchlist":
+    from src.pages.watchlist import render_watchlist_page
+    render_watchlist_page()
 elif page == "stock_detail":
     code = st.session_state.get("selected_stock", "")
     if code:
