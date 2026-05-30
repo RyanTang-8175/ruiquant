@@ -10,7 +10,10 @@ logger = logging.getLogger(__name__)
 H = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
 
 def _tc_code(code: str) -> str:
-    return f"sh{code}" if code.startswith('6') else f"sz{code}"
+    """600xxx→sh, 000/002/300→sz, 8xx/9xx→bj (北交所)"""
+    if code.startswith('6'): return f"sh{code}"
+    if code.startswith(('8','9')): return f"bj{code}"
+    return f"sz{code}"
 
 # ── 腾讯行情解析 ──
 def _parse_gtimg(raw: str) -> Optional[Dict]:
