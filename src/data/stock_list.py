@@ -84,7 +84,7 @@ def fetch_all_stocks() -> list:
 
     # 从新浪分页拉取
     stocks = []
-    for page in range(1, 30):  # 最多30页, 每页200条
+    for page in range(1, 80):  # 80页覆盖全A股~5600只(300750在49页)
         try:
             r = requests.get(
                 'http://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/Market_Center.getHQNodeData',
