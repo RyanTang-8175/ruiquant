@@ -1,25 +1,33 @@
-"""AI 助手 - Industrial"""
+"""AI 助手"""
 
 import streamlit as st
 from src.ai.chat import AIChat
 
 def render_ai_chat_page():
-    st.markdown("## AI")
     if "aic" not in st.session_state: st.session_state["aic"] = AIChat()
     ai = st.session_state["aic"]
 
-    c1, c2 = st.columns([3, 1])
-    with c1: sc = st.text_input("", placeholder="输入代码 如 600519", key="ac", label_visibility="collapsed")
+    # 紧凑代码输入行
+    c1, c2 = st.columns([4, 1])
+    with c1:
+        sc = st.text_input("", placeholder="输入代码...", key="ac", label_visibility="collapsed")
     with c2:
         if st.button("GO", key="az", use_container_width=True, type="primary"):
             if sc.strip(): st.session_state["qq"] = f"分析 {sc.strip()}"; st.rerun()
 
-    st.markdown("### SKILLS")
-    sks = [("MARKET","分析今日大盘走势"),("NEWS","解读今日重要新闻"),("POS","分析我的模拟持仓"),("PICK","推荐3只关注股票"),("TECH","技术分析该股"),("RISK","风险评估该股")]
-    rows = [st.columns(3) for _ in range(2)]
-    for i, (lbl, pmt) in enumerate(sks):
-        with rows[i//3][i%3]:
-            if st.button(lbl, use_container_width=True): st.session_state["qq"] = pmt; st.rerun()
+    # 技能按钮 2x3
+    sks = [("MARKET","看大盘"),("NEWS","读新闻"),("POS","查持仓"),("PICK","选股"),("TECH","技术"),("RISK","风险")]
+    prompts = {"MARKET":"分析今日大盘走势","NEWS":"解读今天重要财经新闻","POS":"分析我的模拟盘持仓","PICK":"推荐3只关注股票","TECH":"详细技术分析该股","RISK":"评估该股风险"}
+    for row in range(2):
+        cols = st.columns(3)
+        for i in range(3):
+            idx = row*3+i
+            if idx < len(sks):
+                lbl, desc = sks[idx]
+                with cols[i]:
+                    if st.button(lbl, use_container_width=True, help=desc):
+                        st.session_state["qq"] = prompts.get(lbl, desc); st.rerun()
+
     st.markdown("---")
 
     if "qq" in st.session_state:

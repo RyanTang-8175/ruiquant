@@ -91,20 +91,29 @@ def get_top_stocks(sort_field: str = "changepercent", asc: bool = False, limit: 
         return []
 
 def get_kline(code: str, period: str = "101", count: int = 100) -> List[Dict]:
-    """K线 — 腾讯分时"""
-    pt_map = {"1":"1","5":"5","15":"15","30":"30","60":"60","101":"day","102":"week"}
-    pt = pt_map.get(period,"day")
+    """K线 — 东财→新浪→腾讯 三源"""
+    pt = {"1":"1","5":"5","15":"15","30":"30","60":"60","101":"101","102":"102"}.get(period,"101")
+    # 源1: 东财 (最全历史)
     try:
-        tc = _tc_code(code)
-        url = "http://web.ifzq.gtimg.cn/appstock/app/kline/mkline"
-        params = {"param": f"{tc},m{pt},,{count}", "_var": "kline_data"}
-        r = requests.get(url, params=params, headers=H, timeout=10)
-        data = r.json()
-        lines = data.get("data",{}).get(tc,{}).get(f"m{pt}",[])
-        if not lines: lines = data.get("data",{}).get(tc,{}).get(pt,[])
-        if lines:
-            return [{"date":l[0],"open":float(l[1]),"close":float(l[2]),
-                     "high":float(l[3]),"low":float(l[4]),"volume":int(float(l[5])),
-                     "change_pct":(float(l[2])-float(l[1]))/float(l[1])*100 if float(l[1])>0 else 0} for l in lines]
-    except Exception as e: logger.warning(f"K线失败 {code}: {e}")
+        m = 1 if code.startswith('6') else 0
+        r = requests.get(f'http://push2his.eastmoney.com/api/qt/stock/kline/get?secid={m}.{code}&fields1=f1,f2,f3,f4,f5,f6,f7,f8&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt={pt}&fqt=1&beg=0&end=20500101&lmt={count}&ut=fa5fd1943c7b386f172d6893dbfba10b', headers=H, timeout=10)
+        kls = r.json().get('data',{}).get('klines',[])
+        if kls:
+            return [{"date":k.split(',')[0],"open":float(k.split(',')[1]),"close":float(k.split(',')[2]),"high":float(k.split(',')[3]),"low":float(k.split(',')[4]),"volume":int(float(k.split(',')[5])),"change_pct":float(k.split(',')[8])} for k in kls if len(k.split(','))>=11]
+    except: pass
+    # 源2: 新浪
+    try:
+        scale = {"1":"5","5":"5","15":"15","30":"30","60":"60","101":"240","102":"1200"}.get(period,"240")
+        r = requests.get(f'http://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol={_tc_code(code)}&scale={scale}&ma=no&datalen={count}', headers=H, timeout=10)
+        items = r.json()
+        if items:
+            return [{"date":d["day"],"open":float(d["open"]),"close":float(d["close"]),"high":float(d["high"]),"low":float(d["low"]),"volume":int(d["volume"]),"change_pct":(float(d["close"])-float(d["open"]))/float(d["open"])*100 if float(d["open"])>0 else 0} for d in items]
+    except: pass
+    # 源3: 腾讯
+    try:
+        mpt = {"1":"1","5":"5","15":"15","30":"30","60":"60","101":"day","102":"week"}.get(period,"day")
+        r = requests.get(f'http://web.ifzq.gtimg.cn/appstock/app/kline/mkline?param={_tc_code(code)},m{mpt},,{count}&_var=kline_data', headers=H, timeout=10)
+        lines = r.json().get("data",{}).get(_tc_code(code),{}).get(f"m{mpt}",[])
+        if lines: return [{"date":l[0],"open":float(l[1]),"close":float(l[2]),"high":float(l[3]),"low":float(l[4]),"volume":int(float(l[5])),"change_pct":(float(l[2])-float(l[1]))/float(l[1])*100 if float(l[1])>0 else 0} for l in lines]
+    except: pass
     return []
