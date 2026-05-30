@@ -1,38 +1,25 @@
-"""登录页"""
+"""AlphaEye 登录"""
 
 import streamlit as st
 from src.config import save_settings, get_setting
 
-
 def render_login_page():
-    _, c, _ = st.columns([1, 1.2, 1])
-
+    _,c,_=st.columns([1,1.2,1])
     with c:
-        st.markdown("""
-        <div style="text-align:center;padding:3rem 0 1rem;">
-            <span style="font-size:3.5rem;font-weight:900;color:#f53b47;">R</span>
-            <span style="font-size:3.5rem;font-weight:900;color:#e8ecf1;">Rui</span>
-            <p style="color:#6b7388;font-size:0.9rem;">A 股 AI 研究助手</p>
-        </div>
-        """, unsafe_allow_html=True)
-
+        st.markdown('<div style="text-align:center;padding:3rem 0 1rem;"><div style="font-family:JetBrains Mono,monospace;font-size:3rem;font-weight:700;color:#FF3B30;letter-spacing:-1px;">A<span style="color:#E8E8E5;font-weight:500;">lphaEye</span></div><p style="color:#6B6C68;font-size:.85rem;font-family:JetBrains Mono,monospace;text-transform:uppercase;letter-spacing:1px;">A 股反量化 AI 助手</p></div>',unsafe_allow_html=True)
         with st.form("f"):
-            phone = st.text_input("手机号", placeholder="输入手机号")
-            pwd = st.text_input("密码", type="password", placeholder="输入密码")
+            ph=st.text_input("手机号",placeholder="手机号")
+            pw=st.text_input("密码",type="password",placeholder="密码")
             st.markdown("---")
-            st.caption("AI 模型配置")
-            key = st.text_input("API Key", type="password", placeholder="sk-...")
-            url = st.text_input("API 地址", value=get_setting("base_url","DEEPSEEK_BASE_URL","https://api.deepseek.com"))
-            model = st.text_input("模型", value=get_setting("model","DEEPSEEK_MODEL","deepseek-chat"))
-
-            if st.form_submit_button("登录", use_container_width=True, type="primary"):
-                if not phone or not pwd:
-                    st.error("请输入手机号和密码")
-                elif not key:
-                    st.error("请填写 API Key")
+            st.caption("AI 模型")
+            ky=st.text_input("API Key",type="password",placeholder="sk-...")
+            ur=st.text_input("API 地址",value=get_setting("base_url","DEEPSEEK_BASE_URL","https://api.deepseek.com"))
+            md=st.text_input("模型",value=get_setting("model","DEEPSEEK_MODEL","deepseek-chat"))
+            if st.form_submit_button("ENTER",use_container_width=True,type="primary"):
+                if not ph or not pw:st.error("请输入手机号和密码")
+                elif not ky:st.error("请填写 API Key")
                 else:
-                    save_settings({"phone":phone,"api_key":key,"base_url":url,"model":model})
-                    st.session_state["logged_in"] = True
+                    save_settings({"phone":ph,"api_key":ky,"base_url":ur,"model":md})
+                    st.session_state["logged_in"]=True
                     st.rerun()
-
-        st.caption("首次使用自动注册 · 已有账号直接登录")
+        st.caption("首次使用自动注册 - 已有账号直接登录")
