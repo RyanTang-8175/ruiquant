@@ -58,34 +58,33 @@ def get_market_overview() -> Dict:
     return {"indices":indices}
 
 def get_top_stocks(sort_field: str = "changepercent", asc: bool = False, limit: int = 15) -> List[Dict]:
-    """排行榜 — 新浪板块数据，按涨跌幅/成交额/换手率排序"""
+    """排行榜 — 新浪分页拉取1000条后本地排序"""
+    all_stocks = []
     try:
         url = "http://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/Market_Center.getHQNodeData"
-        params = {"page":1,"num":min(limit*10,200),"sort":"symbol","asc":1,"node":"hs_a"}
-        r = requests.get(url, params=params, headers={**H,'Referer':'https://finance.sina.com.cn'}, timeout=15)
-        items = r.json()
-
-        stocks = []
-        for item in items:
-            stocks.append({
-                "code": str(item.get("code","")),
-                "name": item.get("name",""),
-                "price": float(item.get("trade",0) or 0),
-                "change_pct": float(item.get("changepercent",0) or 0),
-                "volume": int(item.get("volume",0) or 0),
-                "amount": float(item.get("amount",0) or 0),
-                "turnover": float(item.get("turnoverratio",0) or 0),
-                "open": float(item.get("open",0) or 0),
-                "high": float(item.get("high",0) or 0),
-                "low": float(item.get("low",0) or 0),
-            })
-
-        # 排序
-        key_map = {"f3":"change_pct","f6":"amount","f8":"turnover",
-                   "changepercent":"change_pct"}
+        for page in range(1, 6):
+            try:
+                params = {"page":page,"num":200,"sort":"symbol","asc":1,"node":"hs_a"}
+                r = requests.get(url, params=params, headers={**H,'Referer':'https://finance.sina.com.cn'}, timeout=10)
+                items = r.json()
+                if not items: break
+                for item in items:
+                    all_stocks.append({
+                        "code": str(item.get("code","")),"name": item.get("name",""),
+                        "price": float(item.get("trade",0) or 0),
+                        "change_pct": float(item.get("changepercent",0) or 0),
+                        "volume": int(item.get("volume",0) or 0),
+                        "amount": float(item.get("amount",0) or 0),
+                        "turnover": float(item.get("turnoverratio",0) or 0),
+                        "open": float(item.get("open",0) or 0),
+                        "high": float(item.get("high",0) or 0),
+                        "low": float(item.get("low",0) or 0),
+                    })
+            except: break
+        key_map = {"f3":"change_pct","f6":"amount","f8":"turnover","changepercent":"change_pct","amount":"amount","turnoverratio":"turnover"}
         key = key_map.get(sort_field, "change_pct")
-        stocks.sort(key=lambda x: x.get(key,0) or 0, reverse=not asc)
-        return stocks[:limit]
+        all_stocks.sort(key=lambda x: x.get(key,0) or 0, reverse=not asc)
+        return all_stocks[:limit]
     except Exception as e:
         logger.warning(f"排行榜失败: {e}")
         return []
