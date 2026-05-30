@@ -4,7 +4,10 @@ import streamlit as st
 from src.ai.chat import AIChat
 
 def render_ai_chat_page():
-    if "aic" not in st.session_state: st.session_state["aic"] = AIChat()
+    if "aic" not in st.session_state:
+        ai = AIChat()
+        ai.load_from_disk()
+        st.session_state["aic"] = ai
     ai = st.session_state["aic"]
 
     c1, c2 = st.columns([4, 1])

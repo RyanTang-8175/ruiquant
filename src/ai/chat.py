@@ -235,6 +235,7 @@ class AIChat:
                 "timestamp": datetime.now().isoformat(),
                 "tools_used": self._tools_used.copy(),
             })
+            self.save_to_disk()
             return answer
 
         except Exception as e:
@@ -242,6 +243,40 @@ class AIChat:
             logger.error(f"AI fatal: {tb}")
             return f"系统异常，请稍后重试。\n\n*(调试: {str(e)[:100]})*"
 
+    @staticmethod
+    def _history_file():
+        from pathlib import Path
+        d = Path(__file__).parent.parent.parent / "data" / "conversations"
+        d.mkdir(parents=True, exist_ok=True)
+        return d / "latest_conversation.json"
+
+    def save_to_disk(self):
+        """持久化对话到文件"""
+        try:
+            import json as _json
+            with open(self._history_file(), 'w', encoding='utf-8') as f:
+                _json.dump(self.history, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logger.warning(f"保存对话失败: {e}")
+
+    def load_from_disk(self):
+        """从文件恢复对话"""
+        try:
+            import json as _json
+            f = self._history_file()
+            if f.exists():
+                with open(f, 'r', encoding='utf-8') as ff:
+                    self.history = _json.load(ff)
+                return True
+        except Exception as e:
+            logger.warning(f"加载对话失败: {e}")
+        return False
+
     def get_last_tools_used(self): return self._tools_used
-    def clear_history(self): self.history = []; self._tools_used = []
+
+    def clear_history(self):
+        self.history = []; self._tools_used = []
+        try: self._history_file().unlink(missing_ok=True)
+        except: pass
+
     def get_history(self): return self.history
