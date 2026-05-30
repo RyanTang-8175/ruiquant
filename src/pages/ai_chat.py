@@ -1,7 +1,6 @@
 """AI 助手"""
 
 import streamlit as st
-from pathlib import Path
 from src.ai.chat import AIChat
 
 def render_ai_chat_page():
@@ -36,12 +35,9 @@ def render_ai_chat_page():
         st.rerun()
 
     for m in ai.get_history():
-        if m.get("is_compression_marker"):
-            st.info(m["answer"])
-            continue
         with st.chat_message("user"): st.write(m["question"])
         with st.chat_message("assistant"):
-            st.write(m["answer"])
+            st.markdown(m["answer"])  # markdown renders cleaner
             if m.get("tools_used"):
                 nm = {"get_stock_quote":"Q","get_technical_analysis":"TECH","get_scoring_result":"SCORE","get_market_snapshot":"MKT","get_news":"NEWS","get_positions":"POS"}
                 st.caption(" ".join(nm.get(t,t) for t in m["tools_used"]))
@@ -49,21 +45,10 @@ def render_ai_chat_page():
     if u := st.chat_input("..."):
         with st.chat_message("user"): st.write(u)
         with st.chat_message("assistant"):
-            with st.spinner("..."): st.write(ai.chat(u))
+            with st.spinner("..."): st.markdown(ai.chat(u))
             if ai.get_last_tools_used():
                 nm = {"get_stock_quote":"Q","get_technical_analysis":"TECH","get_scoring_result":"SCORE","get_market_snapshot":"MKT","get_news":"NEWS","get_positions":"POS"}
                 st.caption(" ".join(nm.get(t,t) for t in ai.get_last_tools_used()))
 
     if ai.get_history():
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            if st.button("清空"): ai.clear_history(); st.rerun()
-        with c2:
-            archives = ai.get_archived_files()
-            if archives:
-                names = [Path(a).name for a in archives]
-                sel = st.selectbox("存档", ["查看..."] + names, key="arch", label_visibility="collapsed")
-                if sel and sel != "查看...":
-                    idx = names.index(sel)
-                    with open(archives[idx], 'r', encoding='utf-8') as ff:
-                        st.download_button("下载", ff.read(), file_name=sel, key=f"dl_{sel[:8]}", use_container_width=True, type="secondary")
+        if st.button("清空"): ai.clear_history(); st.rerun()
