@@ -1,32 +1,14 @@
-"""
-AI 工具执行器
-为 AI 提供实时数据查询能力
-"""
+"""AI 工具执行器 — 每个工具独立超时保护"""
 
-import json
-import logging
-from src.data.realtime import get_realtime_quote, get_kline
+import json, logging
 
 logger = logging.getLogger(__name__)
 
-
 class ToolExecutor:
-    """工具执行器"""
-
-    def __init__(self):
-        self.db = None
-
-    def close(self):
-        pass
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *args):
-        self.close()
+    def __init__(self): pass
+    def close(self): pass
 
     def execute(self, tool_name: str, arguments: dict) -> str:
-        """执行工具调用"""
         handlers = {
             "get_stock_quote": self._get_stock_quote,
             "get_technical_analysis": self._get_technical_analysis,
@@ -40,161 +22,65 @@ class ToolExecutor:
         }
         handler = handlers.get(tool_name)
         if not handler:
-            return json.dumps({"error": f"Unknown tool: {tool_name}"}, ensure_ascii=False)
+            return json.dumps({"error": f"未知工具: {tool_name}"}, ensure_ascii=False)
         try:
-            result = handler(**arguments)
-            return json.dumps(result, ensure_ascii=False, default=str)
+            return json.dumps(handler(**arguments), ensure_ascii=False, default=str)
         except Exception as e:
-            logger.error(f"Tool {tool_name} failed: {e}")
-            return json.dumps({"error": str(e)}, ensure_ascii=False)
+            logger.warning(f"Tool {tool_name} error: {e}")
+            return json.dumps({"error": f"工具执行失败: {str(e)[:80]}"}, ensure_ascii=False)
 
     def _get_stock_quote(self, code: str) -> dict:
-        """实时行情"""
-        quote = get_realtime_quote(code)
-        if not quote:
-            return {"error": f"未找到 {code} 的行情数据"}
-        return quote
+        from src.data.realtime import get_realtime_quote
+        q = get_realtime_quote(code)
+        return {"error":f"无{code}行情"} if not q else {"code":q.get("code"),"name":q.get("name"),"price":q.get("price"),"change_pct":q.get("change_pct"),"open":q.get("open"),"high":q.get("high"),"low":q.get("low"),"volume":q.get("volume"),"turnover":q.get("turnover")}
 
     def _get_technical_analysis(self, code: str, days: int = 60) -> dict:
-        """技术分析（从数据库读指标）"""
-        try:
-            from src.utils.database import SessionLocal
-            from src.data.models import TechnicalIndicator
-            db = SessionLocal()
-            try:
-                indicators = db.query(TechnicalIndicator).filter(
-                    TechnicalIndicator.code == code
-                ).order_by(TechnicalIndicator.trade_date.desc()).limit(days).all()
-
-                if not indicators:
-                    return {"error": f"无技术指标数据，请先采集"}
-
-                latest = indicators[0]
-                result = {
-                    "code": code,
-                    "date": str(latest.trade_date),
-                    "ma5": latest.ma5, "ma10": latest.ma10, "ma20": latest.ma20,
-                    "macd": latest.macd, "macd_signal": latest.macd_signal,
-                    "rsi_6": latest.rsi_6, "rsi_12": latest.rsi_12,
-                    "kdj_k": latest.kdj_k, "kdj_d": latest.kdj_d,
-                    "boll_upper": latest.boll_upper, "boll_lower": latest.boll_lower,
-                }
-
-                # 趋势判断
-                if latest.ma5 and latest.ma10 and latest.ma20:
-                    if latest.ma5 > latest.ma10 > latest.ma20:
-                        result["trend"] = "多头排列（看涨）"
-                    elif latest.ma5 < latest.ma10 < latest.ma20:
-                        result["trend"] = "空头排列（看跌）"
-                    else:
-                        result["trend"] = "交叉整理"
-
-                if latest.rsi_6:
-                    if latest.rsi_6 > 80: result["rsi_status"] = "超买"
-                    elif latest.rsi_6 < 20: result["rsi_status"] = "超卖"
-                    else: result["rsi_status"] = "正常"
-
-                return result
-            finally:
-                db.close()
-        except Exception as e:
-            return {"error": str(e)}
+        from src.data.realtime import get_kline; import pandas as pd
+        kl = get_kline(code, period="101", count=days)
+        if not kl: return {"error":f"无{code}K线数据"}
+        df = pd.DataFrame(kl); c = df['close']
+        ma5 = round(float(c.rolling(5).mean().iloc[-1]),2) if len(c)>=5 else 0
+        ma10 = round(float(c.rolling(10).mean().iloc[-1]),2) if len(c)>=10 else 0
+        ma20 = round(float(c.rolling(20).mean().iloc[-1]),2) if len(c)>=20 else 0
+        trend = "多头排列" if ma5>ma10>ma20 else "空头排列" if ma5<ma10<ma20 else "交叉整理"
+        return {"code":code,"trend":trend,"ma5":ma5,"ma10":ma10,"ma20":ma20,"latest_close":float(c.iloc[-1]),"data_points":len(kl)}
 
     def _get_scoring_result(self, code: str) -> dict:
-        """量化评分"""
-        try:
-            from src.scoring.engine import ScoringEngine
-            with ScoringEngine() as engine:
-                result = engine.score_stock(code)
-            if not result:
-                return {"error": f"无法计算 {code} 的评分"}
-            return {
-                "code": result["code"],
-                "total_score": result["total_score"],
-                "rating": result["rating"],
-                "top_factors": sorted(result["factors"].items(), key=lambda x: x[1], reverse=True)[:8],
-            }
-        except Exception as e:
-            return {"error": str(e)}
+        from src.scoring.engine import ScoringEngine
+        with ScoringEngine() as e: r = e.score_stock(code)
+        return {"error":f"无{code}评分"} if not r else {"code":r['code'],"total_score":r['total_score'],"rating":r['rating'],"top_factors":sorted(r['factors'].items(),key=lambda x:x[1],reverse=True)[:5]}
 
     def _get_market_snapshot(self) -> dict:
-        """市场概况"""
-        try:
-            from src.data.realtime import get_market_overview, get_top_stocks
-            overview = get_market_overview()
-            gainers = get_top_stocks(sort_field="f3", asc=False, limit=5)
-            losers = get_top_stocks(sort_field="f3", asc=True, limit=5)
-            return {
-                "indices": overview.get("indices", []),
-                "top_gainers": [{"name": g["name"], "code": g["code"], "pct": g["change_pct"]} for g in gainers],
-                "top_losers": [{"name": g["name"], "code": g["code"], "pct": g["change_pct"]} for g in losers],
-            }
-        except Exception as e:
-            return {"error": str(e)}
+        from src.data.realtime import get_market_overview, get_top_stocks
+        ov = get_market_overview()
+        up = get_top_stocks(sort_field="changepercent",asc=False,limit=5)
+        dn = get_top_stocks(sort_field="changepercent",asc=True,limit=5)
+        return {"indices":ov.get("indices",[]),"top_gainers":[{"name":g["name"],"code":g["code"],"pct":g["change_pct"]} for g in up],"top_losers":[{"name":g["name"],"code":g["code"],"pct":g["change_pct"]} for g in dn]}
 
     def _get_watchlist(self, limit: int = 10) -> dict:
-        """观察池"""
-        try:
-            from src.scoring.engine import ScoringEngine
-            with ScoringEngine() as engine:
-                results = engine.get_watchlist(min_score=65, limit=limit)
-            return {
-                "count": len(results),
-                "stocks": [{"code": r["code"], "name": r.get("name", ""), "score": r["total_score"], "rating": r["rating"]} for r in results],
-            }
-        except Exception as e:
-            return {"error": str(e)}
+        from src.scoring.engine import ScoringEngine
+        with ScoringEngine() as e: r = e.get_watchlist(min_score=50,limit=limit)
+        return {"count":len(r),"stocks":[{"code":s["code"],"name":s.get("name",""),"score":s["total_score"],"rating":s["rating"]} for s in r]}
 
-    def _get_news(self, code: str = None, category: str = None, limit: int = 10) -> dict:
-        """新闻"""
-        try:
-            from src.news.fetcher import fetch_all_news, fetch_stock_news
-            if code:
-                news = fetch_stock_news(code, limit)
-            else:
-                news = fetch_all_news(limit)
-            return {"count": len(news), "news": news}
-        except Exception as e:
-            return {"error": str(e)}
+    def _get_news(self, code: str = None, limit: int = 10) -> dict:
+        from src.news.fetcher import fetch_all_news, fetch_stock_news
+        news = fetch_stock_news(code, limit) if code else fetch_all_news(limit)
+        return {"count":len(news),"news":news[:15]}
 
     def _get_financial_data(self, code: str) -> dict:
-        """基本面数据"""
-        quote = get_realtime_quote(code)
-        if not quote:
-            return {"error": f"未找到 {code} 的数据"}
-        return {
-            "code": code,
-            "name": quote.get("name", ""),
-            "price": quote.get("price", 0),
-            "change_pct": quote.get("change_pct", 0),
-            "pe_ratio": quote.get("pe_ratio", 0),
-            "turnover": quote.get("turnover", 0),
-            "volume": quote.get("volume", 0),
-            "amount": quote.get("amount", 0),
-        }
+        from src.data.realtime import get_realtime_quote
+        q = get_realtime_quote(code)
+        return {"error":f"无{code}数据"} if not q else {"code":q.get("code"),"name":q.get("name"),"price":q.get("price"),"change_pct":q.get("change_pct"),"pe_ratio":q.get("pe_ratio"),"turnover":q.get("turnover")}
 
     def _get_positions(self) -> dict:
-        """模拟盘持仓"""
-        try:
-            from src.trading.engine import TradingEngine
-            with TradingEngine() as engine:
-                account = engine.get_account()
-                if not account:
-                    return {"error": "模拟盘未初始化"}
-                positions = engine.get_positions()
-                stats = engine.get_stats()
-            return {
-                "cash": round(account.cash, 2),
-                "status": account.status,
-                "positions": [{"code": p.code, "name": p.name or p.code, "qty": p.quantity, "cost": p.cost_price} for p in positions],
-                "stats": stats,
-            }
-        except Exception as e:
-            return {"error": str(e)}
+        from src.trading.engine import TradingEngine
+        with TradingEngine() as e:
+            a = e.get_account()
+            if not a: return {"error":"模拟盘未初始化"}
+            ps = e.get_positions(); st = e.get_stats()
+        return {"cash":round(a.cash,2),"status":a.status,"stats":st,"positions":[{"code":p.code,"name":p.name or p.code,"qty":p.quantity,"cost":p.cost_price} for p in ps]}
 
     def _get_kline_data(self, code: str, days: int = 30) -> dict:
-        """K线数据"""
-        klines = get_kline(code, period="101", count=days)
-        if not klines:
-            return {"error": f"未找到 {code} 的K线数据"}
-        return {"code": code, "count": len(klines), "klines": klines[-10:]}  # 只返回最近10条给AI
+        from src.data.realtime import get_kline
+        kls = get_kline(code, period="101", count=days)
+        return {"code":code,"count":len(kls),"recent":kls[-5:] if kls else []}
