@@ -36,20 +36,20 @@ def render_market_page():
     st.caption(datetime.now().strftime("UPD %H:%M:%S"))
 
     t1,t2,t3,t4=st.tabs(["涨幅","跌幅","成交额","换手率"])
-    def _s(stocks):
+    def _s(stocks,prefix):
         if not stocks:st.info("暂无数据");return
         for i,s in enumerate(stocks):
             p=s.get("change_pct",0)or 0;cl=_c(p)
             nm=s.get("name")or s.get("code","");cd=s.get("code","")
             pr=s.get("price",0)or 0;am=_a(s.get("amount",0))
             st.markdown(f'<div class="sr"><div class="rk">{i+1}</div><div class="inf"><span class="nm">{nm}</span><span class="cd">{cd}</span></div><div class="pr" style="color:{cl}">¥{pr:.2f}</div><div class="ch" style="color:{cl}">{p:+.2f}%</div></div>',unsafe_allow_html=True)
-            if st.button(f"VIEW {cd}",key=f"s_{cd}_{i}"):
+            if st.button(f"VIEW {cd}",key=f"{prefix}{cd}_{i}"):
                 st.session_state["selected_stock"]=cd;st.session_state["current_page"]="stock_detail";st.rerun()
 
-    with t1:_s(get_top_stocks("f3",False,20))
-    with t2:_s(get_top_stocks("f3",True,20))
-    with t3:_s(get_top_stocks("f6",False,20))
-    with t4:_s(get_top_stocks("f8",False,20))
+    with t1:_s(get_top_stocks("f3",False,20),"up_")
+    with t2:_s(get_top_stocks("f3",True,20),"dn_")
+    with t3:_s(get_top_stocks("f6",False,20),"am_")
+    with t4:_s(get_top_stocks("f8",False,20),"tr_")
 
     st.markdown("---")
     st.markdown("## 快讯")
