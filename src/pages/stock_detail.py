@@ -113,7 +113,6 @@ def _score_detail(result):
             f'<div style="margin-top:4px">{sub}</div>'
             f'<div style="font-size:11px;color:#8B98A7;margin-top:3px">{d.explanation}</div></div>',
             unsafe_allow_html=True)
-    _summary_card(result)
 
 
 def _antiquant_detail(result):
