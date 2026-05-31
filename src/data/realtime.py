@@ -25,7 +25,9 @@ def _parse_gtimg(raw: str) -> Optional[Dict]:
         v = lambda i: float(p[i]) if p[i] else 0.0
         return {"code":p[2],"name":p[1],"price":v(3),"prev_close":v(4),"open":v(5),
                 "volume":int(v(6)),"amount":int(v(37))*10000,"high":v(33),"low":v(34),
-                "change_pct":v(32),"turnover":v(38),"pe_ratio":v(39)}
+                "change_pct":v(32),"turnover":v(38),"pe_ratio":v(39),
+                "volume_ratio":v(49),"amplitude":v(43),
+                "high_limit":v(47),"low_limit":v(48)}
     except: return None
 
 def get_realtime_quote(code: str) -> Optional[Dict]:

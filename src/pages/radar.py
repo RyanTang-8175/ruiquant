@@ -64,8 +64,15 @@ def render_radar_page():
             phase = "等待尾盘"
         st.info(f"尾盘时段 · {phase} · {now.strftime('%H:%M')}")
 
-    # ── 3. 两个Tab：风险 ｜ 机会 ──
-    tab1, tab2 = st.tabs(["规避风险", "策略机会"])
+    # ── 3. 推荐系统：先给可研究候选，再给风险解释 ──
+    _show_recommendations()
+
+    # ── 4. 三个Tab：推荐选股 ｜ 风险排除 ｜ 策略扫描 ──
+    tab0, tab1, tab2 = st.tabs(["推荐选股", "风险排除", "策略扫描"])
+
+    with tab0:
+        st.caption("按六维评分排序，反量化风险会自动扣分。这里不是买入指令，而是今日最值得研究的候选池。")
+        _show_recommendations(compact=False)
 
     with tab1:
         st.caption("触发了反量化风险信号的股票，参与前请三思")
@@ -114,7 +121,7 @@ def render_radar_page():
                             st.session_state["current_page"] = "stock_detail"
                             st.rerun()
                 else:
-                    st.success("当前未检测到显著风险股票")
+                    st.success("当前未检测到显著风险股票，但仍需结合机会评分与分时承接判断。")
             finally:
                 engine.close()
         except Exception as e:
@@ -128,6 +135,107 @@ def render_radar_page():
             _show_overnight()
         else:
             _show_continuation()
+
+
+def _show_recommendations(compact: bool = True):
+    title = "今日选股推荐" if compact else "六维评分候选"
+    st.markdown(
+        f'<div class="sec-h">{title}</div>'
+        f'<div class="page-kicker">机会分 = 热度 + 承接 + 题材 + 延续 + 策略匹配 - 反量化扣分</div>',
+        unsafe_allow_html=True,
+    )
+    try:
+        from src.data.realtime import get_top_stocks
+        from src.scoring.engine import V6ScoringEngine
+
+        # 推荐池不能只来自涨幅榜，否则会追高；成交额榜保证流动性，涨幅榜保证短线活跃。
+        raw = []
+        raw.extend(get_top_stocks(sort_field="amount", asc=False, limit=35) or [])
+        raw.extend(get_top_stocks(sort_field="changepercent", asc=False, limit=35) or [])
+        seen, stocks = set(), []
+        for s in raw:
+            cd = s.get("code", "")
+            if cd and cd not in seen:
+                seen.add(cd)
+                stocks.append(s)
+
+        engine = V6ScoringEngine()
+        try:
+            results = []
+            for s in stocks[:55]:
+                cd = s.get("code", "")
+                if not cd:
+                    continue
+                r = engine.score_stock(cd, quote=s)
+                if not r:
+                    continue
+                # 推荐系统保留“风险偏高”但降级展示；“不建议参与/已排除”不进入推荐池。
+                if r.status_label in ("不建议参与", "已排除"):
+                    continue
+                results.append((s, r))
+
+            results.sort(key=lambda x: x[1].total_score, reverse=True)
+            limit = 3 if compact else 12
+            if not results:
+                st.info("当前没有达到推荐阈值的股票。可以看「风险排除」了解市场主要问题，或降低筛选阈值。")
+                return
+
+            for s, r in results[:limit]:
+                _render_recommend_card(s, r, compact=compact)
+        finally:
+            engine.close()
+    except Exception as e:
+        st.warning(f"推荐系统暂不可用: {e}")
+
+
+def _render_recommend_card(stock: dict, result, compact: bool = True):
+    chg = stock.get("change_pct", 0)
+    chg_color = "var(--red)" if chg > 0 else "var(--green)" if chg < 0 else "var(--muted)"
+    risk = result.anti_quant.risk_level
+    risk_cls = "badge-high" if risk in ("高", "极高") else "badge-mid" if risk == "中" else "badge-low"
+    border = "var(--green)" if result.total_score >= 72 and risk in ("低", "中") else "var(--amber)" if result.total_score >= 60 else "var(--border)"
+    triggers = " · ".join(result.anti_quant.triggers[:2]) if result.anti_quant.triggers else "暂无显著反量化触发项"
+    strategies = " / ".join(result.matched_strategies[:2]) if result.matched_strategies else "综合短线"
+
+    st.markdown(
+        f'<div class="recommend-card" style="border-left:3px solid {border}">'
+        f'<div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start">'
+        f'<div style="flex:1;min-width:0">'
+        f'<div style="font-size:15px;font-weight:750;color:var(--text)">{result.name}'
+        f'<span style="font-family:var(--mono);font-size:11px;color:var(--muted);margin-left:7px">{result.code}</span></div>'
+        f'<div style="font-size:12px;color:var(--muted);margin-top:4px">{strategies} · {result.status_label}</div>'
+        f'</div>'
+        f'<div style="text-align:right;min-width:82px">'
+        f'<div style="font-family:var(--mono);font-size:18px;font-weight:800;color:var(--ai)">{result.total_score:.0f}</div>'
+        f'<div style="font-family:var(--mono);font-size:12px;color:{chg_color}">{chg:+.2f}%</div>'
+        f'</div></div>'
+        f'<div class="score-row">'
+        f'<span class="score-pill">热度 {result.heat.score:.0f}</span>'
+        f'<span class="score-pill">承接 {result.support.score:.0f}</span>'
+        f'<span class="score-pill">题材 {result.theme.score:.0f}</span>'
+        f'<span class="score-pill">延续 {result.continuation.score:.0f}</span>'
+        f'<span class="score-pill">策略 {result.strategy_match.score:.0f}</span>'
+        f'</div>'
+        f'<div style="display:flex;justify-content:space-between;align-items:center;margin-top:9px">'
+        f'<div style="font-size:12px;color:var(--muted);line-height:1.45">{triggers}</div>'
+        f'<span class="badge {risk_cls}">{risk}风险</span>'
+        f'</div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+    if not compact:
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("查看个股", key=f"rec_view_{result.code}", use_container_width=True):
+                st.session_state["selected_stock"] = result.code
+                st.session_state["current_page"] = "stock_detail"
+                st.rerun()
+        with c2:
+            if st.button("问 AI", key=f"rec_ai_{result.code}", use_container_width=True):
+                st.session_state["selected_stock"] = result.code
+                st.session_state["current_page"] = "ai_chat"
+                st.session_state["qq"] = f"请对 {result.code} 做短线风险审查和持股周期判断"
+                st.rerun()
 
 
 def _show_overnight():

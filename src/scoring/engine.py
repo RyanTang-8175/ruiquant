@@ -164,6 +164,18 @@ class V6ScoringEngine:
         if not quote or quote.get("price", 0) <= 0:
             return None
 
+        # 数据补全：Sina API 缺少 volume_ratio/open/high/low，从腾讯补
+        if quote.get("volume_ratio", 0) <= 0:
+            try:
+                from src.data.realtime import get_realtime_quote
+                full = get_realtime_quote(code)
+                if full:
+                    for k in ("volume_ratio", "pre_close", "open", "high", "low"):
+                        if not quote.get(k) and full.get(k):
+                            quote[k] = full[k]
+            except Exception:
+                pass
+
         if intraday_bars is None and self.provider:
             intraday_bars = self.provider.get_intraday_bars(code)
         if daily_bars is None and self.provider:
