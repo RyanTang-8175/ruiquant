@@ -146,16 +146,18 @@ def _show_recommendations(compact: bool = True):
     filter_options = ["综合"] + [f"行业 · {k}" for k in SW_INDUSTRY] + [f"概念 · {k}" for k in CONCEPTS]
     default_idx = 0
     # 记住用户上次选择
-    if "radar_filter_idx" not in st.session_state:
-        st.session_state["radar_filter_idx"] = 0
+    idx_key = "radar_filter_idx"
+    if idx_key not in st.session_state:
+        st.session_state[idx_key] = 0
 
+    skey = f"radar_filter_{'compact' if compact else 'full'}"
     selected = st.selectbox(
         "筛选", filter_options,
-        index=st.session_state["radar_filter_idx"],
-        key="radar_filter_select",
+        index=st.session_state[idx_key],
+        key=skey,
         label_visibility="collapsed",
     )
-    st.session_state["radar_filter_idx"] = filter_options.index(selected)
+    st.session_state[idx_key] = filter_options.index(selected)
 
     # 解析筛选
     filter_type = "all"          # all / industry / concept
