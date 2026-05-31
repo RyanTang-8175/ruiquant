@@ -1,66 +1,154 @@
-"""股票详情 - Industrial"""
+"""移动端个股作战卡"""
+
+from __future__ import annotations
 
 import streamlit as st
-import pandas as pd
-from src.data.realtime import get_realtime_quote, get_kline
-from src.scoring.engine import ScoringEngine
-try:import plotly.graph_objects as go;from plotly.subplots import make_subplots;HAS_PLOTLY=True
-except:HAS_PLOTLY=False
 
-def _c(v):
-    v=v or 0
-    if v>0:return"#FF3B30"
-    if v<0:return"#00D26A"
-    return"#888"
+from src.data.realtime import get_kline, get_realtime_quote
+from src.scoring.engine import V6ScoringEngine
 
-def render_stock_detail_page(code=None):
-    if not code:code=st.session_state.get("selected_stock","")
-    if not code:st.warning("SEL STOCK");return
-    q=get_realtime_quote(code)
-    if not q:st.error(f"NO DATA {code}");return
-    nm,pr,pct=q.get("name",code),q.get("price",0),q.get("change_pct",0)
-    cl=_c(pct);sg="+"if pct>0 else""
-    st.markdown(f'<div style="display:flex;justify-content:space-between;align-items:baseline;padding:.5rem 0;"><div><span style="font-size:1.4rem;font-weight:700;color:#E8E8E5;">{nm}</span><span style="color:#6B6C68;margin-left:.5rem;font-family:JetBrains Mono,monospace;font-size:.85rem;">{code}</span></div><div style="text-align:right;"><span style="font-size:1.8rem;font-weight:700;color:{cl};font-family:JetBrains Mono,monospace;">¥{pr:.2f}</span><span style="color:{cl};font-size:1rem;font-family:JetBrains Mono,monospace;margin-left:.5rem;">{sg}{pct:.2f}%</span></div></div>',unsafe_allow_html=True)
-    mm=st.columns(6)
-    mm[0].metric("OPEN",f"{q.get('open',0):.2f}",border=True)
-    mm[1].metric("HIGH",f"{q.get('high',0):.2f}",border=True)
-    mm[2].metric("LOW",f"{q.get('low',0):.2f}",border=True)
-    mm[3].metric("VOL",f"{q.get('volume',0)/10000:.0f}万",border=True)
-    mm[4].metric("AMT",f"{q.get('amount',0)/1e8:.1f}亿",border=True)
-    mm[5].metric("TURN",f"{q.get('turnover',0):.2f}%",border=True)
-    st.markdown("---");st.markdown("## K LINE")
-    pm={"1M":"1","5M":"5","15M":"15","30M":"30","60M":"60","D":"101","W":"102"}
-    sl=st.radio("",list(pm.keys()),horizontal=True,key="kp")
-    kl=get_kline(code,period=pm[sl],count=120)
-    if kl and HAS_PLOTLY:
-        df=pd.DataFrame(kl);fig=make_subplots(rows=2,cols=1,shared_xaxes=True,vertical_spacing=.02,row_heights=[.78,.22])
-        fig.add_trace(go.Candlestick(x=df["date"],open=df["open"],high=df["high"],low=df["low"],close=df["close"],increasing_line_color="#FF3B30",decreasing_line_color="#00D26A",increasing_fillcolor="rgba(255,59,48,.4)",decreasing_fillcolor="rgba(0,210,106,.4)"),row=1,col=1)
-        for ma,clr in[(5,"#FFB800"),(10,"#3399FF"),(20,"#B050E0")]:
-            if len(df)>=ma:fig.add_trace(go.Scatter(x=df["date"],y=df["close"].rolling(ma).mean(),name=f"MA{ma}",line=dict(color=clr,width=1)),row=1,col=1)
-        colors=["#FF3B30"if c>=o else"#00D26A"for c,o in zip(df["close"].fillna(0),df["open"].fillna(0))]
-        fig.add_trace(go.Bar(x=df["date"],y=df["volume"],marker_color=colors),row=2,col=1)
-        fig.update_layout(template="plotly_dark",paper_bgcolor="#0B0C0A",plot_bgcolor="#0B0C0A",height=450,margin=dict(l=0,r=0,t=10,b=0),showlegend=False,xaxis=dict(gridcolor="#2A2B26"),yaxis=dict(gridcolor="#2A2B26"),xaxis2=dict(gridcolor="#2A2B26"),yaxis2=dict(gridcolor="#2A2B26"))
-        st.plotly_chart(fig,use_container_width=True)
-    st.markdown("---");st.markdown("## SCORE")
+
+def render_stock_detail_page(code: str | None = None):
+    code = code or st.session_state.get("selected_stock", "")
+    if not code:
+        st.warning("请先选择股票")
+        _back_button()
+        return
+
+    quote = get_realtime_quote(code)
+    if not quote:
+        st.error(f"暂时无法获取 {code} 的实时行情。请稍后刷新，或回到雷达页重新选择。")
+        _back_button()
+        return
+
+    result = _score_stock(code, quote)
+    _render_header(code, quote, result)
+    _render_quote_metrics(quote)
+    _render_score_card(result)
+    _render_kline_summary(code)
+    _render_ai_actions(code, quote, result)
+    _back_button()
+
+
+def _score_stock(code: str, quote: dict):
     try:
-        with ScoringEngine()as e:r=e.score_stock(code)
-        if r:
-            rc={"强关注":"#FF3B30","观察":"#3399FF","中性":"#FFB800","不追":"#555"}.get(r["rating"],"#888")
-            st.markdown(f'<div style="text-align:center;padding:1rem;background:#131510;border:1px solid #2A2B26;"><div style="font-size:2.5rem;font-weight:700;color:{rc};font-family:JetBrains Mono,monospace;">{r["total_score"]:.0f}</div><div style="color:#6B6C68;font-family:JetBrains Mono,monospace;font-size:.7rem;">SCORE</div><div style="margin-top:.4rem;"><span style="background:{rc};color:#fff;padding:2px 12px;font-family:JetBrains Mono,monospace;font-size:.75rem;">{r["rating"]}</span></div></div>',unsafe_allow_html=True)
-            fn={"short_term_reversal":"REV","turnover_rate":"TURN","volume_ratio":"VOL","trend":"TREND","rsi":"RSI","macd":"MACD","kdj":"KDJ","kline_pattern":"K","idio_volatility":"IVOL","blast_rate":"BLAST","limit_up_streak":"LIMIT","market_temperature":"TEMP","boll_position":"BOLL"}
-            sf=sorted(r["factors"].items(),key=lambda x:x[1],reverse=True);cc=st.columns(3)
-            for i,(k,v)in enumerate(sf[:18]):
-                n=fn.get(k,k);bc="#FF3B30"if v>=70 else"#FFB800"if v>=50 else"#00D26A"
-                with cc[i%3]:st.markdown(f'<div style="padding:.35rem .5rem;background:#131510;border:1px solid #2A2B26;margin-bottom:.2rem;"><div style="display:flex;justify-content:space-between;"><span style="color:#6B6C68;font-family:JetBrains Mono,monospace;font-size:.65rem;">{n}</span><span style="color:{bc};font-family:JetBrains Mono,monospace;font-weight:700;font-size:.75rem;">{v:.0f}</span></div><div style="background:#0B0C0A;height:2px;margin-top:.15rem;"><div style="background:{bc};height:100%;width:{min(100,v)}%;"></div></div></div>',unsafe_allow_html=True)
-    except Exception as ex:st.warning(f"ERR: {ex}")
-    st.markdown("---");st.markdown("## AI")
-    ctx=st.text_area("",placeholder="持仓信息...",key="ctx",label_visibility="collapsed")
-    if st.button("ANALYZE",key="ab",type="primary",use_container_width=True):
-        try:
-            from src.ai.chat import AIChat;ai=AIChat()
-            pmt=f"分析 {nm}({code}) ¥{pr} {sg}{pct:.2f}%。"
-            if r:pmt+=f"评分{r['total_score']:.0f} {r['rating']}。"
-            if ctx:pmt+=f"\n{ctx}"
-            with st.spinner("..."):st.markdown(ai.chat(pmt))
-        except Exception as e:st.error(f"{e}")
-    if st.button("BACK",key="bk"):st.session_state["current_page"]="market";st.rerun()
+        with V6ScoringEngine() as engine:
+            return engine.score_stock(code, quote=quote)
+    except Exception as exc:
+        st.warning(f"六维评分暂不可用：{exc}")
+        return None
+
+
+def _render_header(code: str, quote: dict, result):
+    name = quote.get("name", code)
+    price = quote.get("price", 0) or 0
+    pct = quote.get("change_pct", 0) or 0
+    color = "var(--red)" if pct > 0 else "var(--green)" if pct < 0 else "var(--muted)"
+    status = result.status_label if result else "待评分"
+    risk = result.anti_quant.risk_level if result else "未知"
+
+    st.markdown(
+        '<div class="soft-card">'
+        '<div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start">'
+        '<div style="min-width:0;flex:1">'
+        f'<div style="font-size:20px;font-weight:850;color:var(--text)">{name}</div>'
+        f'<div style="font-family:var(--mono);font-size:12px;color:var(--muted);margin-top:2px">{code}</div>'
+        f'<div style="margin-top:8px"><span class="badge badge-ai">{status}</span> '
+        f'<span class="badge {"badge-high" if risk in ("高", "极高") else "badge-mid" if risk == "中" else "badge-low"}">{risk}风险</span></div>'
+        '</div>'
+        '<div style="text-align:right;min-width:112px">'
+        f'<div style="font-family:var(--mono);font-size:26px;font-weight:900;color:{color}">{price:.2f}</div>'
+        f'<div style="font-family:var(--mono);font-size:14px;font-weight:750;color:{color}">{pct:+.2f}%</div>'
+        '</div>'
+        '</div></div>',
+        unsafe_allow_html=True,
+    )
+
+
+def _render_quote_metrics(quote: dict):
+    items = [
+        ("开盘", f"{quote.get('open', 0) or 0:.2f}"),
+        ("最高", f"{quote.get('high', 0) or 0:.2f}"),
+        ("最低", f"{quote.get('low', 0) or 0:.2f}"),
+        ("换手", f"{quote.get('turnover', 0) or 0:.2f}%"),
+        ("成交额", f"{(quote.get('amount', 0) or 0) / 1e8:.1f}亿"),
+        ("量比", f"{quote.get('volume_ratio', 0) or 0:.2f}"),
+    ]
+    cols = st.columns(3)
+    for index, (label, value) in enumerate(items):
+        with cols[index % 3]:
+            st.metric(label, value)
+
+
+def _render_score_card(result):
+    if not result:
+        st.info("暂无六维评分。")
+        return
+
+    triggers = " · ".join(result.anti_quant.triggers[:3]) if result.anti_quant.triggers else "暂无显著反量化触发项"
+    st.markdown(
+        '<div class="recommend-card">'
+        '<div style="display:flex;justify-content:space-between;align-items:center">'
+        '<div>'
+        '<div style="font-size:15px;font-weight:800;color:var(--text)">六维短线评分</div>'
+        f'<div style="font-size:12px;color:var(--muted);margin-top:3px">{triggers}</div>'
+        '</div>'
+        f'<div style="font-family:var(--mono);font-size:28px;font-weight:900;color:var(--ai)">{result.total_score:.0f}</div>'
+        '</div>'
+        '<div class="score-row">'
+        f'<span class="score-pill">热度 {result.heat.score:.0f}</span>'
+        f'<span class="score-pill">承接 {result.support.score:.0f}</span>'
+        f'<span class="score-pill">题材 {result.theme.score:.0f}</span>'
+        f'<span class="score-pill">延续 {result.continuation.score:.0f}</span>'
+        f'<span class="score-pill">策略 {result.strategy_match.score:.0f}</span>'
+        f'<span class="score-pill">反量化 {result.anti_quant.total_risk:.0f}</span>'
+        '</div></div>',
+        unsafe_allow_html=True,
+    )
+
+
+def _render_kline_summary(code: str):
+    st.markdown('<div class="ai-section-title">走势概览</div>', unsafe_allow_html=True)
+    try:
+        kline = get_kline(code, period="101", count=30)
+    except Exception:
+        kline = []
+    if not kline:
+        st.info("K 线数据暂不可用。")
+        return
+
+    last = kline[-1]
+    st.markdown(
+        '<div class="soft-card">'
+        f'<div style="font-size:13px;color:var(--muted)">最近交易日：{last.get("date", "")}</div>'
+        f'<div class="score-row">'
+        f'<span class="score-pill">开 {float(last.get("open", 0)):.2f}</span>'
+        f'<span class="score-pill">高 {float(last.get("high", 0)):.2f}</span>'
+        f'<span class="score-pill">低 {float(last.get("low", 0)):.2f}</span>'
+        f'<span class="score-pill">收 {float(last.get("close", 0)):.2f}</span>'
+        f'</div></div>',
+        unsafe_allow_html=True,
+    )
+
+
+def _render_ai_actions(code: str, quote: dict, result):
+    st.markdown('<div class="ai-section-title">AI 操作</div>', unsafe_allow_html=True)
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("问 AI 风险", use_container_width=True, type="primary"):
+            st.session_state["selected_stock"] = code
+            st.session_state["qq"] = f"请审查 {quote.get('name', code)}({code}) 的短线风险、反量化风险、参与条件和放弃条件。"
+            st.session_state["current_page"] = "ai_chat"
+            st.rerun()
+    with c2:
+        if st.button("持股预测", use_container_width=True):
+            st.session_state["selected_stock"] = code
+            st.session_state["qq"] = f"请判断 {quote.get('name', code)}({code}) 适合隔夜、1-2天还是2-3天短持。"
+            st.session_state["current_page"] = "ai_chat"
+            st.rerun()
+
+
+def _back_button():
+    if st.button("返回雷达", key="stock_detail_back", use_container_width=True):
+        st.session_state["current_page"] = "radar"
+        st.rerun()

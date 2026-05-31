@@ -37,6 +37,13 @@ class ScoringEngine:
         try: self.db.close()
         except: pass
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self.close()
+        return False
+
     def quick_score(self, q: dict) -> dict:
         p = q.get("price", 0); o = q.get("open", 0)
         h = q.get("high", 0); l = q.get("low", 0)
@@ -149,6 +156,13 @@ class V6ScoringEngine:
     def close(self):
         try: self.db.close()
         except: pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self.close()
+        return False
 
     def score_stock(self, code: str, quote: dict = None,
                     intraday_bars: list = None,

@@ -46,9 +46,28 @@ class ToolExecutor:
         return {"code":code,"trend":trend,"ma5":ma5,"ma10":ma10,"ma20":ma20,"latest_close":float(c.iloc[-1]),"data_points":len(kl)}
 
     def _get_scoring_result(self, code: str) -> dict:
-        from src.scoring.engine import ScoringEngine
-        with ScoringEngine() as e: r = e.score_stock(code)
-        return {"error":f"无{code}评分"} if not r else {"code":r['code'],"total_score":r['total_score'],"rating":r['rating'],"top_factors":sorted(r['factors'].items(),key=lambda x:x[1],reverse=True)[:5]}
+        from src.scoring.engine import V6ScoringEngine
+        with V6ScoringEngine() as e:
+            r = e.score_stock(code)
+        if not r:
+            return {"error": f"无{code}评分"}
+        d = r.to_dict()
+        return {
+            "code": d["code"],
+            "name": d.get("name", ""),
+            "total_score": d["total_score"],
+            "status_label": d["status_label"],
+            "risk_level": d["risk_level"],
+            "dimensions": {
+                "heat": d["heat"]["score"],
+                "support": d["support"]["score"],
+                "theme": d["theme"]["score"],
+                "continuation": d["continuation"]["score"],
+                "strategy_match": d["strategy_match"]["score"],
+            },
+            "anti_quant": d["anti_quant"],
+            "matched_strategies": d.get("matched_strategies", []),
+        }
 
     def _get_market_snapshot(self) -> dict:
         from src.data.realtime import get_market_overview, get_top_stocks
@@ -58,9 +77,23 @@ class ToolExecutor:
         return {"indices":ov.get("indices",[]),"top_gainers":[{"name":g["name"],"code":g["code"],"pct":g["change_pct"]} for g in up],"top_losers":[{"name":g["name"],"code":g["code"],"pct":g["change_pct"]} for g in dn]}
 
     def _get_watchlist(self, limit: int = 10) -> dict:
-        from src.scoring.engine import ScoringEngine
-        with ScoringEngine() as e: r = e.get_watchlist(min_score=50,limit=limit)
-        return {"count":len(r),"stocks":[{"code":s["code"],"name":s.get("name",""),"score":s["total_score"],"rating":s["rating"]} for s in r]}
+        from src.scoring.engine import V6ScoringEngine
+        with V6ScoringEngine() as e:
+            r = e.get_watchlist_v6(min_score=45, limit=limit)
+        return {
+            "count": len(r),
+            "stocks": [
+                {
+                    "code": s["code"],
+                    "name": s.get("name", ""),
+                    "score": s["total_score"],
+                    "status": s.get("status_label", ""),
+                    "risk": s.get("risk_level", ""),
+                    "anti_quant": s.get("anti_quant", {}),
+                }
+                for s in r
+            ],
+        }
 
     def _get_news(self, code: str = None, limit: int = 10) -> dict:
         from src.news.fetcher import fetch_all_news, fetch_stock_news
