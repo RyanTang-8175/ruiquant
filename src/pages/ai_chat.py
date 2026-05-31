@@ -186,7 +186,9 @@ def _render_dialog(ai: AIChat, history: list):
     if not history:
         return
 
-    for item in history[-6:]:
+    start_index = max(0, len(history) - 6)
+    for offset, item in enumerate(history[-6:]):
+        history_index = start_index + offset
         question = html.escape(str(item.get("question", "")))
         answer = _answer_to_html(str(item.get("answer", "")))
         st.markdown(f'<div class="chat-msg-user">{question}</div>', unsafe_allow_html=True)
@@ -197,6 +199,9 @@ def _render_dialog(ai: AIChat, history: list):
                 f'<div class="chat-tools">工具：{html.escape(_tool_names(tools))}</div>',
                 unsafe_allow_html=True,
             )
+        if st.button("删除这条", key=f"delete_ai_msg_{history_index}", use_container_width=True):
+            ai.delete_history_item(history_index)
+            st.rerun()
 
 
 def _render_input(ai: AIChat):
@@ -225,7 +230,8 @@ def _render_footer_actions(ai: AIChat, history: list):
 def _with_context(text: str) -> str:
     stock_code = _extract_code(text) or st.session_state.get("selected_stock", "")
     if not stock_code:
-        return text
+        group_context = _build_group_context(text)
+        return f"{text}\n\n[系统已注入行业/概念候选上下文]\n{group_context}" if group_context else text
     try:
         from src.scoring.engine import V6ScoringEngine
 
@@ -237,6 +243,85 @@ def _with_context(text: str) -> str:
         return f"{text}\n\n[系统已注入股票上下文]\n{context}"
     except Exception:
         return text
+
+
+def _build_group_context(text: str) -> str:
+    """为“我有1万块，想买电力或半导体”这类问题注入本地股票池和评分结果。"""
+    from src.data.stock_list import CONCEPTS, SW_INDUSTRY
+
+    groups = []
+    normalized = text.replace("，", " ").replace("、", " ").replace("/", " ")
+    for name, codes in SW_INDUSTRY.items():
+        if name in normalized:
+            groups.append(("行业", name, codes))
+    for name, codes in CONCEPTS.items():
+        if name in normalized:
+            groups.append(("概念", name, codes))
+
+    # 用户常用表达映射。
+    aliases = {
+        "半导体": ("概念", "半导体芯片", CONCEPTS.get("半导体芯片", [])),
+        "芯片": ("概念", "半导体芯片", CONCEPTS.get("半导体芯片", [])),
+        "电力行业": ("行业", "公用事业", SW_INDUSTRY.get("公用事业", [])),
+        "电力": ("概念", "电力", CONCEPTS.get("电力", [])),
+    }
+    for alias, group in aliases.items():
+        if alias in normalized and group[2]:
+            groups.append(group)
+
+    dedup = []
+    seen_names = set()
+    for group in groups:
+        key = (group[0], group[1])
+        if key not in seen_names:
+            seen_names.add(key)
+            dedup.append(group)
+    groups = dedup[:4]
+    if not groups:
+        return ""
+
+    try:
+        from src.data.realtime import get_realtime_quote
+        from src.scoring.engine import V6ScoringEngine
+
+        engine = V6ScoringEngine()
+        lines = [
+            "用户问题是行业/概念选股，不要要求用户必须给单只股票代码。",
+            "请基于以下本地股票池候选，给出短线研究候选、风险提示和仓位纪律。",
+            "用户资金约 1 万元时，应强调分批、轻仓、验证，不要建议满仓。",
+        ]
+        try:
+            for kind, name, codes in groups:
+                scored = []
+                for code in codes[:10]:
+                    q = get_realtime_quote(code)
+                    if not q:
+                        continue
+                    r = engine.score_stock(code, quote=q)
+                    if not r:
+                        continue
+                    scored.append((r.total_score, q, r))
+                scored.sort(key=lambda x: x[0], reverse=True)
+                lines.append(f"\n{kind}：{name}")
+                for _, q, r in scored[:5]:
+                    triggers = "、".join(r.anti_quant.triggers[:2]) if r.anti_quant.triggers else "无明显触发"
+                    lines.append(
+                        f"- {q.get('name', r.code)}({r.code})：机会分{r.total_score:.0f}，"
+                        f"涨幅{q.get('change_pct', 0):+.2f}%，状态{r.status_label}，"
+                        f"反量化{r.anti_quant.risk_level}，风险触发：{triggers}"
+                    )
+                if not scored:
+                    lines.append("- 实时行情暂不可用，静态候选池：" + "、".join(codes[:10]))
+        finally:
+            engine.close()
+        return "\n".join(lines)
+    except Exception:
+        # 本地数据失败时也给模型明确任务，避免输出“请分析贵州茅台”这种兜底。
+        names = "、".join(f"{kind}:{name}" for kind, name, _ in groups)
+        return (
+            f"用户在问行业/概念选股：{names}。即使实时评分暂不可用，也应解释筛选框架，"
+            "给出需要去雷达页按行业/概念查看的候选方向和风险条件，不要要求用户换成单只股票。"
+        )
 
 
 def _extract_code(text: str) -> str:

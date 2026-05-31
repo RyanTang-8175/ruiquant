@@ -143,46 +143,50 @@ def _show_recommendations(compact: bool = True):
     # -- 筛选器：综合 / 行业 / 概念，分开维护状态，避免选中具体行业后丢失分类 --
     from src.data.stock_list import SW_INDUSTRY, CONCEPTS
 
-    suffix = "c" if compact else "f"
-    mode_key = f"radar_filter_mode_{suffix}"
-    industry_key = f"radar_filter_industry_{suffix}"
-    concept_key = f"radar_filter_concept_{suffix}"
+    mode_key = "radar_filter_mode"
+    industry_key = "radar_filter_industry"
+    concept_key = "radar_filter_concept"
     st.session_state.setdefault(mode_key, "综合")
     st.session_state.setdefault(industry_key, list(SW_INDUSTRY.keys())[0])
     st.session_state.setdefault(concept_key, list(CONCEPTS.keys())[0])
 
-    c1, c2, c3 = st.columns(3)
-    for label, col in [("综合", c1), ("行业", c2), ("概念", c3)]:
-        with col:
-            if st.button(
-                label,
-                key=f"radar_mode_{suffix}_{label}",
-                use_container_width=True,
-                type="primary" if st.session_state[mode_key] == label else "secondary",
-            ):
-                st.session_state[mode_key] = label
-                st.rerun()
+    if not compact:
+        c1, c2, c3 = st.columns(3)
+        for label, col in [("综合", c1), ("行业", c2), ("概念", c3)]:
+            with col:
+                if st.button(
+                    label,
+                    key=f"radar_mode_{label}",
+                    use_container_width=True,
+                    type="primary" if st.session_state[mode_key] == label else "secondary",
+                ):
+                    st.session_state[mode_key] = label
+                    st.rerun()
 
     mode = st.session_state[mode_key]
     filter_type, filter_key, filter_label = "all", "", "综合"
     if mode == "行业":
-        selected = st.selectbox(
-            "选择行业",
-            list(SW_INDUSTRY.keys()),
-            index=list(SW_INDUSTRY.keys()).index(st.session_state[industry_key]),
-            key=f"industry_select_{suffix}",
-            label_visibility="collapsed",
-        )
+        selected = st.session_state[industry_key]
+        if not compact:
+            selected = st.selectbox(
+                "选择行业",
+                list(SW_INDUSTRY.keys()),
+                index=list(SW_INDUSTRY.keys()).index(st.session_state[industry_key]),
+                key="industry_select",
+                label_visibility="collapsed",
+            )
         st.session_state[industry_key] = selected
         filter_type, filter_key, filter_label = "industry", selected, selected
     elif mode == "概念":
-        selected = st.selectbox(
-            "选择概念",
-            list(CONCEPTS.keys()),
-            index=list(CONCEPTS.keys()).index(st.session_state[concept_key]),
-            key=f"concept_select_{suffix}",
-            label_visibility="collapsed",
-        )
+        selected = st.session_state[concept_key]
+        if not compact:
+            selected = st.selectbox(
+                "选择概念",
+                list(CONCEPTS.keys()),
+                index=list(CONCEPTS.keys()).index(st.session_state[concept_key]),
+                key="concept_select",
+                label_visibility="collapsed",
+            )
         st.session_state[concept_key] = selected
         filter_type, filter_key, filter_label = "concept", selected, selected
 
@@ -214,13 +218,11 @@ def _show_recommendations(compact: bool = True):
         else:
             target_codes = None  # 综合：无限制
 
-        # 如果选了行业/概念，额外拉取该板块的股票行情
+        # 如果选了行业/概念，严格只从该板块代码池取行情，避免显示不属于该分类的股票。
         if target_codes:
             from src.data.realtime import get_realtime_quote
             extra = []
             for cd in target_codes:
-                if cd in seen:
-                    continue
                 q = get_realtime_quote(cd)  # 走腾讯API，有 volume_ratio
                 if q:
                     extra.append({"code": cd, "name": q.get("name", cd),
@@ -234,8 +236,7 @@ def _show_recommendations(compact: bool = True):
                                   "low": q.get("low", 0),
                                   "volume_ratio": q.get("volume_ratio", 1.0),
                                   })
-                seen.add(cd)
-            stocks = extra + stocks
+            stocks = extra
             if not stocks:
                 st.info(f"{filter_label} 暂无可用行情数据")
                 return
@@ -260,7 +261,7 @@ def _show_recommendations(compact: bool = True):
                 st.info(f"{filter_label} 当前没有达到推荐阈值的股票")
                 return
 
-            st.caption(f"共 {len(results)} 只，显示前 {min(limit, len(results))} 只")
+            st.caption(f"{filter_label} 股票池共 {len(stocks)} 只，达标 {len(results)} 只，显示前 {min(limit, len(results))} 只")
             for s, r in results[:limit]:
                 _render_recommend_card(s, r, compact=compact)
         finally:

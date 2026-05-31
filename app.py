@@ -395,6 +395,7 @@ TABS = [
     ("profile", "我的", "⚙"),
 ]
 cur = st.session_state["current_page"]
+st.session_state.setdefault("_last_page", cur)
 
 cols = st.columns(len(TABS))
 for i, (pid, label, icon) in enumerate(TABS):
@@ -405,7 +406,11 @@ for i, (pid, label, icon) in enumerate(TABS):
             use_container_width=True,
             type="primary" if is_cur else "secondary",
         ):
+            if st.session_state.get("_last_page") == "ai_chat" and pid != "ai_chat":
+                st.session_state.pop("qq", None)
+                st.session_state.pop("ai_pending_prompt", None)
             st.session_state["current_page"] = pid
+            st.session_state["_last_page"] = pid
             st.rerun()
 
 # ═══════════════════════════════════════════

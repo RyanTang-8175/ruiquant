@@ -259,6 +259,17 @@ class AIChat:
         except Exception as e:
             logger.warning(f"保存对话失败: {e}")
 
+    def delete_history_item(self, index: int) -> bool:
+        """删除单条对话记录"""
+        try:
+            if 0 <= index < len(self.history):
+                self.history.pop(index)
+                self.save_to_disk()
+                return True
+        except Exception as e:
+            logger.warning(f"删除对话失败: {e}")
+        return False
+
     def load_from_disk(self):
         """从文件恢复对话"""
         try:
