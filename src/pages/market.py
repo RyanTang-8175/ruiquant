@@ -44,6 +44,7 @@ def render_market_page():
 
     # ── 四大榜单 ──
     t1, t2, t3, t4 = st.tabs(["涨幅榜", "跌幅榜", "成交额", "换手率"])
+    titles = ["涨幅榜", "跌幅榜", "成交额", "换手率"]
 
     def _stock_list(stocks, prefix):
         if not stocks:

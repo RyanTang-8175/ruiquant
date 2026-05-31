@@ -140,32 +140,64 @@ def render_radar_page():
 def _show_recommendations(compact: bool = True):
     title = "今日选股推荐" if compact else "六维评分候选"
 
-    # -- 筛选器：综合 / 行业 / 概念 --
+    # -- 筛选器：chip 标签横向排列 --
     from src.data.stock_list import SW_INDUSTRY, CONCEPTS
 
-    filter_options = ["综合"] + [f"行业 · {k}" for k in SW_INDUSTRY] + [f"概念 · {k}" for k in CONCEPTS]
-    default_idx = 0
-    # 记住用户上次选择
-    idx_key = "radar_filter_idx"
-    if idx_key not in st.session_state:
-        st.session_state[idx_key] = 0
+    group_opts = ["综合"]
+    group_opts += list(SW_INDUSTRY.keys())
+    group_opts += list(CONCEPTS.keys())
 
-    skey = f"radar_filter_{'compact' if compact else 'full'}"
-    selected = st.selectbox(
-        "筛选", filter_options,
-        index=st.session_state[idx_key],
-        key=skey,
-        label_visibility="collapsed",
-    )
-    st.session_state[idx_key] = filter_options.index(selected)
+    chip_key = f"radar_chip_{'c' if compact else 'f'}"
+    if chip_key not in st.session_state:
+        st.session_state[chip_key] = "综合"
 
-    # 解析筛选
-    filter_type = "all"          # all / industry / concept
+    # 第一行：固定分类
+    cats = ["综合", "行业", "概念"]
+    c1, c2, c3 = st.columns(3)
+    for ci, col in enumerate([c1, c2, c3]):
+        with col:
+            is_active = st.session_state.get(chip_key) == cats[ci]
+            if st.button(
+                cats[ci], key=f"chip_cat_{cats[ci]}_{'c' if compact else 'f'}",
+                use_container_width=True,
+                type="primary" if is_active else "secondary",
+            ):
+                st.session_state[chip_key] = cats[ci]
+                st.rerun()
+
+    # 第二行：按分类显示具体选项
+    current_cat = st.session_state.get(chip_key, "综合")
+    if current_cat == "综合":
+        show_opts = ["综合"]
+    elif current_cat == "行业":
+        show_opts = list(SW_INDUSTRY.keys())[:12]
+    else:
+        show_opts = list(CONCEPTS.keys())[:12]
+
+    # chip 行
+    chip_cols = st.columns(min(len(show_opts), 4))
+    selected_chip = current_cat if current_cat in ("行业", "概念") else "综合"
+    for i, opt in enumerate(show_opts):
+        with chip_cols[i % 4]:
+            is_sel = st.session_state[chip_key] == opt
+            if st.button(
+                opt, key=f"chip_{opt}_{'c' if compact else 'f'}",
+                use_container_width=True,
+                type="primary" if is_sel else "secondary",
+            ):
+                st.session_state[chip_key] = opt
+                st.rerun()
+            selected_chip = opt if is_sel else selected_chip
+
+    selected = st.session_state.get(chip_key, "综合")
+
+    # 解析
+    filter_type = "all"
     filter_key = ""
-    if selected.startswith("行业 · "):
-        filter_type, filter_key = "industry", selected[5:]
-    elif selected.startswith("概念 · "):
-        filter_type, filter_key = "concept", selected[5:]
+    if selected in SW_INDUSTRY:
+        filter_type, filter_key = "industry", selected
+    elif selected in CONCEPTS:
+        filter_type, filter_key = "concept", selected
 
     filter_label = selected
 

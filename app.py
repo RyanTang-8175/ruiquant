@@ -26,6 +26,10 @@ st.markdown("""<style>
 }
 * { font-family: var(--sans); box-sizing: border-box; }
 .stApp { background: radial-gradient(circle at 50% -20%, rgba(77,141,255,0.10), transparent 34%), var(--bg); color: var(--text); }
+.price-num, .sr .pr, .sr .ch, .idx-cell .p, .idx-cell .c, .tv, .score-pill {
+  font-family: var(--mono) !important;
+  font-variant-numeric: tabular-nums;
+}
 .stApp > header { background: transparent !important; }
 #MainMenu, footer, header { visibility: hidden; }
 .stDeployButton { display: none; }
@@ -171,8 +175,12 @@ section[data-testid="stSidebar"] { display: none; }
 }
 
 [data-testid="stChatMessage"] {
-  background: rgba(27,37,50,0.92); border: 1px solid var(--border);
-  color: var(--text); font-size: 14px; border-radius: 12px;
+  background: var(--card) !important; border: 1px solid var(--border) !important;
+  border-radius: 10px !important; padding: 10px !important; margin: 4px 0 !important;
+  color: var(--text) !important; font-size: 14px !important; line-height: 1.55 !important;
+}
+[data-testid="stChatMessage"] [data-testid="stChatMessageContent"] {
+  color: var(--text) !important;
 }
 [data-testid="stExpander"] {
   background: var(--card) !important; border: 1px solid var(--border) !important;
@@ -218,7 +226,51 @@ code { color: var(--amber); background: var(--float); font-family: var(--mono); 
 .score-pill {
   color: var(--muted); border: 1px solid var(--border); border-radius: 999px;
   padding: 3px 8px; font-size: 11px; background: rgba(18,24,33,0.50);
+  font-family: var(--mono);
 }
+
+/* ── chip 筛选器 ── */
+.chip-row { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+.chip-item {
+  padding: 6px 14px; border-radius: 999px; border: 1px solid var(--border);
+  font-size: 12px; cursor: pointer; white-space: nowrap;
+  background: var(--card); color: var(--muted);
+  transition: all 0.15s; user-select: none;
+}
+.chip-item:hover { border-color: var(--muted); color: var(--text); }
+.chip-item.active { background: var(--ai); color: #fff; border-color: var(--ai); }
+
+/* ── 交易按钮 ── */
+.btn-buy button {
+  background: var(--red) !important; border-color: var(--red) !important;
+  color: #fff !important; font-weight: 700 !important;
+}
+.btn-sell button {
+  background: var(--green) !important; border-color: var(--green) !important;
+  color: #fff !important; font-weight: 700 !important;
+}
+
+/* ── 行情页 tab 分割线 ── */
+.tab-divider { border-bottom: 1px solid var(--border); margin-bottom: 10px; }
+
+/* ── AI 对话可读性 ── */
+[data-testid="stChatMessage"] {
+  background: var(--card) !important; border: 1px solid var(--border) !important;
+  border-radius: 12px !important; padding: 12px !important; margin: 6px 0 !important;
+  color: var(--text) !important; font-size: 14px !important; line-height: 1.6 !important;
+}
+[data-testid="stChatMessage"] [data-testid="stChatMessageContent"] {
+  color: var(--text) !important;
+}
+.chat-msg-user {
+  background: rgba(77,141,255,0.08); border-radius: 12px; padding: 10px 14px;
+  margin: 4px 0 10px; font-size: 14px; color: var(--text); line-height: 1.55;
+}
+.chat-msg-assistant {
+  background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+  padding: 12px 14px; margin: 4px 0 10px; font-size: 14px; color: var(--text); line-height: 1.6;
+}
+.chat-tools { color: var(--weak); font-size: 11px; margin-top: 6px; font-family: var(--mono); }
 
 @media (max-width: 400px) {
   .main .block-container { padding: 0 12px 80px 12px; }
