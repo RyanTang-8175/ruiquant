@@ -194,8 +194,10 @@ def _render_recommend_card(stock: dict, result, compact: bool = True):
     risk = result.anti_quant.risk_level
     risk_cls = "badge-high" if risk in ("高", "极高") else "badge-mid" if risk == "中" else "badge-low"
     border = "var(--green)" if result.total_score >= 72 and risk in ("低", "中") else "var(--amber)" if result.total_score >= 60 else "var(--border)"
-    triggers = " · ".join(result.anti_quant.triggers[:2]) if result.anti_quant.triggers else "暂无显著反量化触发项"
-    strategies = " / ".join(result.matched_strategies[:2]) if result.matched_strategies else "综合短线"
+    triggers_list = result.anti_quant.triggers if result.anti_quant.triggers else []
+    triggers = " · ".join(triggers_list[:2]) if triggers_list else "暂无显著反量化触发项"
+    strategy_names = [s["strategy"] if isinstance(s, dict) else str(s) for s in (result.matched_strategies or [])]
+    strategies = " / ".join(strategy_names[:2]) if strategy_names else "综合短线"
 
     st.markdown(
         f'<div class="recommend-card" style="border-left:3px solid {border}">'
