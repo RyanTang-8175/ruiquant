@@ -62,15 +62,16 @@ def render_radar_page():
 # 推荐选股（合并筛选 + 结果渲染，消除 stale data）
 # ═══════════════════════════════════════════
 
+# 模块级缓存：避免重复切换时重跑评分
+_RESULT_CACHE = {}
+
 def _render_filter_and_results():
     from src.data.stock_list import SW_INDUSTRY, CONCEPTS
 
-    # 初始化
     st.session_state.setdefault("rf_mode", "综合")
     st.session_state.setdefault("rf_industry", list(SW_INDUSTRY.keys())[0])
     st.session_state.setdefault("rf_concept", list(CONCEPTS.keys())[0])
 
-    # ── 三按钮切换 ──
     c1, c2, c3 = st.columns(3)
     for label, col, val in [("综合", c1, "综合"), ("行业", c2, "行业"), ("概念", c3, "概念")]:
         with col:
@@ -79,7 +80,6 @@ def _render_filter_and_results():
                 st.session_state["rf_mode"] = val
                 st.rerun()
 
-    # ── 子选择 ──
     mode = st.session_state["rf_mode"]
     if mode == "行业":
         idx = list(SW_INDUSTRY.keys()).index(st.session_state["rf_industry"])
@@ -96,11 +96,11 @@ def _render_filter_and_results():
     else:
         filter_type, filter_key, flabel = "all", "", "综合"
 
-    # 拉数据（只读 session_state，key 变了才重新拉）
-    data_key = f"rf_data_{filter_type}_{filter_key}"
-    if data_key not in st.session_state:
-        st.session_state[data_key] = _fetch_and_score(filter_type, filter_key)
-    results = st.session_state[data_key]
+    # key 变了才重新拉+评分
+    cache_key = f"{filter_type}::{filter_key}"
+    if cache_key not in _RESULT_CACHE:
+        _RESULT_CACHE[cache_key] = _fetch_and_score(filter_type, filter_key)
+    results = _RESULT_CACHE[cache_key]
 
     st.markdown(
         f'<div class="sec-h">六维评分候选 · {flabel}</div>'
