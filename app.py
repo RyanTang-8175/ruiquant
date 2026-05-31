@@ -142,13 +142,21 @@ section[data-testid="stSidebar"] { display: none; }
 
 .stButton > button {
   font-family: var(--sans); font-size: 13px; font-weight: 600;
-  border: 1px solid var(--border); background: #fff;
-  color: #17212F; padding: 8px 16px;
-  min-height: 42px; transition: all 0.1s; border-radius: 12px;
+  border: 1px solid #D8E1EA; background: #fff !important;
+  color: #17212F !important; padding: 8px 16px;
+  min-height: 44px; transition: all 0.12s; border-radius: 12px;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
-.stButton > button:hover { border-color: var(--ai); background: #EEF3F8; }
+.stButton > button:hover { border-color: var(--ai); background: #F0F4FF !important; }
+.stButton > button:active { background: #E4EBF7 !important; transform: scale(0.98); }
 .stButton > button[kind="primary"] {
-  background: var(--ai); color: #fff; border-color: var(--ai); font-weight: 700;
+  background: var(--ai) !important; color: #fff !important;
+  border-color: var(--ai) !important; font-weight: 700 !important;
+}
+.stButton > button[kind="secondary"] {
+  background: #fff !important; color: #17212F !important;
+  border-color: #D8E1EA !important;
 }
 
 .stTextInput input {
@@ -188,9 +196,9 @@ section[data-testid="stSidebar"] { display: none; }
 }
 
 [data-testid="stChatMessage"] {
-  background: rgba(255,255,255,0.98) !important; border: 1px solid var(--border) !important;
-  border-radius: 16px !important; padding: 10px !important; margin: 4px 0 !important;
-  color: var(--text) !important; font-size: 14px !important; line-height: 1.55 !important;
+  background: #fff !important; border: 1px solid #D8E1EA !important;
+  border-radius: 14px !important; padding: 12px !important; margin: 6px 0 !important;
+  color: var(--text) !important; font-size: 14px !important; line-height: 1.6 !important;
 }
 [data-testid="stChatMessage"] [data-testid="stChatMessageContent"] {
   color: var(--text) !important;
@@ -348,8 +356,20 @@ code { color: var(--amber); background: var(--float); font-family: var(--mono); 
 }
 .chat-tools { color: var(--weak); font-size: 11px; margin-top: 6px; font-family: var(--sans); }
 
+/* Tabs */
+.stTabs [role="tablist"] {
+  gap: 2px;
+}
+.stTabs [role="tab"] {
+  font-size: 13px; font-weight: 600; padding: 8px 12px;
+  min-height: 40px; border-radius: 10px 10px 0 0;
+}
+
+/* checkbox */
+.stCheckbox label { font-size: 13px; color: var(--text); }
+
 @media (max-width: 400px) {
-  .main .block-container { padding: 0 12px 80px 12px; }
+  .main .block-container { padding: 0 10px 80px 10px; }
 }
 </style>""", unsafe_allow_html=True)
 
