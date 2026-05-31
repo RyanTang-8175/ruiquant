@@ -139,19 +139,47 @@ def render_radar_page():
 
 def _show_recommendations(compact: bool = True):
     title = "今日选股推荐" if compact else "六维评分候选"
+
+    # -- 筛选器：综合 / 行业 / 概念 --
+    from src.data.stock_list import SW_INDUSTRY, CONCEPTS
+
+    filter_options = ["综合"] + [f"行业 · {k}" for k in SW_INDUSTRY] + [f"概念 · {k}" for k in CONCEPTS]
+    default_idx = 0
+    # 记住用户上次选择
+    if "radar_filter_idx" not in st.session_state:
+        st.session_state["radar_filter_idx"] = 0
+
+    selected = st.selectbox(
+        "筛选", filter_options,
+        index=st.session_state["radar_filter_idx"],
+        key="radar_filter_select",
+        label_visibility="collapsed",
+    )
+    st.session_state["radar_filter_idx"] = filter_options.index(selected)
+
+    # 解析筛选
+    filter_type = "all"          # all / industry / concept
+    filter_key = ""
+    if selected.startswith("行业 · "):
+        filter_type, filter_key = "industry", selected[5:]
+    elif selected.startswith("概念 · "):
+        filter_type, filter_key = "concept", selected[5:]
+
+    filter_label = selected
+
     st.markdown(
-        f'<div class="sec-h">{title}</div>'
+        f'<div class="sec-h">{title} · {filter_label}</div>'
         f'<div class="page-kicker">机会分 = 热度 + 承接 + 题材 + 延续 + 策略匹配 - 反量化扣分</div>',
         unsafe_allow_html=True,
     )
+
     try:
         from src.data.realtime import get_top_stocks
         from src.scoring.engine import V6ScoringEngine
 
-        # 推荐池不能只来自涨幅榜，否则会追高；成交额榜保证流动性，涨幅榜保证短线活跃。
         raw = []
-        raw.extend(get_top_stocks(sort_field="amount", asc=False, limit=35) or [])
-        raw.extend(get_top_stocks(sort_field="changepercent", asc=False, limit=35) or [])
+        raw.extend(get_top_stocks(sort_field="amount", asc=False, limit=50) or [])
+        raw.extend(get_top_stocks(sort_field="changepercent", asc=False, limit=50) or [])
         seen, stocks = set(), []
         for s in raw:
             cd = s.get("code", "")
@@ -159,27 +187,61 @@ def _show_recommendations(compact: bool = True):
                 seen.add(cd)
                 stocks.append(s)
 
+        # 行业/概念筛选：先从硬编码列表中取代码，再批量查行情
+        if filter_type == "industry":
+            target_codes = set(SW_INDUSTRY.get(filter_key, []))
+        elif filter_type == "concept":
+            target_codes = set(CONCEPTS.get(filter_key, []))
+        else:
+            target_codes = None  # 综合：无限制
+
+        # 如果选了行业/概念，额外拉取该板块的股票行情
+        if target_codes:
+            from src.data.realtime import get_realtime_quote
+            extra = []
+            for cd in target_codes:
+                if cd in seen:
+                    continue
+                q = get_realtime_quote(cd)  # 走腾讯API，有 volume_ratio
+                if q:
+                    extra.append({"code": cd, "name": q.get("name", cd),
+                                  "price": q.get("price", 0),
+                                  "change_pct": q.get("change_pct", 0),
+                                  "volume": q.get("volume", 0),
+                                  "amount": q.get("amount", 0),
+                                  "turnover": q.get("turnover", 0),
+                                  "open": q.get("open", 0),
+                                  "high": q.get("high", 0),
+                                  "low": q.get("low", 0),
+                                  "volume_ratio": q.get("volume_ratio", 1.0),
+                                  })
+                seen.add(cd)
+            stocks = extra + stocks
+            if not stocks:
+                st.info(f"{filter_label} 暂无可用行情数据")
+                return
+
         engine = V6ScoringEngine()
         try:
             results = []
-            for s in stocks[:55]:
+            for s in stocks[:80]:
                 cd = s.get("code", "")
-                if not cd:
+                if not cd: continue
+                if target_codes and cd not in target_codes:
                     continue
                 r = engine.score_stock(cd, quote=s)
-                if not r:
-                    continue
-                # 推荐系统保留“风险偏高”但降级展示；“不建议参与/已排除”不进入推荐池。
+                if not r: continue
                 if r.status_label in ("不建议参与", "已排除"):
                     continue
                 results.append((s, r))
 
             results.sort(key=lambda x: x[1].total_score, reverse=True)
-            limit = 3 if compact else 12
+            limit = 3 if compact else 15
             if not results:
-                st.info("当前没有达到推荐阈值的股票。可以看「风险排除」了解市场主要问题，或降低筛选阈值。")
+                st.info(f"{filter_label} 当前没有达到推荐阈值的股票")
                 return
 
+            st.caption(f"共 {len(results)} 只，显示前 {min(limit, len(results))} 只")
             for s, r in results[:limit]:
                 _render_recommend_card(s, r, compact=compact)
         finally:
