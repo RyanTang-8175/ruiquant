@@ -32,7 +32,14 @@ class ToolExecutor:
     def _get_stock_quote(self, code: str) -> dict:
         from src.data.realtime import get_realtime_quote
         q = get_realtime_quote(code)
-        return {"error":f"无{code}行情"} if not q else {"code":q.get("code"),"name":q.get("name"),"price":q.get("price"),"change_pct":q.get("change_pct"),"open":q.get("open"),"high":q.get("high"),"low":q.get("low"),"volume":q.get("volume"),"turnover":q.get("turnover")}
+        return {"error":f"无{code}行情"} if not q else {
+            "code": q.get("code"), "name": q.get("name"),
+            "price": q.get("price"), "change_pct": q.get("change_pct"),
+            "open": q.get("open"), "high": q.get("high"), "low": q.get("low"),
+            "pre_close": q.get("prev_close"), "volume": q.get("volume"),
+            "amount": q.get("amount"), "turnover": q.get("turnover"),
+            "volume_ratio": q.get("volume_ratio", 1.0), "pe_ratio": q.get("pe_ratio"),
+        }
 
     def _get_technical_analysis(self, code: str, days: int = 60) -> dict:
         from src.data.realtime import get_kline; import pandas as pd
@@ -53,17 +60,16 @@ class ToolExecutor:
             return {"error": f"无{code}评分"}
         d = r.to_dict()
         return {
-            "code": d["code"],
-            "name": d.get("name", ""),
+            "code": d["code"], "name": d.get("name", ""),
             "total_score": d["total_score"],
             "status_label": d["status_label"],
             "risk_level": d["risk_level"],
             "dimensions": {
-                "heat": d["heat"]["score"],
-                "support": d["support"]["score"],
-                "theme": d["theme"]["score"],
-                "continuation": d["continuation"]["score"],
-                "strategy_match": d["strategy_match"]["score"],
+                "heat": {"score": d["heat"]["score"], "detail": r.heat.explanation},
+                "support": {"score": d["support"]["score"], "detail": r.support.explanation},
+                "theme": {"score": d["theme"]["score"], "detail": r.theme.explanation},
+                "continuation": {"score": d["continuation"]["score"], "detail": r.continuation.explanation},
+                "strategy_match": {"score": d["strategy_match"]["score"], "detail": r.strategy_match.explanation},
             },
             "anti_quant": d["anti_quant"],
             "matched_strategies": d.get("matched_strategies", []),

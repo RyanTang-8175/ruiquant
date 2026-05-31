@@ -37,12 +37,8 @@ class ScoringEngine:
         try: self.db.close()
         except: pass
 
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc, tb):
-        self.close()
-        return False
+    def __enter__(self): return self
+    def __exit__(self, *a): self.close(); return False
 
     def quick_score(self, q: dict) -> dict:
         p = q.get("price", 0); o = q.get("open", 0)
@@ -157,12 +153,8 @@ class V6ScoringEngine:
         try: self.db.close()
         except: pass
 
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc, tb):
-        self.close()
-        return False
+    def __enter__(self): return self
+    def __exit__(self, *a): self.close(); return False
 
     def score_stock(self, code: str, quote: dict = None,
                     intraday_bars: list = None,
@@ -174,11 +166,9 @@ class V6ScoringEngine:
         if quote is None:
             from src.data.realtime import get_realtime_quote
             quote = get_realtime_quote(code)
-
         if not quote or quote.get("price", 0) <= 0:
             return None
 
-        # 数据补全：Sina API 缺少 volume_ratio/open/high/low，从腾讯补
         if quote.get("volume_ratio", 0) <= 0:
             try:
                 from src.data.realtime import get_realtime_quote
@@ -187,42 +177,30 @@ class V6ScoringEngine:
                     for k in ("volume_ratio", "pre_close", "open", "high", "low"):
                         if not quote.get(k) and full.get(k):
                             quote[k] = full[k]
-            except Exception:
-                pass
+            except Exception: pass
 
         if intraday_bars is None and self.provider:
             intraday_bars = self.provider.get_intraday_bars(code)
         if daily_bars is None and self.provider:
             daily_bars = self.provider.get_daily_bars(
-                code, start="2026-01-01",
-                end=datetime.now().strftime("%Y-%m-%d"))
+                code, start="2026-01-01", end=datetime.now().strftime("%Y-%m-%d"))
 
-        result = SixDimensionResult(
-            code=code, name=quote.get("name", code))
+        result = SixDimensionResult(code=code, name=quote.get("name", code))
 
         h = compute_heat(quote, daily_bars)
-        result.heat = DimensionScore(
-            score=h["score"], weight=0.20,
+        result.heat = DimensionScore(score=h["score"], weight=0.20,
             sub_scores=h["sub_scores"], explanation=h["explanation"])
-
         s = compute_support(quote, intraday_bars)
-        result.support = DimensionScore(
-            score=s["score"], weight=0.25,
+        result.support = DimensionScore(score=s["score"], weight=0.25,
             sub_scores=s["sub_scores"], explanation=s["explanation"])
-
         t = compute_theme(quote, sector_data, market_snapshot)
-        result.theme = DimensionScore(
-            score=t["score"], weight=0.20,
+        result.theme = DimensionScore(score=t["score"], weight=0.20,
             sub_scores=t["sub_scores"], explanation=t["explanation"])
-
         c = compute_continuation(quote, daily_bars)
-        result.continuation = DimensionScore(
-            score=c["score"], weight=0.15,
+        result.continuation = DimensionScore(score=c["score"], weight=0.15,
             sub_scores=c["sub_scores"], explanation=c["explanation"])
-
         sm = compute_strategy_match(quote, intraday_bars, daily_bars, sector_data)
-        result.strategy_match = DimensionScore(
-            score=sm["score"], weight=0.20,
+        result.strategy_match = DimensionScore(score=sm["score"], weight=0.20,
             sub_scores=sm["sub_scores"], explanation=sm["explanation"])
         result.matched_strategies = sm.get("matched_strategies", [])
 
@@ -233,11 +211,7 @@ class V6ScoringEngine:
         result.anti_quant.triggers = aq["triggers"]
 
         result.compute_total()
-        result.dimension_details = {
-            "heat": h, "support": s, "theme": t,
-            "continuation": c, "strategy_match": sm, "anti_quant": aq,
-        }
-
+        result.dimension_details = {"heat":h,"support":s,"theme":t,"continuation":c,"strategy_match":sm,"anti_quant":aq}
         self._save_score(result)
         self._save_anti_quant(result, aq)
         return result
@@ -245,40 +219,29 @@ class V6ScoringEngine:
     def _save_score(self, result: SixDimensionResult):
         try:
             rec = ScoreRecordV6(
-                code=result.code, name=result.name,
-                score_date=datetime.now(),
-                heat_score=result.heat.score,
-                support_score=result.support.score,
-                theme_score=result.theme.score,
-                continuation_score=result.continuation.score,
+                code=result.code, name=result.name, score_date=datetime.now(),
+                heat_score=result.heat.score, support_score=result.support.score,
+                theme_score=result.theme.score, continuation_score=result.continuation.score,
                 strategy_match_score=result.strategy_match.score,
                 anti_quant_penalty=result.anti_quant.penalty,
-                total_score=result.total_score,
-                status_label=result.status_label,
-                risk_level=result.risk_level,
-                dimension_details=result.dimension_details,
-                matched_strategies=result.matched_strategies,
-            )
+                total_score=result.total_score, status_label=result.status_label,
+                risk_level=result.risk_level, dimension_details=result.dimension_details,
+                matched_strategies=result.matched_strategies)
             self.db.add(rec); self.db.commit()
-        except Exception as e:
-            self.db.rollback(); logger.warning(f"save_score: {e}")
+        except Exception as e: self.db.rollback(); logger.warning(f"save: {e}")
 
     def _save_anti_quant(self, result: SixDimensionResult, aq: dict):
         try:
             rec = AntiQuantRecord(
-                code=result.code, name=result.name,
-                scan_date=datetime.now(),
-                total_risk=aq["total_risk"],
-                risk_level=aq["risk_level"],
-                late_day_lure=aq.get("late_day_lure", {}),
-                high_position_trap=aq.get("high_position_trap", {}),
-                intraday_pulse=aq.get("intraday_pulse", {}),
-                volume_stall=aq.get("volume_stall", {}),
-                sector_divergence=aq.get("sector_divergence", {}),
-            )
+                code=result.code, name=result.name, scan_date=datetime.now(),
+                total_risk=aq["total_risk"], risk_level=aq["risk_level"],
+                late_day_lure=aq.get("late_day_lure",{}),
+                high_position_trap=aq.get("high_position_trap",{}),
+                intraday_pulse=aq.get("intraday_pulse",{}),
+                volume_stall=aq.get("volume_stall",{}),
+                sector_divergence=aq.get("sector_divergence",{}))
             self.db.add(rec); self.db.commit()
-        except Exception as e:
-            self.db.rollback(); logger.warning(f"save_anti_quant: {e}")
+        except Exception as e: self.db.rollback(); logger.warning(f"anti: {e}")
 
     def score_batch(self, codes: list, **ctx) -> list:
         results = []
@@ -301,18 +264,47 @@ class V6ScoringEngine:
         return [r for r in results if r['total_score'] >= min_score][:limit]
 
     def build_ai_context(self, code: str, quote: dict = None) -> str:
+        """给 AI 注入完整的评分细节、K线数据和反量化触发项"""
         result = self.score_stock(code, quote=quote)
         if not result: return f"无法获取 {code} 的评分数据"
+
         d = result.to_dict()
+        anti = d['anti_quant']
+
+        # K线
+        kline_text = "不可用"
+        try:
+            from src.data.realtime import get_kline
+            kls = get_kline(code, period="101", count=20)
+            if kls and len(kls) >= 5:
+                closes = [k["close"] for k in kls]
+                ma5 = sum(closes[-5:]) / 5
+                ma10 = sum(closes[-10:]) / 10 if len(closes) >= 10 else ma5
+                chg_5d = (closes[-1] / closes[-5] - 1) * 100 if closes[-5] else 0
+                vol_5d_avg = sum(k.get("volume", 0) for k in kls[-5:]) / 5
+                vol_today = kls[-1].get("volume", 0) if kls else 0
+                vratio = vol_today / vol_5d_avg if vol_5d_avg > 0 else 1
+                kline_text = f"MA5={ma5:.2f} MA10={ma10:.2f} 近5日涨幅={chg_5d:.1f}% 量/5日均量={vratio:.1f}倍"
+        except Exception: pass
+
         lines = [
-            f"## {d['name']}({d['code']}) v6评分",
-            f"综合: {d['total_score']}/100 | {d['status_label']} | 风险{d['risk_level']}",
-            f"热度{d['heat']['score']} 承接{d['support']['score']} 题材{d['theme']['score']} 延续{d['continuation']['score']} 策略{d['strategy_match']['score']}",
-            f"反量化: {d['anti_quant']['risk']}/100 惩罚-{d['anti_quant']['penalty']}",
+            f"[{d['name']}({code}) 六维评分]",
+            f"机会分: {d['total_score']}/100 状态: {d['status_label']} 风险: {d['risk_level']}",
+            f"热度 {d['heat']['score']:.0f} | 承接 {d['support']['score']:.0f} | 题材 {d['theme']['score']:.0f} | 延续 {d['continuation']['score']:.0f} | 策略匹配 {d['strategy_match']['score']:.0f}",
+            f"",
+            f"[热度明细] {result.heat.explanation}",
+            f"[承接明细] {result.support.explanation}",
+            f"[延续明细] {result.continuation.explanation}",
+            f"[策略匹配] {result.strategy_match.explanation}",
+            f"",
+            f"[反量化] 风险={anti['risk']}/100 等级={anti['level']} 惩罚={anti['penalty']}分",
+            f"[触发项] {' | '.join(anti['triggers'][:5]) if anti.get('triggers') else '无'}",
+            f"",
+            f"[K线] {kline_text}",
         ]
-        if d['anti_quant'].get('triggers'):
-            lines.append("触发: " + "; ".join(d['anti_quant']['triggers'][:5]))
+
         if d.get('matched_strategies'):
-            lines.append("策略: " + ", ".join(
-                f"{s['strategy']}({s['status']})" for s in d['matched_strategies']))
+            s_str = " ".join(f"{s['strategy']}({s.get('match','?')}%/{s['status']})" for s in d['matched_strategies'])
+            lines.append(f"[策略] {s_str}")
+
         return "\n".join(lines)
