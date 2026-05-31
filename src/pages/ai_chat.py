@@ -106,47 +106,47 @@ def render_ai_chat_page():
             ai.chat(_with_context(u))
         st.rerun()
 
-    # 底部
-    c1, c2, c3, c4 = st.columns(4)
-    with c1:
-        if history:
-            if st.button("清空", use_container_width=True):
+    # ── 功能横条 ──
+    st.markdown('<div class="sec-h">工具箱</div>', unsafe_allow_html=True)
+    actions = [
+        ("盘前早报", "mb", lambda: ai.morning_briefing(), "开盘前了解今日方向"),
+        ("收盘总结", "cs", lambda: ai.closing_summary(), "复盘今日交易和AI判断"),
+        ("账户诊断", "ad", lambda: ai.account_diagnosis(), "分析你的交易行为"),
+        ("尾盘扫描", "ts", lambda: ai.tail_session_scan()[1], "14:30查看隔夜候选"),
+        ("对比分析", "cp", None, "两只股票并排比较"),
+    ]
+    for row in range(3):
+        cols = st.columns(2)
+        for i in range(2):
+            idx = row * 2 + i
+            if idx >= len(actions): break
+            name, kid, fn, hint = actions[idx]
+            with cols[i]:
+                if st.button(name, key=f"tool_{kid}", use_container_width=True, help=hint):
+                    if name == "对比分析":
+                        st.session_state["ai_compare"] = True; st.rerun()
+                    else:
+                        with st.spinner(f"{name}生成中..."):
+                            result = fn()
+                        if result:
+                            ai.history.append({
+                                "question": f"生成{name}",
+                                "answer": result,
+                                "timestamp": datetime.now().isoformat(),
+                                "tools_used": [],
+                            })
+                            ai.save_to_disk(); st.rerun()
+
+    # ── 底部 ──
+    if history:
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("清空对话", use_container_width=True):
                 ai.clear_history(); st.rerun()
-        else:
-            if st.button("盘前早报", use_container_width=True):
-                with st.spinner("生成早报..."):
-                    briefing = ai.morning_briefing()
-                if briefing:
-                    ai.history.append({
-                        "question": "生成今日盘前早报",
-                        "answer": briefing,
-                        "timestamp": datetime.now().isoformat(),
-                        "tools_used": [],
-                    })
-                    ai.save_to_disk(); st.rerun()
-    with c2:
-        if history:
-            if st.button("保存", use_container_width=True, type="primary"):
-                ai.save_to_disk(); st.success("已保存")
-        else:
-            if st.button("对比分析", use_container_width=True):
-                st.session_state["ai_compare"] = True; st.rerun()
-    with c3:
-        if st.button("逐条管理", use_container_width=True):
-            st.session_state["ai_mgr"] = not st.session_state.get("ai_mgr", False)
-            st.rerun()
-    with c4:
-        if st.button("盘前早报", use_container_width=True):
-            with st.spinner("生成早报..."):
-                briefing = ai.morning_briefing()
-            if briefing:
-                ai.history.append({
-                    "question": "生成今日盘前早报",
-                    "answer": briefing,
-                    "timestamp": datetime.now().isoformat(),
-                    "tools_used": [],
-                })
-                ai.save_to_disk(); st.rerun()
+        with c2:
+            if st.button("逐条管理", use_container_width=True):
+                st.session_state["ai_mgr"] = not st.session_state.get("ai_mgr", False)
+                st.rerun()
 
     # 对比分析
     if st.session_state.pop("ai_compare", False):

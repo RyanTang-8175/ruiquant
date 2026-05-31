@@ -336,3 +336,159 @@ class AIChat:
             return resp.choices[0].message.content or "对比失败"
         except Exception as e:
             return f"对比服务暂不可用: {e}"
+
+    # ═══════════════════════════════════════
+    # 收盘总结
+    # ═══════════════════════════════════════
+
+    def closing_summary(self) -> str:
+        """生成当日收盘总结"""
+        if not self.client:
+            return "AI 未配置"
+        try:
+            # 收集持仓数据
+            pos_text = "暂无持仓"
+            try:
+                from src.trading.engine import TradingEngine
+                with TradingEngine() as eng:
+                    acct = eng.get_account()
+                    if acct:
+                        ps = eng.get_positions()
+                        if ps:
+                            lines = []
+                            for p in ps:
+                                lines.append(f"- {p.name or p.code}({p.code}) {p.quantity}股 成本{p.cost_price}")
+                            pos_text = "\n".join(lines)
+                        trs = eng.get_trades(10)
+                        trade_summary = "\n".join(
+                            f"- {t.direction} {t.name or t.code} {t.quantity}@{t.price} {'盈亏' + str(t.pnl) if t.pnl else ''}"
+                            for t in (trs or [])[:5])
+            except Exception:
+                trade_summary = "交易记录暂不可用"
+
+            prompt = (
+                f"请生成今日收盘总结。\n\n"
+                f"## 今日持仓\n{pos_text}\n\n"
+                f"## 今日交易\n{trade_summary}\n\n"
+                f"## 今日 AI 对话概览\n"
+                f"共 {len(self.history)} 条对话\n\n"
+                f"请按以下格式输出：\n"
+                f"1. 今日市场回顾（一句话）\n"
+                f"2. 我的持仓表现\n"
+                f"3. 今日 AI 判断回顾（哪些对了，哪些需要验证）\n"
+                f"4. 明日关注方向\n"
+                f"5. 操作纪律提醒\n"
+                f"总长度不超过 500 字"
+            )
+            resp = self.client.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "system", "content": V6_SYSTEM_PROMPT[:1500]},
+                          {"role": "user", "content": prompt}],
+                tools=TOOLS, tool_choice="auto",
+                temperature=0.7, max_tokens=800, timeout=25)
+            return resp.choices[0].message.content or "收盘总结生成失败"
+        except Exception as e:
+            return f"收盘总结暂不可用: {e}"
+
+    # ═══════════════════════════════════════
+    # 账户诊断
+    # ═══════════════════════════════════════
+
+    def account_diagnosis(self) -> str:
+        """分析用户的交易行为和账户表现"""
+        if not self.client:
+            return "AI 未配置"
+        try:
+            # 收集完整交易数据
+            from src.trading.engine import TradingEngine
+            with TradingEngine() as eng:
+                acct = eng.get_account()
+                if not acct:
+                    return "模拟盘账户未初始化，请先在交易页创建账户。"
+                stats = eng.get_stats()
+                trades = eng.get_trades(50)
+                positions = eng.get_positions()
+
+            # 统计数据
+            buy_trades = [t for t in trades if t.direction == "buy"]
+            sell_trades = [t for t in trades if t.direction == "sell"]
+            wins = sum(1 for t in sell_trades if (t.pnl or 0) > 0)
+            losses = sum(1 for t in sell_trades if (t.pnl or 0) < 0)
+            total_pnl = sum(t.pnl or 0 for t in sell_trades)
+
+            # 构建诊断数据
+            data = (
+                f"## 账户状态\n"
+                f"- 状态: {acct.status}\n"
+                f"- 现金: {acct.cash:.0f}\n"
+                f"- 连续亏损: {acct.consecutive_losses}次\n"
+                f"- 持仓数: {len(positions)}\n\n"
+                f"## 交易统计\n"
+                f"- 总交易: {len(sell_trades)}笔\n"
+                f"- 胜: {wins} 负: {losses}\n"
+                f"- 胜率: {wins / max(len(sell_trades), 1) * 100:.1f}%\n"
+                f"- 总盈亏: {total_pnl:+.0f}\n\n"
+                f"请诊断我的交易行为，指出：\n"
+                f"1. 最大问题是什么（追高/不止损/集中度/频繁交易）\n"
+                f"2. 和上次比有没有进步\n"
+                f"3. 给出 3 个下周可执行的具体改进建议\n"
+                f"总长度不超过 400 字"
+            )
+            resp = self.client.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "system", "content": V6_SYSTEM_PROMPT[:1500]},
+                          {"role": "user", "content": data}],
+                temperature=0.7, max_tokens=600, timeout=25)
+            return resp.choices[0].message.content or "诊断生成失败"
+        except Exception as e:
+            return f"账户诊断暂不可用: {e}"
+
+    # ═══════════════════════════════════════
+    # 尾盘扫描
+    # ═══════════════════════════════════════
+
+    def tail_session_scan(self) -> tuple:
+        """14:30 尾盘隔夜雷达扫描，返回 (phase, candidates_text)"""
+        try:
+            from src.strategies.overnight import OvernightRadar
+            from src.data.realtime import get_top_stocks
+            from src.scoring.engine import V6ScoringEngine
+
+            radar = OvernightRadar()
+            stocks = get_top_stocks("change_pct", False, 60)
+            candidates = []
+            for s in (stocks or []):
+                cd = s.get("code", "")
+                if not cd: continue
+                ok, _ = radar.check_hard_filters(s)
+                if ok:
+                    m = radar.compute_match(s)
+                    candidates.append({
+                        "code": cd, "name": s.get("name", cd),
+                        "chg": s.get("change_pct", 0),
+                        "match": m["match"], "status": m["status"],
+                    })
+
+            if not candidates:
+                return ("初筛", "当前无符合尾盘隔夜条件的股票")
+
+            candidates.sort(key=lambda x: x["match"], reverse=True)
+            lines = [f"尾盘隔夜候选 {len(candidates)} 只"]
+            for c in candidates[:5]:
+                lines.append(f"- {c['name']}({c['code']}) 涨幅{c['chg']:+.1f}% 匹配{c['match']:.0f}% {c['status']}")
+
+            # 给 AI 总结
+            if self.client:
+                try:
+                    ctx = "\n".join(lines)
+                    resp = self.client.chat.completions.create(
+                        model=self.model,
+                        messages=[{"role":"system","content": V6_SYSTEM_PROMPT[:1200]},
+                                  {"role":"user","content": f"尾盘扫描结果：\n{ctx}\n\n请用 2-3 句话总结今日尾盘机会和风险。"}],
+                        temperature=0.7, max_tokens=200, timeout=15)
+                    summary = resp.choices[0].message.content or ""
+                    return ("完成", summary)
+                except: pass
+            return ("完成", "\n".join(lines[:8]))
+        except Exception as e:
+            return ("错误", f"尾盘扫描失败: {e}")
