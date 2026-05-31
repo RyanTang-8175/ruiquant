@@ -72,6 +72,10 @@ def _render_filter_and_results():
     st.session_state.setdefault("rf_industry", list(SW_INDUSTRY.keys())[0])
     st.session_state.setdefault("rf_concept", list(CONCEPTS.keys())[0])
 
+    # 初始化默认选择
+    st.session_state.setdefault("rf_industry", list(SW_INDUSTRY.keys())[0])
+    st.session_state.setdefault("rf_concept", list(CONCEPTS.keys())[0])
+
     c1, c2, c3 = st.columns(3)
     for label, col, val in [("综合", c1, "综合"), ("行业", c2, "行业"), ("概念", c3, "概念")]:
         with col:
@@ -82,14 +86,12 @@ def _render_filter_and_results():
 
     mode = st.session_state["rf_mode"]
     if mode == "行业":
-        idx = list(SW_INDUSTRY.keys()).index(st.session_state["rf_industry"])
-        cur = st.selectbox("行业", list(SW_INDUSTRY.keys()), index=idx,
+        cur = st.selectbox("行业", list(SW_INDUSTRY.keys()),
                            key="rf_sel_ind", label_visibility="collapsed")
         st.session_state["rf_industry"] = cur
         filter_type, filter_key, flabel = "industry", cur, cur
     elif mode == "概念":
-        idx = list(CONCEPTS.keys()).index(st.session_state["rf_concept"])
-        cur = st.selectbox("概念", list(CONCEPTS.keys()), index=idx,
+        cur = st.selectbox("概念", list(CONCEPTS.keys()),
                            key="rf_sel_con", label_visibility="collapsed")
         st.session_state["rf_concept"] = cur
         filter_type, filter_key, flabel = "concept", cur, cur
