@@ -142,11 +142,11 @@ section[data-testid="stSidebar"] { display: none; }
 
 .stButton > button {
   font-family: var(--sans); font-size: 13px; font-weight: 600;
-  border: 1px solid var(--border); background: rgba(255,255,255,0.98);
-  color: var(--text); padding: 8px 16px;
+  border: 1px solid var(--border); background: #fff;
+  color: #17212F; padding: 8px 16px;
   min-height: 42px; transition: all 0.1s; border-radius: 12px;
 }
-.stButton > button:hover { border-color: var(--muted); background: var(--float); }
+.stButton > button:hover { border-color: var(--ai); background: #EEF3F8; }
 .stButton > button[kind="primary"] {
   background: var(--ai); color: #fff; border-color: var(--ai); font-weight: 700;
 }

@@ -13,23 +13,23 @@ from src.ai.chat import AIChat
 def _quick_tasks(code: str) -> list:
     if code:
         return [
-            {"title": "深度审查", "desc": f"全面分析 {code}",
+            {"title": "深度审查", "question": f"分析 {code} 风险和机会",
              "prompt": f"请对 {code} 做完整深度分析。先调行情/评分/技术三个工具，然后按风险→机会→条件→周期顺序输出。每个专业术语附白话解释。最后用一句话总结。"},
-            {"title": "能不能买", "desc": f"{code} 现在能不能参与",
+            {"title": "能不能买", "question": f"{code} 现在能参与吗",
              "prompt": f"请直接判断 {code} 现在能不能参与。回答：能/不能/有条件能。列出参与前必须满足的 3 个条件和 3 个离场红线。不要长篇大论，只给关键判断和数字。"},
-            {"title": "持股多久", "desc": f"{code} 适合持有几天",
+            {"title": "持股多久", "question": f"{code} 适合持有多久",
              "prompt": f"判断 {code} 适合隔夜、1-2天还是2-3天。给出继续持有条件、离场条件、明早要盯的 3 个关键点。"},
-            {"title": "反量化扫描", "desc": f"{code} 有被收割风险吗",
+            {"title": "反量化扫描", "question": f"{code} 有被收割风险吗",
              "prompt": f"对 {code} 做完整反量化扫描：尾盘诱多/高位接盘/分时脉冲/放量滞涨/板块背离。每条用大白话解释它是什么、为什么触发、对散户意味着什么。"},
         ]
     return [
-        {"title": "今日选股", "desc": "六维评分找候选",
+        {"title": "今日选股", "question": "今天有哪些机会",
          "prompt": "基于市场环境和六维评分框架，推荐今天值得研究的 3-5 个短线方向或板块，说明逻辑和风险。"},
-        {"title": "大盘解读", "desc": "今天适合做短线吗",
+        {"title": "大盘解读", "question": "今天适合做短线吗",
          "prompt": "分析今天大盘和板块环境。适不适合做短线？什么板块强？什么在退潮？给出操作纪律提醒。"},
-        {"title": "交易复盘", "desc": "策略/AI/执行偏差",
+        {"title": "交易复盘", "question": "我的交易表现如何",
          "prompt": "复盘我最近的模拟交易。区分策略胜率、AI 准确度、我的执行偏差。数据不足时告诉我需要什么。"},
-        {"title": "学习模式", "desc": "解释概念+举例",
+        {"title": "学习模式", "question": "教我理解一个概念",
          "prompt": "用新手能听懂的方式解释：1)反量化风险是什么，散户怎么识别 2)尾盘隔夜策略的核心逻辑。每个概念配实例说明。"},
     ]
 
@@ -51,90 +51,134 @@ def render_ai_chat_page():
     env = _market_label()
     stock = selected_code or "未选择"
     st.markdown(
-        f'<div style="display:flex;gap:8px;margin:8px 0 12px;font-size:12px;color:var(--muted)">'
+        f'<div style="display:flex;gap:8px;margin:8px 0 12px;font-size:12px;color:#5D6B7C">'
         f'<span>市场 {env}</span><span>|</span><span>股票 {stock}</span><span>|</span><span>对话 {len(history)} 条</span>'
         f'</div>', unsafe_allow_html=True)
 
     if selected_code:
         st.markdown(
-            f'<div style="background:rgba(36,107,254,0.06);border:1px solid rgba(36,107,254,0.15);'
-            f'border-radius:10px;padding:8px 12px;margin-bottom:10px;font-size:13px;color:var(--text)">'
-            f'当前股票 <strong>{selected_code}</strong> · AI 会自动注入评分、K线和反量化详情'
+            f'<div style="background:rgba(36,107,254,0.04);border:1px solid rgba(36,107,254,0.10);'
+            f'border-radius:10px;padding:8px 12px;margin-bottom:10px;font-size:13px;color:#17212F">'
+            f'当前 <strong>{selected_code}</strong> · AI 会自动注入评分、K线和反量化详情'
             f'</div>', unsafe_allow_html=True)
 
-    # 快捷任务
-    tasks = _quick_tasks(selected_code)
+    # ── 快捷任务（白色卡片 + 黑字 + 浅蓝边框）──
     st.markdown('<div class="sec-h">快捷任务</div>', unsafe_allow_html=True)
+    tasks = _quick_tasks(selected_code)
     for row in range(2):
         cols = st.columns(2)
         for i in range(2):
             task = tasks[row * 2 + i]
             with cols[i]:
-                if st.button(task["title"], key=f"qt_{row}_{i}",
-                             use_container_width=True, help=task["desc"]):
+                # 自定义白色卡片按钮
+                if st.button(
+                    f"{task['title']}\n{task['question']}",
+                    key=f"qt_{row}_{i}", use_container_width=True,
+                ):
                     st.session_state["qq"] = task["prompt"]
                     st.rerun()
 
     st.markdown("---")
 
-    # 快捷提问处理
+    # ── 快捷提问处理 ──
     if "qq" in st.session_state:
         q = st.session_state.pop("qq")
         with st.spinner("AI 正在读取行情、评分、K线和反量化数据..."):
             ai.chat(_with_context(q))
         st.rerun()
 
-    # 对话展示
+    # ═══════════════════════════════════
+    # 对话记录：默认只展开最新 2 条，其余折叠
+    # ═══════════════════════════════════
     if history:
-        st.markdown('<div class="sec-h">对话记录</div>', unsafe_allow_html=True)
-        for i, item in enumerate(history[-8:]):
-            q_text = html.escape(str(item.get("question", "")))
-            a_text = _fmt_answer(str(item.get("answer", "")))
+        total = len(history)
+        # 默认展示最新 2 轮
+        show_recent = history[-2:]
 
-            st.markdown(
-                f'<div style="background:rgba(36,107,254,0.05);border-radius:8px;'
-                f'padding:8px 12px;margin:4px 0 6px 12px;font-size:13px;'
-                f'color:var(--text);line-height:1.5">{q_text}</div>',
-                unsafe_allow_html=True)
-            st.markdown(
-                f'<div style="background:var(--card);border:1px solid var(--border);'
-                f'border-radius:10px;padding:12px 14px;margin:4px 0 6px 0;'
-                f'font-size:14px;color:var(--text);line-height:1.65;word-break:break-word">'
-                f'{a_text}</div>', unsafe_allow_html=True)
+        st.markdown('<div class="sec-h">最新对话</div>', unsafe_allow_html=True)
+        for item in show_recent:
+            _render_conversation_item(item)
 
-            tools = item.get("tools_used", [])
-            if tools:
-                nm = {"get_stock_quote":"行情","get_technical_analysis":"技术",
-                      "get_scoring_result":"评分","get_market_snapshot":"大盘",
-                      "get_news":"新闻","get_positions":"持仓","get_kline_data":"K线",
-                      "get_watchlist":"选股","get_financial_data":"财务"}
-                st.caption(" · ".join(nm.get(t, t) for t in tools))
-            if st.button("删除", key=f"del_{i}"):
-                ai.delete_history_item(i); st.rerun()
+        # 历史对话折叠
+        if total > 2:
+            old_count = total - 2
+            with st.expander(f"历史对话 ({old_count} 条)", expanded=False):
+                for item in history[:-2][::-1]:  # 旧的在前，倒序展示
+                    _render_conversation_item(item)
     else:
         st.markdown(
-            '<div style="text-align:center;padding:24px 12px;color:var(--muted);font-size:13px;line-height:1.8">'
+            '<div style="text-align:center;padding:24px 12px;color:#5D6B7C;font-size:13px;line-height:1.8">'
             '点击上面任意快捷任务开始，或直接输入问题<br>'
             f'{"可以问「分析 " + selected_code + "」" if selected_code else "可以问「今天适合做短线吗」"}'
             '</div>', unsafe_allow_html=True)
 
-    # 输入
-    placeholder = f"直接问 {selected_code} 的任何问题..." if selected_code else "输入股票代码或直接提问..."
+    # ── 输入 ──
+    placeholder = f"问 {selected_code} 的任何问题..." if selected_code else "输入股票代码或直接提问..."
     u = st.chat_input(placeholder)
     if u:
         with st.spinner("分析中..."):
             ai.chat(_with_context(u))
         st.rerun()
 
-    # 底部
+    # ── 底部操作 ──
     if history:
-        c1, c2 = st.columns(2)
+        c1, c2, c3 = st.columns(3)
         with c1:
-            if st.button("清空对话", use_container_width=True):
+            if st.button("清空全部", use_container_width=True):
                 ai.clear_history(); st.rerun()
         with c2:
             if st.button("保存到本地", use_container_width=True, type="primary"):
                 ai.save_to_disk(); st.success("已保存")
+        with c3:
+            if st.button("逐条管理", use_container_width=True):
+                st.session_state["ai_manage"] = True
+                st.rerun()
+
+    # ── 逐条管理模式 ──
+    if st.session_state.get("ai_manage") and history:
+        st.markdown('<div class="sec-h">逐条管理</div>', unsafe_allow_html=True)
+        st.caption("勾选要删除的对话，然后点删除选中")
+        to_delete = []
+        for idx, item in enumerate(history):
+            q_preview = str(item.get("question", ""))[:40]
+            t = item.get("timestamp", "")[:16] if isinstance(item.get("timestamp"), str) else ""
+            cb = st.checkbox(f"[{idx}] {q_preview}... ({t})", key=f"ai_chk_{idx}")
+            if cb:
+                to_delete.append(idx)
+        if to_delete:
+            if st.button(f"删除选中的 {len(to_delete)} 条", use_container_width=True):
+                for idx in sorted(to_delete, reverse=True):
+                    ai.delete_history_item(idx)
+                st.session_state["ai_manage"] = False
+                st.rerun()
+        if st.button("取消管理", use_container_width=True):
+            st.session_state["ai_manage"] = False
+            st.rerun()
+
+
+def _render_conversation_item(item: dict):
+    """渲染单轮对话（用户消息 + AI 回复 + 工具 + 删除按钮）"""
+    q_text = html.escape(str(item.get("question", "")))
+    a_text = _fmt_answer(str(item.get("answer", "")))
+
+    st.markdown(
+        f'<div style="background:rgba(36,107,254,0.04);border-radius:8px;'
+        f'padding:8px 12px;margin:4px 0 6px 8px;font-size:13px;'
+        f'color:#17212F;line-height:1.5">{q_text}</div>',
+        unsafe_allow_html=True)
+    st.markdown(
+        f'<div style="background:#fff;border:1px solid #D8E1EA;'
+        f'border-radius:10px;padding:12px 14px;margin:4px 0 6px 0;'
+        f'font-size:14px;color:#17212F;line-height:1.65;word-break:break-word">'
+        f'{a_text}</div>', unsafe_allow_html=True)
+
+    tools = item.get("tools_used", [])
+    if tools:
+        nm = {"get_stock_quote":"行情","get_technical_analysis":"技术",
+              "get_scoring_result":"评分","get_market_snapshot":"大盘",
+              "get_news":"新闻","get_positions":"持仓","get_kline_data":"K线",
+              "get_watchlist":"选股","get_financial_data":"财务"}
+        st.caption(" · ".join(nm.get(t, t) for t in tools))
 
 
 def _get_ai() -> AIChat:
@@ -158,7 +202,6 @@ def _market_label() -> str:
 
 
 def _with_context(text: str) -> str:
-    """注入评分+K线+新闻"""
     stock_code = _extract_code(text) or st.session_state.get("selected_stock", "")
     parts = [text]
     if stock_code:
@@ -206,7 +249,6 @@ def _build_group_context(text: str) -> str:
         lines = [
             "用户问题是行业/概念选股，不要要求用户必须给单只股票代码。",
             "请基于以下本地候选池给出短线研究候选、风险提示和仓位纪律。",
-            "如果实时评分暂不可用，也要使用静态候选池说明筛选方向。",
         ]
         try:
             for kind, name, codes in groups:
@@ -222,16 +264,10 @@ def _build_group_context(text: str) -> str:
                 for _, q, r in scored[:5]:
                     t = "、".join(r.anti_quant.triggers[:2]) if r.anti_quant.triggers else "无"
                     lines.append(f"- {q.get('name',r.code)}({r.code})：机会分{r.total_score:.0f} 涨幅{q.get('change_pct',0):+.2f}% 状态{r.status_label} 反量化{r.anti_quant.risk_level} 触发:{t}")
-                if not scored:
-                    lines.append("- 实时行情暂不可用，静态候选池：" + "、".join(codes[:10]))
         finally: engine.close()
         return "\n".join(lines)
     except:
-        names = "、".join(f"{kind}:{name}" for kind, name, _ in groups)
-        return (
-            f"用户问题是行业/概念选股，不要要求用户必须给单只股票代码。目标：{names}。"
-            "实时评分暂不可用，请先给出筛选框架、风险条件和去雷达页按行业/概念查看候选的建议。"
-        )
+        return ""
 
 
 def _extract_code(text: str) -> str:
