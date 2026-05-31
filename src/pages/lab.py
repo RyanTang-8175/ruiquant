@@ -26,9 +26,9 @@ def render_lab_page():
             from src.memory.analysis_memory import AnalysisMemory
             am = AnalysisMemory()
             try:
-                records = am.get_recent_verifications(20)
+                records = am.get_verification_results()
                 if records:
-                    for rec in records:
+                    for rec in records[-20:]:
                         code = rec.get("stock_code",""); name = rec.get("stock_name", code)
                         src = rec.get("source_type",""); stt = rec.get("status","待回填")
                         st.markdown(
@@ -46,7 +46,7 @@ def render_lab_page():
             from src.memory.analysis_memory import AnalysisMemory
             am = AnalysisMemory()
             try:
-                pending = am.get_pending_backfills(10)
+                pending = am.get_pending_verifications()
                 if pending:
                     for rec in pending:
                         code = rec.get("stock_code",""); name = rec.get("stock_name", code)
