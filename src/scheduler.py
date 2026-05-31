@@ -27,9 +27,9 @@ def _daily_data_pipeline():
 
         from src.scoring.engine import ScoringEngine
         engine = ScoringEngine()
-        saved = engine.rescore_all()
+        results = engine.get_watchlist(min_score=0, limit=80)
         engine.close()
-        logger.info(f"评分完成，保存 {saved} 条记录")
+        logger.info(f"评分完成，保存 {len(results)} 条记录")
 
     except Exception as e:
         logger.error(f"每日数据管道失败: {e}")
@@ -39,11 +39,10 @@ def _fetch_news_job():
     """抓取新闻并分析情绪"""
     try:
         logger.info("开始抓取新闻...")
-        from src.news.fetcher import NewsFetcher
+        from src.news.fetcher import fetch_all_news
         from src.news.analyzer import NewsAnalyzer
 
-        fetcher = NewsFetcher()
-        news = fetcher.fetch_all(limit_per_source=15)
+        news = fetch_all_news(limit=30)
         logger.info(f"抓取到 {len(news)} 条新闻")
 
         if news:

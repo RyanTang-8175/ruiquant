@@ -36,7 +36,7 @@ def render_trading_page():
             if bc:
                 q = get_realtime_quote(bc.strip())
                 if q and q.get("price"):
-                    with TradingEngine() as e: r = e.execute_buy(bc.strip(), q["price"], bq)
+                    with TradingEngine() as e: r = e.execute_buy(bc.strip(), q.get("name", bc.strip()), q["price"], bq)
                     if r["success"]: st.success(f"BOUGHT {q.get('name',bc)} {bq}@{q['price']:.2f}"); st.rerun()
                     else: st.error(r["reason"])
                 else: st.error("NO DATA")
