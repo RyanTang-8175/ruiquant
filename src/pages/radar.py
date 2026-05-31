@@ -1,4 +1,4 @@
-"""AlphaEye v6 雷达页 —— 风险优先 + 策略模式"""
+"""AlphaEye v6 雷达页 —— 一眼看风险，一眼看机会"""
 
 import streamlit as st
 from datetime import datetime
@@ -6,11 +6,16 @@ from datetime import datetime
 
 def render_radar_page():
     now = datetime.now()
-    hour, minute = now.hour, now.minute
-    is_tail = (hour == 14 and minute >= 30) or (hour == 15 and minute == 0)
 
-    st.markdown('<div class="sec-h">今日短线环境</div>', unsafe_allow_html=True)
+    # ── 1. 全局搜索 ──
+    from src.ui.search import render_search_bar
+    code = render_search_bar(key="radar")
+    if code:
+        st.session_state["selected_stock"] = code
+        st.session_state["current_page"] = "stock_detail"
+        st.rerun()
 
+    # ── 2. 今日环境 —— 一眼判断适不适合做短线 ──
     from src.data.realtime import get_market_overview
     ov = get_market_overview()
     indices = ov.get("indices", [])
@@ -19,133 +24,198 @@ def render_radar_page():
         main = next((i for i in indices if "上证" in i.get("name", "")), indices[0])
         chg = main.get("change_pct", 0)
         if chg > 0.5:
-            env, color, msg = "偏暖", "#12B76A", "大盘稳定，短线环境尚可"
+            env, color, msg = "适合", "var(--green)", "大盘稳定，短线环境良好"
         elif chg > -0.5:
-            env, color, msg = "中性", "#F79009", "大盘震荡，精选机会"
+            env, color, msg = "一般", "var(--amber)", "大盘震荡，精选个股"
         elif chg > -1.5:
-            env, color, msg = "偏冷", "#F04438", "大盘偏弱，控制仓位"
+            env, color, msg = "谨慎", "var(--red)", "大盘偏弱，控制仓位"
         else:
-            env, color, msg = "谨慎", "#F04438", "大盘走弱，减少操作"
+            env, color, msg = "不适合", "var(--red)", "大盘走弱，建议观望"
 
-        c1, c2 = st.columns([1, 2])
-        c1.metric("环境", env)
-        c2.caption(msg)
+        idx_html = "".join(
+            f'<div class="idx-cell">'
+            f'<div class="n">{i.get("name","")}</div>'
+            f'<div class="p" style="color:{"var(--red)" if i.get("change_pct",0)>0 else "var(--green)" if i.get("change_pct",0)<0 else "var(--muted)"}">{i.get("price",0):.2f}</div>'
+            f'<div class="c">{"+" if i.get("change_pct",0)>0 else ""}{i.get("change_pct",0):.2f}%</div>'
+            f'</div>'
+            for i in indices
+        )
+        st.markdown(
+            f'<div class="card" style="margin-bottom:12px">'
+            f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">'
+            f'<div style="font-weight:700;font-size:17px;color:var(--text)">今日短线</div>'
+            f'<div style="font-family:var(--mono);font-weight:700;font-size:16px;color:{color}">{env}</div>'
+            f'</div>'
+            f'<div style="font-size:13px;color:var(--muted);margin-bottom:10px">{msg}</div>'
+            f'<div class="idx-strip" style="margin-bottom:0">{idx_html}</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
 
-    if is_tail:
-        phase = "确认阶段" if minute >= 50 else ("观察阶段" if minute >= 45 else "初筛阶段")
+    h, m = now.hour, now.minute
+    if 14 <= h <= 15:
+        if h == 14 and m >= 50:
+            phase = "确认阶段 · 不追高"
+        elif h == 14 and m >= 45:
+            phase = "观察阶段 · 等待确认"
+        elif h == 14 and m >= 30:
+            phase = "初筛阶段 · 开始选股"
+        else:
+            phase = "等待尾盘"
         st.info(f"尾盘时段 · {phase} · {now.strftime('%H:%M')}")
 
-    st.markdown("---")
+    # ── 3. 两个Tab：风险 ｜ 机会 ──
+    tab1, tab2 = st.tabs(["规避风险", "策略机会"])
 
-    # ── 风险雷达 ──
-    st.markdown('<div class="sec-h">风险雷达</div>', unsafe_allow_html=True)
-    st.caption("先看风险，再看机会。")
-
-    try:
-        from src.scoring.engine import V6ScoringEngine
-        from src.data.realtime import get_top_stocks
-
-        engine = V6ScoringEngine()
+    with tab1:
+        st.caption("触发了反量化风险信号的股票，参与前请三思")
         try:
-            stocks = get_top_stocks(sort_field="amount", asc=False, limit=30)
-            high_risk = []
-            for s in (stocks or []):
-                code = s.get("code", "")
-                if not code: continue
-                r = engine.score_stock(code, quote=s)
-                if r and r.anti_quant.total_risk >= 40:
-                    high_risk.append({
-                        "code": code, "name": s.get("name", code),
-                        "risk": r.anti_quant.total_risk,
-                        "level": r.anti_quant.risk_level,
-                        "triggers": r.anti_quant.triggers[:3],
-                    })
-
-            if high_risk:
-                high_risk.sort(key=lambda x: x["risk"], reverse=True)
-                for item in high_risk[:8]:
-                    lvl = item["level"]
-                    cls = "risk-high" if lvl in ("高", "极高") else "risk-mid"
-                    badge = "badge-high" if lvl in ("高", "极高") else "badge-mid"
-                    trig = " · ".join(item["triggers"][:2]) if item["triggers"] else ""
-                    st.markdown(
-                        f'<div class="card {cls}">'
-                        f'<div style="display:flex;justify-content:space-between;align-items:center">'
-                        f'<div><span style="font-weight:600;font-size:15px;color:var(--text)">{item["name"]}</span>'
-                        f'<span style="font-family:var(--mono);font-size:11px;color:var(--muted);margin-left:8px">{item["code"]}</span></div>'
-                        f'<span class="badge {badge}">{lvl}风险</span></div>'
-                        f'<div style="font-size:11px;color:var(--muted);margin-top:6px">{trig}</div>'
-                        f'</div>',
-                        unsafe_allow_html=True,
-                    )
-            else:
-                st.success("当前未检测到高风险股票")
-        finally:
-            engine.close()
-    except Exception as e:
-        st.warning(f"风险扫描暂不可用: {e}")
-
-    st.markdown("---")
-
-    # ── 策略模式 ──
-    st.markdown('<div class="sec-h">策略模式</div>', unsafe_allow_html=True)
-
-    c1, c2 = st.columns(2)
-    with c1:
-        st.markdown(
-            '<div class="card" style="border-left:3px solid var(--amber)">'
-            '<div style="font-weight:700;font-size:15px;color:var(--text)">尾盘隔夜雷达</div>'
-            '<div style="font-size:12px;color:var(--muted);margin:6px 0">一夜持股法 · 目标次日+2%</div>'
-            f'<div style="font-size:11px;color:var(--weak)">今日: {"高" if is_tail else "等待尾盘"}</div>'
-            '</div>', unsafe_allow_html=True)
-
-    with c2:
-        st.markdown(
-            '<div class="card" style="border-left:3px solid var(--ai)">'
-            '<div style="font-weight:700;font-size:15px;color:var(--text)">短持延续雷达</div>'
-            '<div style="font-size:12px;color:var(--muted);margin:6px 0">隔夜→1-3天短持</div>'
-            '</div>', unsafe_allow_html=True)
-
-    # ── 快速审查 ──
-    st.markdown('<div class="sec-h">快速审查</div>', unsafe_allow_html=True)
-    code = st.text_input("股票代码", placeholder="如 600519", key="radar_in", label_visibility="collapsed")
-    if code and st.button("风险审查", key="btn_risk", use_container_width=True):
-        try:
+            from src.scoring.engine import V6ScoringEngine
+            from src.data.realtime import get_top_stocks
             engine = V6ScoringEngine()
             try:
-                r = engine.score_stock(code.strip())
-                if r:
-                    d = r.to_dict()
-                    st.markdown(f"### {d['name']}({d['code']})")
-                    c1, c2, c3 = st.columns(3)
-                    c1.metric("机会分", f"{d['total_score']}/100")
-                    c2.metric("风险", d['risk_level'])
-                    c3.metric("状态", d['status_label'])
-
-                    st.markdown("**六维评分**")
-                    for name, score, desc in [
-                        ("热度", d['heat']['score'], "资金关注"),
-                        ("承接", d['support']['score'], "上涨承接"),
-                        ("题材", d['theme']['score'], "主线匹配"),
-                        ("延续", d['continuation']['score'], "可持续"),
-                        ("策略", d['strategy_match']['score'], "模式匹配"),
-                    ]:
-                        color = "#12B76A" if score >= 65 else "#F79009" if score >= 45 else "#F04438"
+                stocks = get_top_stocks(sort_field="amount", asc=False, limit=50)
+                risky = []
+                for s in (stocks or []):
+                    cd = s.get("code", "")
+                    if not cd: continue
+                    r = engine.score_stock(cd, quote=s)
+                    if r and r.anti_quant.total_risk >= 30:
+                        risky.append({
+                            "code": cd, "name": s.get("name", cd),
+                            "chg": s.get("change_pct", 0),
+                            "risk": r.anti_quant.total_risk,
+                            "level": r.anti_quant.risk_level,
+                            "triggers": r.anti_quant.triggers[:3],
+                        })
+                if risky:
+                    risky.sort(key=lambda x: x["risk"], reverse=True)
+                    for item in risky[:12]:
+                        lvl = item["level"]
+                        border = "var(--red)" if lvl in ("高","极高") else "var(--amber)"
+                        badge = "badge-high" if lvl in ("高","极高") else "badge-mid"
+                        trig = " · ".join(item["triggers"][:3]) if item["triggers"] else ""
+                        c = "#F04438" if item["chg"] > 0 else "#12B76A"
                         st.markdown(
-                            f'<div style="display:flex;justify-content:space-between;padding:6px 0;'
-                            f'border-bottom:1px solid var(--border)">'
-                            f'<span style="color:var(--text)">{name}</span>'
-                            f'<span style="color:var(--muted);font-size:12px">{desc}</span>'
-                            f'<span style="font-family:var(--mono);font-weight:700;color:{color}">{score:.0f}</span>'
-                            f'</div>', unsafe_allow_html=True)
-
-                    if d['anti_quant'].get('triggers'):
-                        st.markdown("**反量化触发**")
-                        for t in d['anti_quant']['triggers']:
-                            st.markdown(f"- {t}")
+                            f'<div class="card" style="border-left:3px solid {border};margin-bottom:8px">'
+                            f'<div style="display:flex;justify-content:space-between;align-items:flex-start">'
+                            f'<div style="flex:1">'
+                            f'<div style="font-weight:600;font-size:15px;color:var(--text)">{item["name"]}'
+                            f'<span style="font-family:var(--mono);font-size:11px;color:var(--muted);margin-left:8px">{item["code"]}</span></div>'
+                            f'<div style="font-size:12px;color:var(--muted);margin-top:4px">{trig}</div></div>'
+                            f'<div style="text-align:right;margin-left:12px">'
+                            f'<div style="font-family:var(--mono);font-weight:700;font-size:15px;color:{c}">{item["chg"]:+.2f}%</div>'
+                            f'<span class="badge {badge}" style="margin-top:4px">{lvl}风险</span></div>'
+                            f'</div></div>',
+                            unsafe_allow_html=True,
+                        )
+                        if st.button("查看", key=f"risk_{item['code']}"):
+                            st.session_state["selected_stock"] = item["code"]
+                            st.session_state["current_page"] = "stock_detail"
+                            st.rerun()
                 else:
-                    st.warning("无法获取评分，请检查股票代码")
+                    st.success("当前未检测到显著风险股票")
             finally:
                 engine.close()
         except Exception as e:
-            st.error(f"评分失败: {e}")
+            st.warning(f"风险扫描暂不可用: {e}")
+
+    with tab2:
+        st.caption("按策略模式筛选候选")
+        choice = st.radio("策略", ["尾盘隔夜雷达", "短持延续雷达"],
+                          horizontal=True, label_visibility="collapsed")
+        if choice == "尾盘隔夜雷达":
+            _show_overnight()
+        else:
+            _show_continuation()
+
+
+def _show_overnight():
+    st.markdown(
+        '<div style="font-size:11px;color:var(--muted);margin-bottom:8px">'
+        '条件：涨幅2.5-5.5% · 量比≥1.2 · 换手5-10% · MA多头 · 分时均线上方≥70%</div>',
+        unsafe_allow_html=True,
+    )
+    try:
+        from src.data.realtime import get_top_stocks
+        from src.strategies.overnight import OvernightRadar
+        radar = OvernightRadar()
+        stocks = get_top_stocks(sort_field="change_pct", asc=False, limit=60)
+        candidates = []
+        for s in (stocks or []):
+            cd = s.get("code", "")
+            if not cd: continue
+            passed, _ = radar.check_hard_filters(s)
+            if passed:
+                m = radar.compute_match(s)
+                candidates.append({
+                    "code": cd, "name": s.get("name", cd),
+                    "chg": s.get("change_pct", 0),
+                    "match": m["match"], "status": m["status"],
+                })
+        if candidates:
+            candidates.sort(key=lambda x: x["match"], reverse=True)
+            for c in candidates[:10]:
+                border = "var(--green)" if c["match"] >= 80 else "var(--amber)" if c["match"] >= 60 else "var(--border)"
+                clr = "#F04438" if c["chg"] > 0 else "#12B76A"
+                st.markdown(
+                    f'<div class="card" style="border-left:3px solid {border};margin-bottom:8px">'
+                    f'<div style="display:flex;justify-content:space-between;align-items:center">'
+                    f'<div><span style="font-weight:600;font-size:15px;color:var(--text)">{c["name"]}</span>'
+                    f'<span style="font-family:var(--mono);font-size:11px;color:var(--muted);margin-left:8px">{c["code"]}</span></div>'
+                    f'<div style="text-align:right"><div style="font-family:var(--mono);font-weight:700;font-size:15px;color:{clr}">{c["chg"]:+.2f}%</div>'
+                    f'<div style="font-family:var(--mono);font-size:12px;color:var(--muted)">匹配{c["match"]:.0f}% · {c["status"]}</div></div>'
+                    f'</div></div>',
+                    unsafe_allow_html=True,
+                )
+        else:
+            st.info("当前无符合尾盘隔夜条件的候选")
+    except Exception as e:
+        st.warning(f"扫描暂不可用: {e}")
+
+
+def _show_continuation():
+    st.markdown(
+        '<div style="font-size:11px;color:var(--muted);margin-bottom:8px">'
+        '条件：价>MA5>MA10 · 近5日涨幅≤15% · 量价健康 · 压力可控</div>',
+        unsafe_allow_html=True,
+    )
+    try:
+        from src.data.realtime import get_top_stocks
+        from src.scoring.engine import V6ScoringEngine
+        engine = V6ScoringEngine()
+        try:
+            stocks = get_top_stocks(sort_field="change_pct", asc=False, limit=40)
+            results = []
+            for s in (stocks or []):
+                cd = s.get("code", "")
+                if not cd: continue
+                r = engine.score_stock(cd, quote=s)
+                if r and r.continuation.score >= 60 and r.status_label in ("可执行","等待确认"):
+                    results.append({
+                        "code": cd, "name": s.get("name", cd),
+                        "chg": s.get("change_pct", 0),
+                        "cont": r.continuation.score,
+                        "status": r.status_label,
+                    })
+            if results:
+                results.sort(key=lambda x: x["cont"], reverse=True)
+                for c in results[:10]:
+                    border = "var(--green)" if c["cont"] >= 75 else "var(--amber)"
+                    clr = "#F04438" if c["chg"] > 0 else "#12B76A"
+                    st.markdown(
+                        f'<div class="card" style="border-left:3px solid {border};margin-bottom:8px">'
+                        f'<div style="display:flex;justify-content:space-between;align-items:center">'
+                        f'<div><span style="font-weight:600;font-size:15px;color:var(--text)">{c["name"]}</span>'
+                        f'<span style="font-family:var(--mono);font-size:11px;color:var(--muted);margin-left:8px">{c["code"]}</span></div>'
+                        f'<div style="text-align:right"><div style="font-family:var(--mono);font-weight:700;font-size:15px;color:{clr}">{c["chg"]:+.2f}%</div>'
+                        f'<div style="font-family:var(--mono);font-size:12px;color:var(--muted)">延续{c["cont"]:.0f} · {c["status"]}</div></div>'
+                        f'</div></div>',
+                        unsafe_allow_html=True,
+                    )
+            else:
+                st.info("当前无符合短持延续条件的候选")
+        finally:
+            engine.close()
+    except Exception as e:
+        st.warning(f"扫描暂不可用: {e}")
