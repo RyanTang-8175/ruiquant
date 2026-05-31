@@ -1,7 +1,11 @@
 """AlphaEye v6 雷达页"""
 
+import html
+import json
 import streamlit as st
 from datetime import datetime
+from functools import lru_cache
+from pathlib import Path
 
 
 def render_radar_page():
@@ -116,8 +120,9 @@ def _fetch_and_score(filter_type: str, filter_key: str) -> list:
             q = get_realtime_quote(cd)
             if q and q.get("price", 0) > 0:
                 seen.add(cd)
+                name = _resolve_stock_name(cd, q.get("name", cd))
                 stocks.append({
-                    "code": cd, "name": q.get("name", cd),
+                    "code": cd, "name": name,
                     "price": q.get("price", 0), "change_pct": q.get("change_pct", 0),
                     "volume": q.get("volume", 0), "amount": q.get("amount", 0),
                     "turnover": q.get("turnover", 0), "open": q.get("open", 0),
@@ -129,7 +134,10 @@ def _fetch_and_score(filter_type: str, filter_key: str) -> list:
         for s in (get_top_stocks("amount", False, 40) or []) + (get_top_stocks("changepercent", False, 40) or []):
             cd = s.get("code", "")
             if cd and cd not in seen:
-                seen.add(cd); stocks.append(s)
+                seen.add(cd)
+                s = dict(s)
+                s["name"] = _resolve_stock_name(cd, s.get("name", cd))
+                stocks.append(s)
 
     if not stocks:
         return []
@@ -141,6 +149,9 @@ def _fetch_and_score(filter_type: str, filter_key: str) -> list:
             cd = s.get("code", "")
             r = engine.score_stock(cd, quote=s)
             if r and r.status_label not in ("不建议参与", "已排除"):
+                canonical_name = _resolve_stock_name(cd, s.get("name", ""))
+                s["name"] = canonical_name
+                r.name = canonical_name
                 results.append((s, r))
         results.sort(key=lambda x: x[1].total_score, reverse=True)
         return results
@@ -155,7 +166,9 @@ def _render_card(stock: dict, result):
     if scode and rcode and scode != rcode:
         return  # 数据错位，跳过此条
     code = scode or rcode
-    name = stock.get("name") or result.name
+    name = _resolve_stock_name(code, stock.get("name") or result.name)
+    safe_name = html.escape(name)
+    safe_code = html.escape(code)
     chg = stock.get("change_pct", 0)
     chg_c = "var(--red)" if chg > 0 else "var(--green)" if chg < 0 else "var(--muted)"
     risk = result.anti_quant.risk_level
@@ -167,11 +180,11 @@ def _render_card(stock: dict, result):
     plain = _plain(result)
 
     st.markdown(
-        f'<div class="recommend-card" style="border-left:3px solid {border}">'
+        f'<div class="recommend-card" data-code="{safe_code}" style="border-left:3px solid {border}">'
         f'<div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start">'
         f'<div style="flex:1;min-width:0">'
-        f'<div style="font-size:15px;font-weight:750;color:var(--text)">{name}'
-        f'<span style="font-family:var(--mono);font-size:11px;color:var(--muted);margin-left:7px">{code}</span></div>'
+        f'<div style="font-size:15px;font-weight:750;color:var(--text)">{safe_name}'
+        f'<span style="font-family:var(--mono);font-size:11px;color:var(--muted);margin-left:7px">{safe_code}</span></div>'
         f'<div style="font-size:12px;color:var(--muted);margin-top:2px">{strategies} · {result.status_label}</div>'
         f'</div>'
         f'<div style="text-align:right;min-width:82px">'
@@ -223,6 +236,64 @@ def _plain(result) -> str:
              "可延至2-3天" if c >= 65 else "适合隔夜-1天" if c >= 50 else "不建议延长"]
     parts.append("反量化高风险" if r in ("高","极高") else "反量化风险中" if r == "中" else "反量化风险低")
     return "。".join(parts) + "。"
+
+
+@lru_cache(maxsize=1)
+def _stock_name_lookup() -> dict:
+    """标准股票名称表。雷达页展示名只信任代码映射，避免行情源/前端状态造成名称错位。"""
+    lookup = {}
+    try:
+        from src.data.stock_list import CACHE_FILE, fetch_all_stocks
+
+        if Path(CACHE_FILE).exists():
+            with open(CACHE_FILE, "r", encoding="utf-8") as f:
+                cache = json.load(f)
+            for item in cache.get("stocks", []):
+                code = str(item.get("code", ""))
+                name = str(item.get("name", ""))
+                if code and name:
+                    lookup[code] = name
+
+        if not lookup:
+            for item in fetch_all_stocks():
+                code = str(item.get("code", ""))
+                name = str(item.get("name", ""))
+                if code and name:
+                    lookup[code] = name
+    except Exception:
+        pass
+
+    # 兜底覆盖常用行业/概念核心股，服务器首次部署无缓存时仍能避免明显错名。
+    lookup.update({
+        "600900": "长江电力",
+        "601985": "中国核电",
+        "003816": "中国广核",
+        "600025": "华能水电",
+        "600011": "华能国际",
+        "600886": "国投电力",
+        "600674": "川投能源",
+        "002015": "协鑫能科",
+        "000883": "湖北能源",
+        "600023": "浙能电力",
+        "002475": "立讯精密",
+        "688981": "中芯国际",
+        "688036": "传音控股",
+        "603501": "豪威集团",
+        "600703": "三安光电",
+        "688256": "寒武纪",
+        "688008": "澜起科技",
+        "688012": "中微公司",
+        "688396": "华润微",
+        "300782": "卓胜微",
+    })
+    return lookup
+
+
+def _resolve_stock_name(code: str, fallback: str = "") -> str:
+    """根据代码解析标准名称，fallback 只用于未知股票。"""
+    code = str(code or "")
+    fallback = str(fallback or "")
+    return _stock_name_lookup().get(code) or fallback or code
 
 
 # ═══════════════════════════════════════════

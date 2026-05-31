@@ -203,7 +203,11 @@ def _build_group_context(text: str) -> str:
         from src.data.realtime import get_realtime_quote
         from src.scoring.engine import V6ScoringEngine
         engine = V6ScoringEngine()
-        lines = ["用户问题是行业/概念选股，不要要求用户必须给单只股票代码。"]
+        lines = [
+            "用户问题是行业/概念选股，不要要求用户必须给单只股票代码。",
+            "请基于以下本地候选池给出短线研究候选、风险提示和仓位纪律。",
+            "如果实时评分暂不可用，也要使用静态候选池说明筛选方向。",
+        ]
         try:
             for kind, name, codes in groups:
                 scored = []
@@ -218,9 +222,16 @@ def _build_group_context(text: str) -> str:
                 for _, q, r in scored[:5]:
                     t = "、".join(r.anti_quant.triggers[:2]) if r.anti_quant.triggers else "无"
                     lines.append(f"- {q.get('name',r.code)}({r.code})：机会分{r.total_score:.0f} 涨幅{q.get('change_pct',0):+.2f}% 状态{r.status_label} 反量化{r.anti_quant.risk_level} 触发:{t}")
+                if not scored:
+                    lines.append("- 实时行情暂不可用，静态候选池：" + "、".join(codes[:10]))
         finally: engine.close()
         return "\n".join(lines)
-    except: return ""
+    except:
+        names = "、".join(f"{kind}:{name}" for kind, name, _ in groups)
+        return (
+            f"用户问题是行业/概念选股，不要要求用户必须给单只股票代码。目标：{names}。"
+            "实时评分暂不可用，请先给出筛选框架、风险条件和去雷达页按行业/概念查看候选的建议。"
+        )
 
 
 def _extract_code(text: str) -> str:
