@@ -30,12 +30,19 @@ def _parse_gtimg(raw: str) -> Optional[Dict]:
                 "high_limit":v(47),"low_limit":v(48)}
     except: return None
 
+import time as _t
+_QCACHE = {}
+
 def get_realtime_quote(code: str) -> Optional[Dict]:
-    """单股行情 — 腾讯→新浪"""
+    """单股行情 — 腾讯→新浪，30秒内存缓存"""
+    n = _t.time()
+    if code in _QCACHE and n - _QCACHE[code][1] < 30:
+        return _QCACHE[code][0]
     try:
         r = requests.get(f'http://qt.gtimg.cn/q={_tc_code(code)}', headers=H, timeout=5)
         q = _parse_gtimg(r.text)
-        if q and q.get("price",0)>0: return q
+        if q and q.get("price",0)>0:
+            _QCACHE[code] = (q, n); return q
     except: pass
     try:
         r = requests.get(f'http://hq.sinajs.cn/list={_tc_code(code)}',
@@ -43,10 +50,12 @@ def get_realtime_quote(code: str) -> Optional[Dict]:
         m = re.search(r'="(.+)"', r.text)
         if m:
             p = m.group(1).split(','); v = lambda i: float(p[i]) if p[i] else 0.0
-            return {"code":code,"name":p[0],"price":v(3),"prev_close":v(2),"open":v(1),
-                    "high":v(4),"low":v(5),"volume":int(v(8)),"amount":v(9),
-                    "change_pct":v(3)/v(2)*100-100 if v(2)>0 else 0}
-    except: return None
+            q = {"code":code,"name":p[0],"price":v(3),"prev_close":v(2),"open":v(1),
+                 "high":v(4),"low":v(5),"volume":int(v(8)),"amount":v(9),
+                 "change_pct":v(3)/v(2)*100-100 if v(2)>0 else 0}
+            _QCACHE[code] = (q, n); return q
+    except: pass
+    return None
 
 def get_market_overview() -> Dict:
     """大盘指数 — 腾讯"""
