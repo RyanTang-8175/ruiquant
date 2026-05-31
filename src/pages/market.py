@@ -83,31 +83,73 @@ def render_market_page():
     # ── 快讯 ──
     st.markdown("---")
     st.markdown('<div class="sec-h">快讯</div>', unsafe_allow_html=True)
-    if st.button("刷新", key="rn"):
-        st.session_state.pop("ns", None)
-        st.rerun()
-    if "ns" not in st.session_state:
-        try:
+
+    # 源筛选
+    srcs = ["全部","新浪","东财","财联社","腾讯","华尔街见闻"]
+    src_key = "ns_src"
+    st.session_state.setdefault(src_key, "全部")
+    scols = st.columns(6)
+    for i, s in enumerate(srcs):
+        with scols[i]:
+            if st.button(s, key=f"nss_{s}", use_container_width=True,
+                         type="primary" if st.session_state[src_key]==s else "secondary"):
+                st.session_state[src_key]=s; st.rerun()
+
+    # 类别筛选
+    cats = ["全部","政策","板块","公司","宏观"]
+    cat_key = "ns_cat"
+    st.session_state.setdefault(cat_key, "全部")
+    ccols = st.columns(5)
+    for i, c in enumerate(cats):
+        with ccols[i]:
+            if st.button(c, key=f"nsc_{c}", use_container_width=True,
+                         type="primary" if st.session_state[cat_key]==c else "secondary"):
+                st.session_state[cat_key]=c; st.rerun()
+
+    # 拉取
+    if "nsd" not in st.session_state:
+        with st.spinner("加载中..."):
             from src.news.fetcher import fetch_all_news
-            with st.spinner("加载新闻..."):
-                st.session_state["ns"] = fetch_all_news(18)
-        except Exception:
-            st.session_state["ns"] = []
-    ns = st.session_state.get("ns", [])
+            st.session_state["nsd"] = fetch_all_news(60)
+    ns = st.session_state["nsd"]
+
+    # 过滤
+    src = st.session_state[src_key]
+    cat = st.session_state[cat_key]
+    if src != "全部": ns = [n for n in ns if n.get("source")==src]
+    if cat != "全部": ns = [n for n in ns if n.get("category")==cat]
+
     if not ns:
         st.info("暂无新闻")
     else:
-        for it in ns:
-            t = it.get("title", "")
-            src = {"cls": "财联社", "eastmoney": "东财"}.get(it.get("source", ""), "")
-            pt = it.get("published_at", "")
-            tg = ""
-            if any(k in t for k in ["涨", "牛", "利好", "突破"]):
-                tg = '<span class="badge badge-low">利好</span> '
-            elif any(k in t for k in ["跌", "利空", "风险", "暴雷"]):
-                tg = '<span class="badge badge-high">利空</span> '
+        st.caption(f"{len(ns)} 条")
+        for it in ns[:30]:
+            t = it.get("title",""); s = it.get("source","")
+            pt = it.get("published_at",""); body = it.get("content","")
+            cn = it.get("category",""); codes = it.get("related_codes",[])
+
+            tags = []
+            if cn=="policy": tags.append('<span class="badge badge-ai">政策</span>')
+            elif cn=="sector": tags.append('<span class="badge badge-low">板块</span>')
+            elif cn=="company": tags.append('<span class="badge badge-mid">公司</span>')
+            if any(k in t for k in ["涨","牛","利好","突破","涨停"]):
+                tags.append('<span class="badge badge-low">利好</span>')
+            elif any(k in t for k in ["跌","利空","风险","暴雷","退市"]):
+                tags.append('<span class="badge badge-high">利空</span>')
+
+            cs = ""
+            if codes:
+                cs = '<div style="margin-top:4px">'+" ".join(
+                    f'<span style="font-family:var(--mono);font-size:10px;color:var(--ai)">{c}</span>'
+                    for c in codes[:3])+'</div>'
+
             st.markdown(
-                f'<div class="ni"><div class="nt">{tg}{t}</div>'
-                f'<div class="nm">{src} · {pt}</div></div>',
-                unsafe_allow_html=True,
-            )
+                f'<div class="ni"><div class="nt">{" ".join(tags)} {t}</div>'
+                f'<div class="nm">{s} · {pt}</div>{cs}</div>',
+                unsafe_allow_html=True)
+            if body and body != t:
+                with st.expander(t[:40]+"..."):
+                    st.caption(body)
+
+    if st.button("刷新新闻", key="rn2", use_container_width=True):
+        st.session_state.pop("nsd",None); st.rerun()
