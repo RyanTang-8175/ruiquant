@@ -169,6 +169,7 @@ section[data-testid="stSidebar"] { display: none; }
 }
 [data-testid="stMetric"] [data-testid="stMetricValue"] {
   font-family: var(--mono) !important; font-size: 18px !important; font-weight: 700 !important;
+  color: var(--text) !important;
 }
 
 .badge {

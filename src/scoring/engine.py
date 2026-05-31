@@ -209,6 +209,11 @@ class V6ScoringEngine:
         result.anti_quant.risk_level = aq["risk_level"]
         result.anti_quant.penalty = aq["penalty"]
         result.anti_quant.triggers = aq["triggers"]
+        result.anti_quant.late_day_lure = aq.get("late_day_lure", {})
+        result.anti_quant.high_position_trap = aq.get("high_position_trap", {})
+        result.anti_quant.intraday_pulse = aq.get("intraday_pulse", {})
+        result.anti_quant.volume_stall = aq.get("volume_stall", {})
+        result.anti_quant.sector_divergence = aq.get("sector_divergence", {})
 
         result.compute_total()
         result.dimension_details = {"heat":h,"support":s,"theme":t,"continuation":c,"strategy_match":sm,"anti_quant":aq}

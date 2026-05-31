@@ -52,6 +52,9 @@ def render_radar_page():
         phase = ("确认阶段·不追高" if m >= 50 else "观察阶段" if m >= 45 else "初筛阶段" if m >= 30 else "等待尾盘")
         st.info(f"尾盘 · {phase} · {now.strftime('%H:%M')}")
 
+    # ── 每日推荐板块 ──
+    _daily_sectors()
+
     # ── Tab ──
     tab0, tab1, tab2 = st.tabs(["推荐选股", "风险排除", "策略扫描"])
     with tab0:
@@ -434,3 +437,89 @@ def _show_continuation():
             e.close()
     except Exception as ex:
         st.warning(f"暂不可用: {ex}")
+
+
+# ═══════════════════════════════════════════
+# 每日推荐行业/概念
+# ═══════════════════════════════════════════
+
+def _daily_sectors():
+    from src.data.stock_list import SW_INDUSTRY, CONCEPTS
+    from src.data.realtime import get_realtime_quote
+
+    st.markdown(
+        '<div class="sec-h">今日推荐板块</div>'
+        '<div style="font-size:11px;color:var(--muted);margin-bottom:8px">综合涨跌幅、成交额、龙头强度筛选</div>',
+        unsafe_allow_html=True)
+
+    if "daily_recs" not in st.session_state:
+        st.session_state["daily_recs"] = _compute_daily_recs()
+    recs = st.session_state["daily_recs"]
+
+    st.markdown('<div style="font-size:12px;font-weight:700;color:var(--text);margin-top:8px">推荐行业</div>', unsafe_allow_html=True)
+    inds = recs.get("industries", [])[:3]
+    if inds:
+        cols = st.columns(3)
+        for i, (name, score, reason) in enumerate(inds):
+            with cols[i]:
+                st.markdown(
+                    f'<div class="card" style="text-align:center;padding:10px">'
+                    f'<div style="font-size:14px;font-weight:700;color:var(--text)">{name}</div>'
+                    f'<div style="font-size:11px;color:var(--muted);margin-top:4px">{reason}</div>'
+                    f'<div style="font-family:var(--mono);font-size:12px;color:var(--ai);margin-top:4px">活跃 {score:.0f}</div></div>',
+                    unsafe_allow_html=True)
+    else:
+        st.info("暂无行业推荐")
+
+    st.markdown('<div style="font-size:12px;font-weight:700;color:var(--text);margin-top:8px">推荐概念</div>', unsafe_allow_html=True)
+    cons = recs.get("concepts", [])[:3]
+    if cons:
+        cols = st.columns(3)
+        for i, (name, score, reason) in enumerate(cons):
+            with cols[i]:
+                st.markdown(
+                    f'<div class="card" style="text-align:center;padding:10px">'
+                    f'<div style="font-size:14px;font-weight:700;color:var(--text)">{name}</div>'
+                    f'<div style="font-size:11px;color:var(--muted);margin-top:4px">{reason}</div>'
+                    f'<div style="font-family:var(--mono);font-size:12px;color:var(--ai);margin-top:4px">活跃 {score:.0f}</div></div>',
+                    unsafe_allow_html=True)
+    else:
+        st.info("暂无概念推荐")
+
+
+def _compute_daily_recs() -> dict:
+    from src.data.stock_list import SW_INDUSTRY, CONCEPTS
+    from src.data.realtime import get_realtime_quote
+
+    industries = []
+    for name, codes in SW_INDUSTRY.items():
+        chgs, amounts, up_count = [], [], 0
+        for cd in codes[:5]:
+            q = get_realtime_quote(cd)
+            if q and q.get("price", 0) > 0:
+                chgs.append(q.get("change_pct", 0))
+                amounts.append(q.get("amount", 0) or 0)
+                if q.get("change_pct", 0) > 2: up_count += 1
+        if chgs:
+            avg = sum(chgs) / len(chgs)
+            score = avg * 4 + up_count * 10 + min(sum(amounts) / 5e8, 20)
+            reason = "领涨" if avg > 2 else "偏强" if avg > 0.5 else "震荡"
+            industries.append((name, score, reason))
+    industries.sort(key=lambda x: x[1], reverse=True)
+
+    concepts = []
+    for name, codes in CONCEPTS.items():
+        chgs, up_count = [], 0
+        for cd in codes[:5]:
+            q = get_realtime_quote(cd)
+            if q and q.get("price", 0) > 0:
+                chgs.append(q.get("change_pct", 0))
+                if q.get("change_pct", 0) > 2: up_count += 1
+        if chgs:
+            avg = sum(chgs) / len(chgs)
+            score = avg * 4 + up_count * 10
+            reason = "活跃" if avg > 1.5 else "波动" if avg > 0 else "偏弱"
+            concepts.append((name, score, reason))
+    concepts.sort(key=lambda x: x[1], reverse=True)
+
+    return {"industries": industries, "concepts": concepts}

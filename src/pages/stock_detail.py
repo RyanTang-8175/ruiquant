@@ -26,6 +26,8 @@ def render_stock_detail_page(code: str | None = None):
     else:
         st.info("六维评分暂不可用")
     _kline_chart(code)
+    if result:
+        _summary_card(code, quote, result)
     _ai_bar(code, quote)
     _back()
 
@@ -111,6 +113,7 @@ def _score_detail(result):
             f'<div style="margin-top:4px">{sub}</div>'
             f'<div style="font-size:11px;color:#8B98A7;margin-top:3px">{d.explanation}</div></div>',
             unsafe_allow_html=True)
+    _summary_card(result)
 
 
 def _antiquant_detail(result):
@@ -206,6 +209,45 @@ def _plain(result) -> str:
           "可持2-3天" if c >= 65 else "可持1-2天" if c >= 50 else "不建议延长"]
     pp.append("反量化高风险,需谨慎" if r in ("高","极高") else "反量化中风险" if r == "中" else "反量化低风险")
     return "。".join(pp) + "。"
+
+
+def _summary_card(code, quote, result):
+    """根据六维评分生成一句话总结"""
+    st.markdown(
+        '<div style="font-size:13px;font-weight:700;color:#5D6B7C;margin:14px 0 6px;'
+        'border-bottom:1px solid #D8E1EA;padding-bottom:4px">总结分析</div>',
+        unsafe_allow_html=True)
+
+    name = quote.get("name", code)
+    price = quote.get("price", 0)
+    pct = quote.get("change_pct", 0)
+    direction = "上涨" if pct > 0 else "下跌"
+    risk = result.anti_quant.risk_level
+    heat_label = "高" if result.heat.score >= 65 else "一般" if result.heat.score >= 50 else "低"
+    support_label = "好" if result.support.score >= 65 else "一般" if result.support.score >= 50 else "差"
+
+    summary = (
+        f"{name}今日{direction}{abs(pct):.1f}%，收盘{price:.2f}。"
+        f"热度{heat_label}，承接{support_label}，反量化风险{risk}。"
+    )
+
+    if result.status_label == "可执行":
+        summary += "信号较明确，可在满足参与条件后考虑轻仓参与。"
+    elif result.status_label == "等待确认":
+        summary += "建议等待更明确的承接信号或板块确认后再考虑。"
+    elif result.status_label in ("风险偏高", "不建议参与"):
+        summary += "当前不建议追高，优先观察或寻找其他机会。"
+    else:
+        summary += "可加入观察池，待条件更成熟时再评估。"
+
+    if result.anti_quant.triggers:
+        summary += f"主要风险点：{'；'.join(result.anti_quant.triggers[:2])}。"
+
+    st.markdown(
+        f'<div style="background:rgba(36,107,254,0.04);border:1px solid rgba(36,107,254,0.12);'
+        f'border-radius:10px;padding:12px;margin-bottom:10px;font-size:13px;'
+        f'color:#17212F;line-height:1.6">{summary}</div>',
+        unsafe_allow_html=True)
 
 
 def _back():
