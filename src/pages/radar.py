@@ -62,47 +62,30 @@ def render_radar_page():
 # 推荐选股（合并筛选 + 结果渲染，消除 stale data）
 # ═══════════════════════════════════════════
 
-# 模块级缓存：避免重复切换时重跑评分
-_RESULT_CACHE = {}
-
 def _render_filter_and_results():
     from src.data.stock_list import SW_INDUSTRY, CONCEPTS
 
     st.session_state.setdefault("rf_mode", "综合")
-    st.session_state.setdefault("rf_industry", list(SW_INDUSTRY.keys())[0])
-    st.session_state.setdefault("rf_concept", list(CONCEPTS.keys())[0])
-
-    # 初始化默认选择
-    st.session_state.setdefault("rf_industry", list(SW_INDUSTRY.keys())[0])
-    st.session_state.setdefault("rf_concept", list(CONCEPTS.keys())[0])
 
     c1, c2, c3 = st.columns(3)
     for label, col, val in [("综合", c1, "综合"), ("行业", c2, "行业"), ("概念", c3, "概念")]:
         with col:
-            if st.button(label, key=f"rf_btn_{val}", use_container_width=True,
+            if st.button(label, key=f"rfb_{val}", use_container_width=True,
                          type="primary" if st.session_state["rf_mode"] == val else "secondary"):
                 st.session_state["rf_mode"] = val
                 st.rerun()
 
     mode = st.session_state["rf_mode"]
     if mode == "行业":
-        cur = st.selectbox("行业", list(SW_INDUSTRY.keys()),
-                           key="rf_sel_ind", label_visibility="collapsed")
-        st.session_state["rf_industry"] = cur
+        cur = st.selectbox("行业", list(SW_INDUSTRY.keys()), key="rfi", label_visibility="collapsed")
         filter_type, filter_key, flabel = "industry", cur, cur
     elif mode == "概念":
-        cur = st.selectbox("概念", list(CONCEPTS.keys()),
-                           key="rf_sel_con", label_visibility="collapsed")
-        st.session_state["rf_concept"] = cur
+        cur = st.selectbox("概念", list(CONCEPTS.keys()), key="rfc", label_visibility="collapsed")
         filter_type, filter_key, flabel = "concept", cur, cur
     else:
         filter_type, filter_key, flabel = "all", "", "综合"
 
-    # key 变了才重新拉+评分
-    cache_key = f"{filter_type}::{filter_key}"
-    if cache_key not in _RESULT_CACHE:
-        _RESULT_CACHE[cache_key] = _fetch_and_score(filter_type, filter_key)
-    results = _RESULT_CACHE[cache_key]
+    results = _fetch_and_score(filter_type, filter_key)
 
     st.markdown(
         f'<div class="sec-h">六维评分候选 · {flabel}</div>'
