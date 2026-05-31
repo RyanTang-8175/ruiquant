@@ -281,18 +281,21 @@ def _render_recommend_card(stock: dict, result, compact: bool = True):
     strategy_names = [s["strategy"] if isinstance(s, dict) else str(s) for s in (result.matched_strategies or [])]
     strategies = " / ".join(strategy_names[:2]) if strategy_names else "综合短线"
 
-    st.markdown(
+    plain = _plain_verdict(result)
+
+    html = (
         f'<div class="recommend-card" style="border-left:3px solid {border}">'
         f'<div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start">'
         f'<div style="flex:1;min-width:0">'
         f'<div style="font-size:15px;font-weight:750;color:var(--text)">{result.name}'
         f'<span style="font-family:var(--mono);font-size:11px;color:var(--muted);margin-left:7px">{result.code}</span></div>'
-        f'<div style="font-size:12px;color:var(--muted);margin-top:4px">{strategies} · {result.status_label}</div>'
+        f'<div style="font-size:12px;color:var(--muted);margin-top:2px">{strategies} · {result.status_label}</div>'
         f'</div>'
         f'<div style="text-align:right;min-width:82px">'
         f'<div style="font-family:var(--mono);font-size:18px;font-weight:800;color:var(--ai)">{result.total_score:.0f}</div>'
         f'<div style="font-family:var(--mono);font-size:12px;color:{chg_color}">{chg:+.2f}%</div>'
         f'</div></div>'
+        f'<div style="font-size:12px;color:var(--text);margin-top:6px;line-height:1.5">{plain}</div>'
         f'<div class="score-row">'
         f'<span class="score-pill">热度 {result.heat.score:.0f}</span>'
         f'<span class="score-pill">承接 {result.support.score:.0f}</span>'
@@ -303,23 +306,59 @@ def _render_recommend_card(stock: dict, result, compact: bool = True):
         f'<div style="display:flex;justify-content:space-between;align-items:center;margin-top:9px">'
         f'<div style="font-size:12px;color:var(--muted);line-height:1.45">{triggers}</div>'
         f'<span class="badge {risk_cls}">{risk}风险</span>'
-        f'</div>'
-        f'</div>',
-        unsafe_allow_html=True,
+        f'</div></div>'
     )
+    st.markdown(html, unsafe_allow_html=True)
+
     if not compact:
-        c1, c2 = st.columns(2)
+        c1, c2, c3 = st.columns(3)
         with c1:
-            if st.button("查看个股", key=f"rec_view_{result.code}", use_container_width=True):
+            if st.button("查看", key=f"rv_{result.code}", use_container_width=True):
                 st.session_state["selected_stock"] = result.code
                 st.session_state["current_page"] = "stock_detail"
                 st.rerun()
         with c2:
-            if st.button("问 AI", key=f"rec_ai_{result.code}", use_container_width=True):
+            if st.button("AI分析", key=f"ra_{result.code}", use_container_width=True):
                 st.session_state["selected_stock"] = result.code
                 st.session_state["current_page"] = "ai_chat"
-                st.session_state["qq"] = f"请对 {result.code} 做短线风险审查和持股周期判断"
+                st.session_state["qq"] = f"请对 {result.code} 做完整深度分析。先调行情/评分/技术三个工具，按风险→机会→条件→周期输出，每个专业术语附白话解释。最后用一句话总结。"
                 st.rerun()
+        with c3:
+            if st.button("验证", key=f"rl_{result.code}", use_container_width=True):
+                try:
+                    from src.memory.analysis_memory import AnalysisMemory
+                    am = AnalysisMemory(); am.create_verification(
+                        source_type="strategy", stock_code=result.code,
+                        stock_name=result.name, signal_date=datetime.now(),
+                        suggested_period="1-2天"); am.close()
+                    st.success("已加入实验室")
+                except Exception as e:
+                    st.warning(f"加入失败: {e}")
+
+
+def _plain_verdict(result) -> str:
+    risk = result.anti_quant.risk_level
+    heat = result.heat.score
+    support = result.support.score
+    theme = result.theme.score
+    cont = result.continuation.score
+    parts = []
+    if heat >= 65: parts.append("今天资金关注度高")
+    elif heat >= 50: parts.append("热度适中")
+    else: parts.append("资金关注偏弱")
+    if support >= 65: parts.append("上涨后承接良好")
+    elif support >= 50: parts.append("承接尚可")
+    else: parts.append("承接不足，小心冲高回落")
+    if theme >= 60: parts.append("属于今日主线方向")
+    elif theme >= 45: parts.append("板块不算强")
+    else: parts.append("板块偏弱")
+    if cont >= 65: parts.append("可延长到2-3天")
+    elif cont >= 50: parts.append("适合隔夜到1-2天")
+    else: parts.append("不建议延长持有")
+    if risk in ("高", "极高"): parts.append("反量化风险偏高需谨慎")
+    elif risk == "中": parts.append("反量化风险可控")
+    else: parts.append("反量化风险较低")
+    return "。".join(parts) + "。"
 
 
 def _show_overnight():

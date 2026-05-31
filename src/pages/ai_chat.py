@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-import html
-import re
+import html, re
 from datetime import datetime
 
 import streamlit as st
@@ -11,32 +10,28 @@ import streamlit as st
 from src.ai.chat import AIChat
 
 
-TASKS = [
-    {
-        "title": "风险审查",
-        "desc": "追高、诱多、高位接盘",
-        "icon": "!",
-        "prompt": "请用 AlphaEye 风险审查员模式，审查当前股票的反量化风险、短线风险、参与条件和放弃条件。",
-    },
-    {
-        "title": "持股预测",
-        "desc": "隔夜 / 1-2天 / 2-3天",
-        "icon": "T",
-        "prompt": "请判断当前股票适合隔夜、1-2天还是2-3天短持，并给出继续持有条件和离场条件。",
-    },
-    {
-        "title": "今日选股",
-        "desc": "按六维评分找候选",
-        "icon": "R",
-        "prompt": "请基于六维评分和反量化风险，给出今天值得研究的短线候选股，并按行业和概念说明机会来源。",
-    },
-    {
-        "title": "交易复盘",
-        "desc": "策略、AI、执行偏差",
-        "icon": "V",
-        "prompt": "请复盘我最近的模拟交易，区分策略表现、AI判断和我的执行偏差。",
-    },
-]
+def _quick_tasks(code: str) -> list:
+    if code:
+        return [
+            {"title": "深度审查", "desc": f"全面分析 {code}",
+             "prompt": f"请对 {code} 做完整深度分析。先调行情/评分/技术三个工具，然后按风险→机会→条件→周期顺序输出。每个专业术语附白话解释。最后用一句话总结。"},
+            {"title": "能不能买", "desc": f"{code} 现在能不能参与",
+             "prompt": f"请直接判断 {code} 现在能不能参与。回答：能/不能/有条件能。列出参与前必须满足的 3 个条件和 3 个离场红线。不要长篇大论，只给关键判断和数字。"},
+            {"title": "持股多久", "desc": f"{code} 适合持有几天",
+             "prompt": f"判断 {code} 适合隔夜、1-2天还是2-3天。给出继续持有条件、离场条件、明早要盯的 3 个关键点。"},
+            {"title": "反量化扫描", "desc": f"{code} 有被收割风险吗",
+             "prompt": f"对 {code} 做完整反量化扫描：尾盘诱多/高位接盘/分时脉冲/放量滞涨/板块背离。每条用大白话解释它是什么、为什么触发、对散户意味着什么。"},
+        ]
+    return [
+        {"title": "今日选股", "desc": "六维评分找候选",
+         "prompt": "基于市场环境和六维评分框架，推荐今天值得研究的 3-5 个短线方向或板块，说明逻辑和风险。"},
+        {"title": "大盘解读", "desc": "今天适合做短线吗",
+         "prompt": "分析今天大盘和板块环境。适不适合做短线？什么板块强？什么在退潮？给出操作纪律提醒。"},
+        {"title": "交易复盘", "desc": "策略/AI/执行偏差",
+         "prompt": "复盘我最近的模拟交易。区分策略胜率、AI 准确度、我的执行偏差。数据不足时告诉我需要什么。"},
+        {"title": "学习模式", "desc": "解释概念+举例",
+         "prompt": "用新手能听懂的方式解释：1)反量化风险是什么，散户怎么识别 2)尾盘隔夜策略的核心逻辑。每个概念配实例说明。"},
+    ]
 
 
 def render_ai_chat_page():
@@ -44,318 +39,197 @@ def render_ai_chat_page():
     history = ai.get_history()
     selected_code = st.session_state.get("selected_stock", "")
 
-    st.markdown('<div class="ai-shell">', unsafe_allow_html=True)
-    _render_hero(selected_code)
-    _render_search()
-    _render_statusbar(history, selected_code)
-    _render_task_grid(selected_code)
-    _render_memory(history)
-    _handle_pending_quick_question(ai, selected_code)
-    _render_dialog(ai, history)
-    _render_input(ai)
-    _render_footer_actions(ai, history)
-    st.markdown('</div>', unsafe_allow_html=True)
-
-
-def _get_ai() -> AIChat:
-    if "aic" not in st.session_state:
-        ai = AIChat()
-        ai.load_from_disk()
-        st.session_state["aic"] = ai
-    return st.session_state["aic"]
-
-
-def _render_hero(selected_code: str):
-    stock_line = "未绑定股票"
-    if selected_code:
-        stock_line = f"当前股票 {selected_code}"
-    st.markdown(
-        '<div class="ai-hero">'
-        '<div class="ai-hero-title">AlphaEye AI</div>'
-        f'<div class="ai-hero-sub">默认先审风险，再看机会。{stock_line}，所有分析都会尽量结合六维评分、反量化触发项和历史记忆。</div>'
-        '</div>',
-        unsafe_allow_html=True,
-    )
-
-
-def _render_search():
+    # 搜索
     from src.ui.search import render_search_bar
-
     code = render_search_bar(key="ai")
     if code:
         st.session_state["selected_stock"] = code
         st.session_state["current_page"] = "stock_detail"
         st.rerun()
 
-
-def _render_statusbar(history: list, selected_code: str):
+    # 状态条
     env = _market_label()
     stock = selected_code or "未选择"
     st.markdown(
-        '<div class="ai-statusbar">'
-        f'<div class="ai-stat"><div class="ai-stat-label">市场环境</div><div class="ai-stat-value">{env}</div></div>'
-        f'<div class="ai-stat"><div class="ai-stat-label">当前股票</div><div class="ai-stat-value">{stock}</div></div>'
-        f'<div class="ai-stat"><div class="ai-stat-label">记忆数量</div><div class="ai-stat-value">{len(history)} 条</div></div>'
-        '</div>',
-        unsafe_allow_html=True,
-    )
+        f'<div style="display:flex;gap:8px;margin:8px 0 12px;font-size:12px;color:var(--muted)">'
+        f'<span>市场 {env}</span><span>|</span><span>股票 {stock}</span><span>|</span><span>对话 {len(history)} 条</span>'
+        f'</div>', unsafe_allow_html=True)
+
+    if selected_code:
+        st.markdown(
+            f'<div style="background:rgba(36,107,254,0.06);border:1px solid rgba(36,107,254,0.15);'
+            f'border-radius:10px;padding:8px 12px;margin-bottom:10px;font-size:13px;color:var(--text)">'
+            f'当前股票 <strong>{selected_code}</strong> · AI 会自动注入评分、K线和反量化详情'
+            f'</div>', unsafe_allow_html=True)
+
+    # 快捷任务
+    tasks = _quick_tasks(selected_code)
+    st.markdown('<div class="sec-h">快捷任务</div>', unsafe_allow_html=True)
+    for row in range(2):
+        cols = st.columns(2)
+        for i in range(2):
+            task = tasks[row * 2 + i]
+            with cols[i]:
+                if st.button(task["title"], key=f"qt_{row}_{i}",
+                             use_container_width=True, help=task["desc"]):
+                    st.session_state["qq"] = task["prompt"]
+                    st.rerun()
+
+    st.markdown("---")
+
+    # 快捷提问处理
+    if "qq" in st.session_state:
+        q = st.session_state.pop("qq")
+        with st.spinner("AI 正在读取行情、评分、K线和反量化数据..."):
+            ai.chat(_with_context(q))
+        st.rerun()
+
+    # 对话展示
+    if history:
+        st.markdown('<div class="sec-h">对话记录</div>', unsafe_allow_html=True)
+        for i, item in enumerate(history[-8:]):
+            q_text = html.escape(str(item.get("question", "")))
+            a_text = _fmt_answer(str(item.get("answer", "")))
+
+            st.markdown(
+                f'<div style="background:rgba(36,107,254,0.05);border-radius:8px;'
+                f'padding:8px 12px;margin:4px 0 6px 12px;font-size:13px;'
+                f'color:var(--text);line-height:1.5">{q_text}</div>',
+                unsafe_allow_html=True)
+            st.markdown(
+                f'<div style="background:var(--card);border:1px solid var(--border);'
+                f'border-radius:10px;padding:12px 14px;margin:4px 0 6px 0;'
+                f'font-size:14px;color:var(--text);line-height:1.65;word-break:break-word">'
+                f'{a_text}</div>', unsafe_allow_html=True)
+
+            tools = item.get("tools_used", [])
+            if tools:
+                nm = {"get_stock_quote":"行情","get_technical_analysis":"技术",
+                      "get_scoring_result":"评分","get_market_snapshot":"大盘",
+                      "get_news":"新闻","get_positions":"持仓","get_kline_data":"K线",
+                      "get_watchlist":"选股","get_financial_data":"财务"}
+                st.caption(" · ".join(nm.get(t, t) for t in tools))
+            if st.button("删除", key=f"del_{i}"):
+                ai.delete_history_item(i); st.rerun()
+    else:
+        st.markdown(
+            '<div style="text-align:center;padding:24px 12px;color:var(--muted);font-size:13px;line-height:1.8">'
+            '点击上面任意快捷任务开始，或直接输入问题<br>'
+            f'{"可以问「分析 " + selected_code + "」" if selected_code else "可以问「今天适合做短线吗」"}'
+            '</div>', unsafe_allow_html=True)
+
+    # 输入
+    placeholder = f"直接问 {selected_code} 的任何问题..." if selected_code else "输入股票代码或直接提问..."
+    u = st.chat_input(placeholder)
+    if u:
+        with st.spinner("分析中..."):
+            ai.chat(_with_context(u))
+        st.rerun()
+
+    # 底部
+    if history:
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("清空对话", use_container_width=True):
+                ai.clear_history(); st.rerun()
+        with c2:
+            if st.button("保存到本地", use_container_width=True, type="primary"):
+                ai.save_to_disk(); st.success("已保存")
+
+
+def _get_ai() -> AIChat:
+    if "aic" not in st.session_state:
+        ai = AIChat(); ai.load_from_disk(); st.session_state["aic"] = ai
+    return st.session_state["aic"]
 
 
 def _market_label() -> str:
     try:
         from src.data.realtime import get_market_overview
-
         indices = get_market_overview().get("indices", [])
-        if not indices:
-            return "待刷新"
+        if not indices: return "待刷新"
         main = next((i for i in indices if "上证" in i.get("name", "")), indices[0])
         chg = main.get("change_pct", 0)
-        if chg > 0.5:
-            return "偏暖"
-        if chg > -0.5:
-            return "震荡"
-        if chg > -1.5:
-            return "谨慎"
+        if chg > 0.5: return "偏暖"
+        if chg > -0.5: return "震荡"
+        if chg > -1.5: return "偏冷"
         return "不适合"
-    except Exception:
-        return "待刷新"
-
-
-def _render_task_grid(selected_code: str):
-    st.markdown('<div class="ai-section-title">快捷任务</div>', unsafe_allow_html=True)
-    for row in range(2):
-        cols = st.columns(2)
-        for col_index, col in enumerate(cols):
-            task = TASKS[row * 2 + col_index]
-            with col:
-                st.markdown(
-                    '<div class="ai-task">'
-                    f'<div class="ai-task-icon">{task["icon"]}</div>'
-                    f'<div class="ai-task-title">{task["title"]}</div>'
-                    f'<div class="ai-task-desc">{task["desc"]}</div>'
-                    '</div>',
-                    unsafe_allow_html=True,
-                )
-                label = f"启动：{task['title']}"
-                if st.button(label, key=f"ai_task_{task['title']}", use_container_width=True):
-                    prompt = task["prompt"]
-                    if selected_code and task["title"] != "今日选股":
-                        prompt = f"{prompt}\n股票代码：{selected_code}"
-                    st.session_state["qq"] = prompt
-                    st.rerun()
-
-
-def _render_memory(history: list):
-    st.markdown('<div class="ai-section-title">对话记忆</div>', unsafe_allow_html=True)
-    if not history:
-        st.markdown(
-            '<div class="ai-memory-card">'
-            '<div class="ai-memory-q">还没有对话</div>'
-            '<div style="color:var(--muted);font-size:12px;line-height:1.55;margin-top:5px">输入股票代码或点击快捷任务开始。AI 会保存对话，方便下次继续。</div>'
-            '</div>',
-            unsafe_allow_html=True,
-        )
-        return
-
-    rows = []
-    for item in history[-4:][::-1]:
-        question = html.escape(str(item.get("question", ""))[:36])
-        ts = _short_time(item.get("timestamp", ""))
-        rows.append(
-            '<div class="ai-memory-row">'
-            f'<div class="ai-memory-q">{question}</div>'
-            f'<div class="ai-memory-t">{ts}</div>'
-            '</div>'
-        )
-    st.markdown('<div class="ai-memory-card">' + "".join(rows) + '</div>', unsafe_allow_html=True)
-
-
-def _handle_pending_quick_question(ai: AIChat, selected_code: str):
-    if "qq" not in st.session_state:
-        return
-    q = st.session_state.pop("qq")
-    if selected_code and "股票代码" not in q and "今天值得研究" not in q:
-        q = f"{q}\n股票代码：{selected_code}"
-    with st.spinner("AI 正在读取行情、评分和历史记忆..."):
-        ai.chat(_with_context(q))
-    st.rerun()
-
-
-def _render_dialog(ai: AIChat, history: list):
-    st.markdown('<div class="ai-section-title">当前对话</div>', unsafe_allow_html=True)
-    if not history:
-        return
-
-    start_index = max(0, len(history) - 6)
-    for offset, item in enumerate(history[-6:]):
-        history_index = start_index + offset
-        question = html.escape(str(item.get("question", "")))
-        answer = _answer_to_html(str(item.get("answer", "")))
-        st.markdown(f'<div class="chat-msg-user">{question}</div>', unsafe_allow_html=True)
-        st.markdown(f'<div class="chat-msg-assistant">{answer}</div>', unsafe_allow_html=True)
-        tools = item.get("tools_used", [])
-        if tools:
-            st.markdown(
-                f'<div class="chat-tools">工具：{html.escape(_tool_names(tools))}</div>',
-                unsafe_allow_html=True,
-            )
-        if st.button("删除这条", key=f"delete_ai_msg_{history_index}", use_container_width=True):
-            ai.delete_history_item(history_index)
-            st.rerun()
-
-
-def _render_input(ai: AIChat):
-    user_text = st.chat_input("问股票、问行业、问风险，例如：审查 600519")
-    if not user_text:
-        return
-    with st.spinner("AI 正在分析..."):
-        ai.chat(_with_context(user_text))
-    st.rerun()
-
-
-def _render_footer_actions(ai: AIChat, history: list):
-    if not history:
-        return
-    c1, c2 = st.columns(2)
-    with c1:
-        if st.button("保存记忆", use_container_width=True, type="primary"):
-            ai.save_to_disk()
-            st.success("已保存")
-    with c2:
-        if st.button("清空对话", use_container_width=True):
-            ai.clear_history()
-            st.rerun()
+    except: return "待刷新"
 
 
 def _with_context(text: str) -> str:
+    """注入评分+K线+新闻"""
     stock_code = _extract_code(text) or st.session_state.get("selected_stock", "")
-    if not stock_code:
-        group_context = _build_group_context(text)
-        return f"{text}\n\n[系统已注入行业/概念候选上下文]\n{group_context}" if group_context else text
-    try:
-        from src.scoring.engine import V6ScoringEngine
-
-        engine = V6ScoringEngine()
+    parts = [text]
+    if stock_code:
         try:
-            context = engine.build_ai_context(stock_code)
-        finally:
-            engine.close()
-        return f"{text}\n\n[系统已注入股票上下文]\n{context}"
-    except Exception:
-        return text
+            from src.scoring.engine import V6ScoringEngine
+            with V6ScoringEngine() as e:
+                ctx = e.build_ai_context(stock_code)
+            parts.append(f"\n\n[系统注入: {stock_code} 六维评分+K线]\n{ctx}")
+        except: pass
+        try:
+            from src.news.fetcher import fetch_stock_news
+            news = fetch_stock_news(stock_code, limit=3)
+            if news:
+                parts.append("\n[相关新闻]\n" + "\n".join(f"- {n.get('title','')}" for n in news[:3]))
+        except: pass
+    else:
+        gctx = _build_group_context(text)
+        if gctx: parts.append(f"\n[系统注入: 行业/概念候选]\n{gctx}")
+    return "\n".join(parts)
 
 
 def _build_group_context(text: str) -> str:
-    """为“我有1万块，想买电力或半导体”这类问题注入本地股票池和评分结果。"""
     from src.data.stock_list import CONCEPTS, SW_INDUSTRY
-
     groups = []
-    normalized = text.replace("，", " ").replace("、", " ").replace("/", " ")
+    n = text.replace("，"," ").replace("、"," ").replace("/"," ")
     for name, codes in SW_INDUSTRY.items():
-        if name in normalized:
-            groups.append(("行业", name, codes))
+        if name in n: groups.append(("行业", name, codes))
     for name, codes in CONCEPTS.items():
-        if name in normalized:
-            groups.append(("概念", name, codes))
-
-    # 用户常用表达映射。
-    aliases = {
-        "半导体": ("概念", "半导体芯片", CONCEPTS.get("半导体芯片", [])),
-        "芯片": ("概念", "半导体芯片", CONCEPTS.get("半导体芯片", [])),
-        "电力行业": ("行业", "公用事业", SW_INDUSTRY.get("公用事业", [])),
-        "电力": ("概念", "电力", CONCEPTS.get("电力", [])),
-    }
-    for alias, group in aliases.items():
-        if alias in normalized and group[2]:
-            groups.append(group)
-
-    dedup = []
-    seen_names = set()
-    for group in groups:
-        key = (group[0], group[1])
-        if key not in seen_names:
-            seen_names.add(key)
-            dedup.append(group)
+        if name in n: groups.append(("概念", name, codes))
+    aliases = {"半导体":("概念","半导体芯片",CONCEPTS.get("半导体芯片",[])),
+               "芯片":("概念","半导体芯片",CONCEPTS.get("半导体芯片",[])),
+               "电力":("概念","电力",CONCEPTS.get("电力",[]))}
+    for a, g in aliases.items():
+        if a in n and g[2]: groups.append(g)
+    dedup, seen = [], set()
+    for g in groups:
+        k = (g[0], g[1])
+        if k not in seen: seen.add(k); dedup.append(g)
     groups = dedup[:4]
-    if not groups:
-        return ""
-
+    if not groups: return ""
     try:
         from src.data.realtime import get_realtime_quote
         from src.scoring.engine import V6ScoringEngine
-
         engine = V6ScoringEngine()
-        lines = [
-            "用户问题是行业/概念选股，不要要求用户必须给单只股票代码。",
-            "请基于以下本地股票池候选，给出短线研究候选、风险提示和仓位纪律。",
-            "用户资金约 1 万元时，应强调分批、轻仓、验证，不要建议满仓。",
-        ]
+        lines = ["用户问题是行业/概念选股，不要要求用户必须给单只股票代码。"]
         try:
             for kind, name, codes in groups:
                 scored = []
-                for code in codes[:10]:
-                    q = get_realtime_quote(code)
-                    if not q:
-                        continue
-                    r = engine.score_stock(code, quote=q)
-                    if not r:
-                        continue
+                for cd in codes[:10]:
+                    q = get_realtime_quote(cd)
+                    if not q: continue
+                    r = engine.score_stock(cd, quote=q)
+                    if not r: continue
                     scored.append((r.total_score, q, r))
                 scored.sort(key=lambda x: x[0], reverse=True)
                 lines.append(f"\n{kind}：{name}")
                 for _, q, r in scored[:5]:
-                    triggers = "、".join(r.anti_quant.triggers[:2]) if r.anti_quant.triggers else "无明显触发"
-                    lines.append(
-                        f"- {q.get('name', r.code)}({r.code})：机会分{r.total_score:.0f}，"
-                        f"涨幅{q.get('change_pct', 0):+.2f}%，状态{r.status_label}，"
-                        f"反量化{r.anti_quant.risk_level}，风险触发：{triggers}"
-                    )
-                if not scored:
-                    lines.append("- 实时行情暂不可用，静态候选池：" + "、".join(codes[:10]))
-        finally:
-            engine.close()
+                    t = "、".join(r.anti_quant.triggers[:2]) if r.anti_quant.triggers else "无"
+                    lines.append(f"- {q.get('name',r.code)}({r.code})：机会分{r.total_score:.0f} 涨幅{q.get('change_pct',0):+.2f}% 状态{r.status_label} 反量化{r.anti_quant.risk_level} 触发:{t}")
+        finally: engine.close()
         return "\n".join(lines)
-    except Exception:
-        # 本地数据失败时也给模型明确任务，避免输出“请分析贵州茅台”这种兜底。
-        names = "、".join(f"{kind}:{name}" for kind, name, _ in groups)
-        return (
-            f"用户在问行业/概念选股：{names}。即使实时评分暂不可用，也应解释筛选框架，"
-            "给出需要去雷达页按行业/概念查看的候选方向和风险条件，不要要求用户换成单只股票。"
-        )
+    except: return ""
 
 
 def _extract_code(text: str) -> str:
-    match = re.search(r"\b(\d{6})\b", text)
-    return match.group(1) if match else ""
+    m = re.search(r"\b(\d{6})\b", text)
+    return m.group(1) if m else ""
 
 
-def _answer_to_html(text: str) -> str:
+def _fmt_answer(text: str) -> str:
     safe = html.escape(text)
     safe = re.sub(r"\*\*(.*?)\*\*", r"<strong>\1</strong>", safe)
-    safe = safe.replace("\n\n", "</p><p>")
-    safe = safe.replace("\n", "<br>")
+    safe = safe.replace("\n\n", "</p><p>").replace("\n", "<br>")
     return f"<p>{safe}</p>"
-
-
-def _short_time(raw: str) -> str:
-    if not raw:
-        return ""
-    try:
-        return datetime.fromisoformat(raw).strftime("%m-%d %H:%M")
-    except Exception:
-        return raw[:10]
-
-
-def _tool_names(tools: list) -> str:
-    names = {
-        "get_stock_quote": "行情",
-        "get_technical_analysis": "技术",
-        "get_scoring_result": "评分",
-        "get_market_snapshot": "大盘",
-        "get_news": "新闻",
-        "get_positions": "持仓",
-        "get_kline_data": "K线",
-        "get_watchlist": "选股",
-        "get_financial_data": "财务",
-    }
-    return " · ".join(names.get(t, t) for t in tools)
