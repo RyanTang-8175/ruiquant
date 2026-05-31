@@ -57,3 +57,6 @@ def test_ai_fallback_handles_sector_questions_without_single_stock_demand():
 def test_radar_stock_name_uses_code_canonical_name_over_quote_name():
     assert _resolve_stock_name("600900", "旧名称") == "长江电力"
     assert _resolve_stock_name("688981", "旧名称") == "中芯国际"
+    assert _resolve_stock_name("000858", "金山办公") == "五粮液"
+    assert _resolve_stock_name("600519", "海康威视") == "贵州茅台"
+    assert _resolve_stock_name("002304", "中芯国际") == "洋河股份"

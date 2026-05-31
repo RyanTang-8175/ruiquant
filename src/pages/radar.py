@@ -101,8 +101,9 @@ def _render_filter_and_results():
         return
 
     st.caption(f"{len(results)} 只，显示前 {min(15, len(results))} 只")
-    for stock, result in results[:15]:
-        _render_card(stock, result)
+    scope = f"{filter_type}:{filter_key or 'all'}"
+    for index, (stock, result) in enumerate(results[:15]):
+        _render_card(stock, result, scope=scope, index=index)
 
 
 def _fetch_and_score(filter_type: str, filter_key: str) -> list:
@@ -159,7 +160,7 @@ def _fetch_and_score(filter_type: str, filter_key: str) -> list:
         engine.close()
 
 
-def _render_card(stock: dict, result):
+def _render_card(stock: dict, result, scope: str = "all", index: int = 0):
     # 防御：确保 stock 和 result 的 code 一致，不一致时跳过
     scode = stock.get("code", "")
     rcode = result.code
@@ -179,53 +180,57 @@ def _render_card(stock: dict, result):
     strategies = " / ".join(strat_names[:2]) if strat_names else "综合短线"
     plain = _plain(result)
 
-    st.markdown(
-        f'<div class="recommend-card" data-code="{safe_code}" style="border-left:3px solid {border}">'
-        f'<div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start">'
-        f'<div style="flex:1;min-width:0">'
-        f'<div style="font-size:15px;font-weight:750;color:var(--text)">{safe_name}'
-        f'<span style="font-family:var(--mono);font-size:11px;color:var(--muted);margin-left:7px">{safe_code}</span></div>'
-        f'<div style="font-size:12px;color:var(--muted);margin-top:2px">{strategies} · {result.status_label}</div>'
-        f'</div>'
-        f'<div style="text-align:right;min-width:82px">'
-        f'<div style="font-family:var(--mono);font-size:18px;font-weight:800;color:var(--ai)">{result.total_score:.0f}</div>'
-        f'<div style="font-family:var(--mono);font-size:12px;color:{chg_c}">{chg:+.2f}%</div>'
-        f'</div></div>'
-        f'<div style="font-size:12px;color:var(--text);margin-top:6px;line-height:1.5">{plain}</div>'
-        f'<div class="score-row">'
-        f'<span class="score-pill">热度{result.heat.score:.0f}</span>'
-        f'<span class="score-pill">承接{result.support.score:.0f}</span>'
-        f'<span class="score-pill">题材{result.theme.score:.0f}</span>'
-        f'<span class="score-pill">延续{result.continuation.score:.0f}</span>'
-        f'<span class="score-pill">策略{result.strategy_match.score:.0f}</span>'
-        f'</div>'
-        f'<div style="display:flex;justify-content:space-between;align-items:center;margin-top:9px">'
-        f'<div style="font-size:12px;color:var(--muted)">{triggers_str}</div>'
-        f'<span class="badge {risk_badge}">{risk}风险</span>'
-        f'</div></div>',
-        unsafe_allow_html=True)
+    card_key = f"{scope}:{index}:{code}:{name}"
+    with st.container(key=f"radar_card_{abs(hash(card_key))}"):
+        st.markdown(
+            f'<!-- radar-card {html.escape(card_key)} -->'
+            f'<div class="recommend-card" data-scope="{html.escape(scope)}" data-code="{safe_code}" style="border-left:3px solid {border}">'
+            f'<div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start">'
+            f'<div style="flex:1;min-width:0">'
+            f'<div style="font-size:15px;font-weight:750;color:var(--text)">{safe_name}'
+            f'<span style="font-family:var(--mono);font-size:11px;color:var(--muted);margin-left:7px">{safe_code}</span></div>'
+            f'<div style="font-size:12px;color:var(--muted);margin-top:2px">{strategies} · {result.status_label}</div>'
+            f'</div>'
+            f'<div style="text-align:right;min-width:82px">'
+            f'<div style="font-family:var(--mono);font-size:18px;font-weight:800;color:var(--ai)">{result.total_score:.0f}</div>'
+            f'<div style="font-family:var(--mono);font-size:12px;color:{chg_c}">{chg:+.2f}%</div>'
+            f'</div></div>'
+            f'<div style="font-size:12px;color:var(--text);margin-top:6px;line-height:1.5">{plain}</div>'
+            f'<div class="score-row">'
+            f'<span class="score-pill">热度{result.heat.score:.0f}</span>'
+            f'<span class="score-pill">承接{result.support.score:.0f}</span>'
+            f'<span class="score-pill">题材{result.theme.score:.0f}</span>'
+            f'<span class="score-pill">延续{result.continuation.score:.0f}</span>'
+            f'<span class="score-pill">策略{result.strategy_match.score:.0f}</span>'
+            f'</div>'
+            f'<div style="display:flex;justify-content:space-between;align-items:center;margin-top:9px">'
+            f'<div style="font-size:12px;color:var(--muted)">{triggers_str}</div>'
+            f'<span class="badge {risk_badge}">{risk}风险</span>'
+            f'</div></div>',
+            unsafe_allow_html=True)
 
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        if st.button("查看", key=f"rc_v_{code}", use_container_width=True):
-            st.session_state["selected_stock"] = code
-            st.session_state["current_page"] = "stock_detail"; st.rerun()
-    with c2:
-        if st.button("AI分析", key=f"rc_a_{code}", use_container_width=True):
-            st.session_state["selected_stock"] = code
-            st.session_state["current_page"] = "ai_chat"
-            st.session_state["qq"] = f"请对 {code} 做完整深度分析。先调行情/评分/技术三个工具，按风险→机会→条件→周期输出，每个专业术语附白话解释。最后用一句话总结。"
-            st.rerun()
-    with c3:
-        if st.button("验证", key=f"rc_l_{code}", use_container_width=True):
-            try:
-                from src.memory.analysis_memory import AnalysisMemory
-                am = AnalysisMemory()
-                am.create_verification("strategy", code, name, datetime.now(), suggested_period="1-2天")
-                am.close()
-                st.success("已加入")
-            except Exception as e:
-                st.warning(f"失败: {e}")
+        c1, c2, c3 = st.columns(3)
+        button_suffix = f"{scope}_{index}_{code}".replace(":", "_")
+        with c1:
+            if st.button("查看", key=f"rc_v_{button_suffix}", use_container_width=True):
+                st.session_state["selected_stock"] = code
+                st.session_state["current_page"] = "stock_detail"; st.rerun()
+        with c2:
+            if st.button("AI分析", key=f"rc_a_{button_suffix}", use_container_width=True):
+                st.session_state["selected_stock"] = code
+                st.session_state["current_page"] = "ai_chat"
+                st.session_state["qq"] = f"请对 {code} 做完整深度分析。先调行情/评分/技术三个工具，按风险→机会→条件→周期输出，每个专业术语附白话解释。最后用一句话总结。"
+                st.rerun()
+        with c3:
+            if st.button("验证", key=f"rc_l_{button_suffix}", use_container_width=True):
+                try:
+                    from src.memory.analysis_memory import AnalysisMemory
+                    am = AnalysisMemory()
+                    am.create_verification("strategy", code, name, datetime.now(), suggested_period="1-2天")
+                    am.close()
+                    st.success("已加入")
+                except Exception as e:
+                    st.warning(f"失败: {e}")
 
 
 def _plain(result) -> str:
@@ -265,6 +270,16 @@ def _stock_name_lookup() -> dict:
 
     # 兜底覆盖常用行业/概念核心股，服务器首次部署无缓存时仍能避免明显错名。
     lookup.update({
+        "600519": "贵州茅台",
+        "000858": "五粮液",
+        "000568": "泸州老窖",
+        "002304": "洋河股份",
+        "600809": "山西汾酒",
+        "600559": "老白干酒",
+        "000596": "古井贡酒",
+        "600779": "水井坊",
+        "603369": "今世缘",
+        "603198": "迎驾贡酒",
         "600900": "长江电力",
         "601985": "中国核电",
         "003816": "中国广核",
