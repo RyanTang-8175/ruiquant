@@ -266,6 +266,17 @@ def _market_label() -> str:
 def _with_context(text: str) -> str:
     stock_code = _extract_code(text) or st.session_state.get("selected_stock", "")
     parts = [text]
+
+    # 用户画像
+    try:
+        from src.memory.user_profile import get_profile
+        p = get_profile()
+        p.record_chat()
+        if stock_code: p.track_stock(stock_code)
+        ctx = p.build_context()
+        if ctx: parts.insert(1, ctx)
+    except Exception: pass
+
     if stock_code:
         try:
             from src.scoring.engine import V6ScoringEngine
