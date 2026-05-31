@@ -107,18 +107,60 @@ def render_ai_chat_page():
         st.rerun()
 
     # 底部
-    if history:
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            if st.button("清空全部", use_container_width=True):
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        if history:
+            if st.button("清空", use_container_width=True):
                 ai.clear_history(); st.rerun()
-        with c2:
+        else:
+            if st.button("盘前早报", use_container_width=True):
+                with st.spinner("生成早报..."):
+                    briefing = ai.morning_briefing()
+                if briefing:
+                    ai.history.append({
+                        "question": "生成今日盘前早报",
+                        "answer": briefing,
+                        "timestamp": datetime.now().isoformat(),
+                        "tools_used": [],
+                    })
+                    ai.save_to_disk(); st.rerun()
+    with c2:
+        if history:
             if st.button("保存", use_container_width=True, type="primary"):
                 ai.save_to_disk(); st.success("已保存")
-        with c3:
-            if st.button("逐条删除", use_container_width=True):
-                st.session_state["ai_mgr"] = not st.session_state.get("ai_mgr", False)
-                st.rerun()
+        else:
+            if st.button("对比分析", use_container_width=True):
+                st.session_state["ai_compare"] = True; st.rerun()
+    with c3:
+        if st.button("逐条管理", use_container_width=True):
+            st.session_state["ai_mgr"] = not st.session_state.get("ai_mgr", False)
+            st.rerun()
+    with c4:
+        if st.button("盘前早报", use_container_width=True):
+            with st.spinner("生成早报..."):
+                briefing = ai.morning_briefing()
+            if briefing:
+                ai.history.append({
+                    "question": "生成今日盘前早报",
+                    "answer": briefing,
+                    "timestamp": datetime.now().isoformat(),
+                    "tools_used": [],
+                })
+                ai.save_to_disk(); st.rerun()
+
+    # 对比分析
+    if st.session_state.pop("ai_compare", False):
+        st.markdown('<div class="sec-h">对比分析</div>', unsafe_allow_html=True)
+        ca = st.text_input("股票A", placeholder="600519", key="cmp_a")
+        cb = st.text_input("股票B", placeholder="000858", key="cmp_b")
+        if ca and cb and st.button("开始对比", use_container_width=True):
+            with st.spinner("对比中..."):
+                result = ai.compare_stocks(ca.strip(), cb.strip())
+            ai.history.append({
+                "question": f"对比 {ca} 和 {cb}", "answer": result,
+                "timestamp": datetime.now().isoformat(), "tools_used": [],
+            })
+            ai.save_to_disk(); st.rerun()
 
     # 逐条删除
     if st.session_state.get("ai_mgr") and history:
@@ -143,12 +185,12 @@ def render_ai_chat_page():
 # ══════════════════════════════
 
 def _render_item(item: dict, idx: int, is_recent: bool = False):
-    """渲染一条对话：用户消息气泡 + AI 可折叠回复"""
+    """渲染一条对话：用户消息气泡 + AI 可折叠回复 + 智能追问"""
     q_text = html.escape(str(item.get("question", "")))
     a_text = str(item.get("answer", ""))
     title = _extract_title(a_text)
 
-    # 用户消息：紧凑气泡
+    # 用户消息
     st.markdown(
         f'<div style="background:rgba(36,107,254,0.05);border-radius:8px;'
         f'padding:6px 10px;margin:6px 0 4px 16px;font-size:13px;'
@@ -165,6 +207,16 @@ def _render_item(item: dict, idx: int, is_recent: bool = False):
                   "get_news":"新闻","get_positions":"持仓","get_kline_data":"K线",
                   "get_watchlist":"选股","get_financial_data":"财务"}
             st.caption(" · ".join(nm.get(t, t) for t in tools))
+
+        # ── 智能追问按钮 ──
+        followups = AIChat.follow_up_questions(q_text, a_text)
+        if followups:
+            st.markdown("<br>", unsafe_allow_html=True)
+            for fu in followups:
+                if st.button(fu, key=f"fu_{idx}_{hash(fu) % 10000}",
+                             use_container_width=True):
+                    st.session_state["qq"] = fu
+                    st.rerun()
 
 
 def _extract_title(text: str) -> str:

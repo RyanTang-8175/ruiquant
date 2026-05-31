@@ -213,3 +213,126 @@ class AIChat:
         except: pass
 
     def get_history(self): return self.history
+
+    # ═══════════════════════════════════════
+    # 智能追问 & 场景检测
+    # ═══════════════════════════════════════
+
+    @staticmethod
+    def detect_scene(user_message: str) -> str:
+        """自动检测用户问题类型"""
+        msg = user_message or ""
+        # 对比分析
+        if any(k in msg for k in ["对比", "比较", "哪个好", "A和B", "还是", "选哪个"]):
+            if len([c for c in msg if c.isdigit()]) >= 10:
+                return "compare"
+        # 快速判断
+        if any(k in msg for k in ["能买", "能不能", "可以参与", "可以买", "买不买", "可不可以"]):
+            return "quick_judge"
+        # 行业/概念扫描
+        if any(k in msg for k in ["行业", "概念", "板块", "有什么机会", "推荐", "买什么"]):
+            return "sector_scan"
+        # 复盘
+        if any(k in msg for k in ["复盘", "我的交易", "账户", "持仓表现", "盈亏"]):
+            return "review"
+        # 详细分析
+        if any(k in msg for k in ["分析", "详细", "深度", "审查", "全面"]):
+            return "deep_analysis"
+        # 学习
+        if any(k in msg for k in ["什么是", "解释", "教我", "什么意思", "怎么用"]):
+            return "learn"
+        return "general"
+
+    @staticmethod
+    def follow_up_questions(user_message: str, answer: str) -> list:
+        """根据用户问题生成2-3个智能追问"""
+        scene = AIChat.detect_scene(user_message)
+        import re
+        code = None
+        m = re.search(r'\b(\d{6})\b', user_message)
+        if m: code = m.group(1)
+
+        if scene == "quick_judge" and code:
+            return [
+                f"详细分析 {code} 的六维评分每项含义",
+                f"{code} 和同行业其他股票比怎么样",
+                f"如果今天不参与 {code}，有什么替代方向",
+            ]
+        if scene == "deep_analysis" and code:
+            return [
+                f"{code} 明天开盘如果高开2%怎么办",
+                f"{code} 的止损位应该设在哪里",
+                f"{code} 适合持有几天",
+            ]
+        if scene == "sector_scan":
+            return [
+                "这些候选里哪只风险最低？",
+                "如果大盘明天走弱，这些候选还成立吗",
+                "给我最推荐的那只做深度分析",
+            ]
+        if scene == "review":
+            return [
+                "我最大的问题是什么？",
+                "和上个月比有没有进步？",
+                "给我3个下周改进的具体建议",
+            ]
+        if scene == "compare":
+            return [
+                "换个角度再比较一下反量化风险",
+                "如果只能选一个，选哪个",
+                "两只都不选的话，有什么替代",
+            ]
+        # default
+        return [
+            "帮我总结一下当前最需要注意的风险",
+            "今天有什么板块值得关注",
+            "解释一下反量化风险是什么意思",
+        ]
+
+    # ═══════════════════════════════════════
+    # 盘前早报
+    # ═══════════════════════════════════════
+
+    def morning_briefing(self) -> str:
+        """生成盘前早报"""
+        if not self.client:
+            return "AI 未配置"
+        try:
+            from src.ai.prompts import V6_MORNING_PROMPT
+            resp = self.client.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "system", "content": V6_MORNING_PROMPT},
+                          {"role": "user", "content": "请生成今日盘前早报。如果有数据就引用，没有就说暂无。"}],
+                tools=TOOLS, tool_choice="auto",
+                temperature=0.7, max_tokens=800, timeout=25)
+            return resp.choices[0].message.content or "早报生成失败"
+        except Exception as e:
+            return f"早报服务暂不可用: {e}"
+
+    def compare_stocks(self, code_a: str, code_b: str) -> str:
+        """对比两只股票"""
+        if not self.client:
+            return "AI 未配置"
+        try:
+            from src.ai.prompts import V6_COMPARE_PROMPT
+            # 注入评分上下文
+            ctx_a, ctx_b = "", ""
+            try:
+                from src.scoring.engine import V6ScoringEngine
+                with V6ScoringEngine() as e:
+                    ctx_a = e.build_ai_context(code_a)
+                    ctx_b = e.build_ai_context(code_b)
+            except: pass
+            msg = (
+                f"请对比 {code_a} 和 {code_b}。\n\n"
+                f"[{code_a} 数据]\n{ctx_a}\n\n"
+                f"[{code_b} 数据]\n{ctx_b}"
+            )
+            resp = self.client.chat.completions.create(
+                model=self.model,
+                messages=[{"role":"system","content":V6_COMPARE_PROMPT},
+                          {"role":"user","content":msg}],
+                temperature=0.7, max_tokens=600, timeout=25)
+            return resp.choices[0].message.content or "对比失败"
+        except Exception as e:
+            return f"对比服务暂不可用: {e}"
