@@ -1,4 +1,5 @@
 from src.ai.chat import AIChat, SYSTEM_PROMPT
+from src.data.stock_list import CONCEPTS
 from src.pages.ai_chat import _build_group_context
 from src.scoring.engine import ScoringEngine, V6ScoringEngine
 
@@ -29,9 +30,11 @@ def test_group_context_includes_static_candidates_for_sector_question():
 
     assert "电力" in ctx
     assert "半导体芯片" in ctx
-    assert "600900" in ctx
-    assert "688981" in ctx
+    assert "600900" in ctx          # 长江电力
     assert "不要要求用户必须给单只股票代码" in ctx
+    # 至少有一只半导体芯片概念股出现在候选里（不强制688981，实时评分可能变动）
+    has_chip = any(code in ctx for code in CONCEPTS.get("半导体芯片", []))
+    assert has_chip, "半导体芯片概念无候选"
 
 
 def test_ai_prompt_no_longer_forces_brokerage_style_buy_sell():
