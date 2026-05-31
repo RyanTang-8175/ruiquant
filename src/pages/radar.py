@@ -140,66 +140,51 @@ def render_radar_page():
 def _show_recommendations(compact: bool = True):
     title = "今日选股推荐" if compact else "六维评分候选"
 
-    # -- 筛选器：chip 标签横向排列 --
+    # -- 筛选器：综合 / 行业 / 概念，分开维护状态，避免选中具体行业后丢失分类 --
     from src.data.stock_list import SW_INDUSTRY, CONCEPTS
 
-    group_opts = ["综合"]
-    group_opts += list(SW_INDUSTRY.keys())
-    group_opts += list(CONCEPTS.keys())
+    suffix = "c" if compact else "f"
+    mode_key = f"radar_filter_mode_{suffix}"
+    industry_key = f"radar_filter_industry_{suffix}"
+    concept_key = f"radar_filter_concept_{suffix}"
+    st.session_state.setdefault(mode_key, "综合")
+    st.session_state.setdefault(industry_key, list(SW_INDUSTRY.keys())[0])
+    st.session_state.setdefault(concept_key, list(CONCEPTS.keys())[0])
 
-    chip_key = f"radar_chip_{'c' if compact else 'f'}"
-    if chip_key not in st.session_state:
-        st.session_state[chip_key] = "综合"
-
-    # 第一行：固定分类
-    cats = ["综合", "行业", "概念"]
     c1, c2, c3 = st.columns(3)
-    for ci, col in enumerate([c1, c2, c3]):
+    for label, col in [("综合", c1), ("行业", c2), ("概念", c3)]:
         with col:
-            is_active = st.session_state.get(chip_key) == cats[ci]
             if st.button(
-                cats[ci], key=f"chip_cat_{cats[ci]}_{'c' if compact else 'f'}",
+                label,
+                key=f"radar_mode_{suffix}_{label}",
                 use_container_width=True,
-                type="primary" if is_active else "secondary",
+                type="primary" if st.session_state[mode_key] == label else "secondary",
             ):
-                st.session_state[chip_key] = cats[ci]
+                st.session_state[mode_key] = label
                 st.rerun()
 
-    # 第二行：按分类显示具体选项
-    current_cat = st.session_state.get(chip_key, "综合")
-    if current_cat == "综合":
-        show_opts = ["综合"]
-    elif current_cat == "行业":
-        show_opts = list(SW_INDUSTRY.keys())[:12]
-    else:
-        show_opts = list(CONCEPTS.keys())[:12]
-
-    # chip 行
-    chip_cols = st.columns(min(len(show_opts), 4))
-    selected_chip = current_cat if current_cat in ("行业", "概念") else "综合"
-    for i, opt in enumerate(show_opts):
-        with chip_cols[i % 4]:
-            is_sel = st.session_state[chip_key] == opt
-            if st.button(
-                opt, key=f"chip_{opt}_{'c' if compact else 'f'}",
-                use_container_width=True,
-                type="primary" if is_sel else "secondary",
-            ):
-                st.session_state[chip_key] = opt
-                st.rerun()
-            selected_chip = opt if is_sel else selected_chip
-
-    selected = st.session_state.get(chip_key, "综合")
-
-    # 解析
-    filter_type = "all"
-    filter_key = ""
-    if selected in SW_INDUSTRY:
-        filter_type, filter_key = "industry", selected
-    elif selected in CONCEPTS:
-        filter_type, filter_key = "concept", selected
-
-    filter_label = selected
+    mode = st.session_state[mode_key]
+    filter_type, filter_key, filter_label = "all", "", "综合"
+    if mode == "行业":
+        selected = st.selectbox(
+            "选择行业",
+            list(SW_INDUSTRY.keys()),
+            index=list(SW_INDUSTRY.keys()).index(st.session_state[industry_key]),
+            key=f"industry_select_{suffix}",
+            label_visibility="collapsed",
+        )
+        st.session_state[industry_key] = selected
+        filter_type, filter_key, filter_label = "industry", selected, selected
+    elif mode == "概念":
+        selected = st.selectbox(
+            "选择概念",
+            list(CONCEPTS.keys()),
+            index=list(CONCEPTS.keys()).index(st.session_state[concept_key]),
+            key=f"concept_select_{suffix}",
+            label_visibility="collapsed",
+        )
+        st.session_state[concept_key] = selected
+        filter_type, filter_key, filter_label = "concept", selected, selected
 
     st.markdown(
         f'<div class="sec-h">{title} · {filter_label}</div>'
