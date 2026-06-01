@@ -392,11 +392,10 @@ class AIChat:
             from src.ai.prompts import V6_MORNING_PROMPT
             resp = self.client.chat.completions.create(
                 model=self.model,
-                messages=[{"role": "system", "content": V6_MORNING_PROMPT},
-                          {"role": "user", "content": "请生成今日盘前早报。如果有数据就引用，没有就说暂无。"}],
-                tools=TOOLS, tool_choice="auto",
-                temperature=0.7, max_tokens=800, timeout=25)
-            return resp.choices[0].message.content or "早报生成失败"
+                messages=[{"role":"system","content":V6_MORNING_PROMPT},
+                          {"role":"user","content":"请生成今日盘前早报。"}],
+                temperature=0.7, max_tokens=800, timeout=30)
+            return resp.choices[0].message.content or "生成失败"
         except Exception as e:
             return f"早报服务暂不可用: {e}"
 
@@ -473,11 +472,10 @@ class AIChat:
             )
             resp = self.client.chat.completions.create(
                 model=self.model,
-                messages=[{"role": "system", "content": V6_SYSTEM_PROMPT[:1500]},
-                          {"role": "user", "content": prompt}],
-                tools=TOOLS, tool_choice="auto",
-                temperature=0.7, max_tokens=800, timeout=25)
-            return resp.choices[0].message.content or "收盘总结生成失败"
+                messages=[{"role":"system","content":V6_SYSTEM_PROMPT[:1500]},
+                          {"role":"user","content":prompt}],
+                temperature=0.7, max_tokens=800, timeout=30)
+            return resp.choices[0].message.content or "生成失败"
         except Exception as e:
             return f"收盘总结暂不可用: {e}"
 
