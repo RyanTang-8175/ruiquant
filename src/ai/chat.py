@@ -5,7 +5,8 @@ from datetime import datetime, date
 from src.config import get_setting
 from src.ai.tools import TOOLS
 from src.ai.tool_executor import ToolExecutor
-from src.ai.prompts import V6_SYSTEM_PROMPT
+from src.ai.prompts import STYLE_CONTRACT, V6_SYSTEM_PROMPT, scene_prompt
+from src.ai.roles import ROLES, ROLE_SUFFIXES
 
 logger = logging.getLogger(__name__)
 TODAY = date.today().strftime("%Y年%m月%d日")
@@ -40,7 +41,8 @@ class AIChat:
             return "AI 未配置。请在「我的」页面填写 API Key、API 地址和模型名称后使用。\n\n支持 DeepSeek / OpenAI / 智谱 / 月之暗面等 OpenAI 兼容接口。"
 
         try:
-            messages = [{"role":"system","content":SYSTEM_PROMPT}]
+            scene = self.detect_scene(user_message)
+            messages = [{"role":"system","content":self.build_system_prompt(scene, user_message)}]
             for h in self.history[-HISTORY_LEN:]:
                 messages.append({"role":"user","content":h["question"]})
                 messages.append({"role":"assistant","content":h["answer"]})
@@ -138,30 +140,34 @@ class AIChat:
             )
 
             return (
-                "### 短线结论\n"
-                "我先按行业/概念选股处理，不要求你必须给单只股票代码。当前更适合先做候选池筛选，再让 AI 对候选逐只做风险审查。\n\n"
-                "### 候选与方向\n"
+                "### 人话结论\n"
+                "如果只拿 1 万块做短线，我不会让你直接押一个方向。电力更稳，半导体弹性更大，但也更容易冲高回落。\n\n"
+                "### 我会怎么做\n"
+                "1. 先去雷达页分别切到电力、半导体芯片。\n"
+                "2. 只看机会分靠前、承接不差、反量化风险低/中的票。\n"
+                "3. 谁出现尾盘急拉无回踩、放量不涨、板块不同步，谁直接放弃。\n\n"
+                "### 候选 / 风险 / 条件\n"
                 f"{candidate_text}\n\n"
-                "### 风险审查\n"
+                "核心风险：\n"
                 "1. 电力类通常波动相对稳，但短线弹性不一定强，要防止成交不足和板块不联动。\n"
                 "2. 半导体类弹性更大，但更容易出现高位接盘、放量滞涨和冲高回落。\n"
                 "3. 如果实时数据缺失，不能直接给买入结论，应先进入雷达页按行业/概念确认最新行情。\n\n"
-                "### 参与条件\n"
-                "优先选择：热度不弱、承接分高、题材仍在主线、反量化风险不高、没有明显前高压力的个股。\n\n"
-                "### 放弃条件\n"
-                "如果出现尾盘急拉无回踩、放量不涨、板块退潮、跌破分时均价线，建议放弃本次机会。\n\n"
-                "### 验证建议\n"
-                "你可以在雷达页按行业/概念筛出候选，再把 2-5 只加入短线实验室验证。1 万元资金更适合轻仓、分批、先验证，不适合满仓押单只。"
+                "参与条件：热度不弱、承接分高、板块仍有联动、反量化风险不高、没有明显前高压力。\n\n"
+                "放弃条件：尾盘急拉无回踩、放量不涨、板块退潮、跌破分时均价线。\n\n"
+                "### 资金纪律\n"
+                "1 万元更适合先 2-3 成仓验证，别一把打满。先让系统挑候选，再逐只审查，错了损失小，对了再看是否加。"
             )
 
         return (
-            "### 短线结论\n"
-            "我可以先按 AlphaEye 的风险审查框架回答，但当前没有拿到足够的实时数据，所以不会编造买入价、止损价或确定结论。\n\n"
+            "### 人话结论\n"
+            "这题我能先给你交易思路，但现在没有拿到足够实时数据，所以我不会瞎编买入价、止损价或确定结论。\n\n"
+            "### 我会怎么做\n"
+            "先看风险，再看机会：有没有尾盘诱多、放量滞涨、板块退潮；再看承接、题材、持股周期。\n\n"
             "### 你可以这样问\n"
             "- 分析某只股票的短线风险和反量化风险\n"
             "- 按某个行业/概念筛选候选股\n"
             "- 判断一只股票更适合隔夜、1-2 天还是 2-3 天\n\n"
-            "### 下一步\n"
+            "### 资金纪律\n"
             "如果你给出行业、概念或股票代码，我会先做风险审查，再给参与条件、放弃条件和验证建议。"
         )
 
@@ -215,8 +221,44 @@ class AIChat:
     def get_history(self): return self.history
 
     # ═══════════════════════════════════════
-    # 智能追问 & 场景检测
+    # 智能追问 & 场景检测 & 动态角色提示
     # ═══════════════════════════════════════
+
+    @staticmethod
+    def build_system_prompt(scene: str = "general", user_message: str = "") -> str:
+        """按场景拼接基础提示、内置角色和输出契约。"""
+        role_keys = AIChat.roles_for_scene(scene, user_message)
+        role_lines = []
+        for key in role_keys:
+            role = ROLES.get(key)
+            if not role:
+                continue
+            role_lines.append(f"- {role['name']}：{role['desc']}")
+            suffix = ROLE_SUFFIXES.get(key)
+            if suffix:
+                role_lines.append(suffix.strip())
+
+        return "\n\n".join([
+            SYSTEM_PROMPT,
+            "## 本次启用的内置技能/角色\n" + "\n".join(role_lines),
+            STYLE_CONTRACT,
+            scene_prompt(scene),
+        ])
+
+    @staticmethod
+    def roles_for_scene(scene: str, user_message: str = "") -> list:
+        """把问题场景映射到内置 AI 技能。"""
+        if scene == "sector_scan":
+            return ["short_term_researcher", "risk_reviewer", "discipline_coach"]
+        if scene == "quick_judge":
+            return ["risk_reviewer", "holding_predictor", "discipline_coach"]
+        if scene == "deep_analysis":
+            return ["risk_reviewer", "short_term_researcher", "holding_predictor"]
+        if scene == "review":
+            return ["review_analyst", "discipline_coach"]
+        if scene == "learn":
+            return ["general_assistant", "risk_reviewer"]
+        return ["general_assistant", "risk_reviewer"]
 
     @staticmethod
     def detect_scene(user_message: str) -> str:

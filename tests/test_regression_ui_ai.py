@@ -45,11 +45,28 @@ def test_ai_prompt_no_longer_forces_brokerage_style_buy_sell():
     assert "强关注/观察/中性/不追" not in SYSTEM_PROMPT
 
 
+def test_ai_scene_prompt_uses_old_hand_style_and_builtin_roles():
+    prompt = AIChat.build_system_prompt(
+        "sector_scan",
+        "我有1w块，想买电力行业或半导体行业，该买什么股票",
+    )
+
+    assert "先给人话结论" in prompt
+    assert "我会怎么做" in prompt
+    assert "候选 / 风险 / 条件" in prompt
+    assert "资金纪律" in prompt
+    assert "短线研究员" in prompt
+    assert "风险审查员" in prompt
+    assert "不要先要求用户给单只股票代码" in prompt
+
+
 def test_ai_fallback_handles_sector_questions_without_single_stock_demand():
     ai = AIChat()
     answer = ai._fallback_answer("我有1w块，想买电力行业或半导体行业，该买什么股票")
 
-    assert "行业/概念选股" in answer
+    assert "人话结论" in answer
+    assert "我会怎么做" in answer
+    assert "资金纪律" in answer
     assert "电力" in answer
     assert "半导体" in answer
     assert "贵州茅台" not in answer
