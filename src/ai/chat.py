@@ -56,7 +56,7 @@ class AIChat:
                     resp = self.client.chat.completions.create(
                         model=self.model, messages=messages,
                         tools=TOOLS, tool_choice="auto",
-                        temperature=0.7, max_tokens=MAX_TOKENS, timeout=30)
+                        temperature=0.5, max_tokens=MAX_TOKENS, timeout=30)
                 except Exception as api_err:
                     logger.error(f"API r{rnd}: {api_err}")
                     err_msg = str(api_err)[:200]
@@ -432,12 +432,29 @@ class AIChat:
     # ═══════════════════════════════════════
 
     def closing_summary(self) -> str:
-        """生成当日收盘总结"""
+        """生成当日收盘总结 —— 注入真实市场数据 + 对话内容"""
         if not self.client:
             return "AI 未配置"
         try:
-            # 收集持仓数据
-            pos_text = "暂无持仓"
+            # ═══ 收集真实数据 ═══
+            from src.data.realtime import get_market_overview, get_top_stocks
+
+            # 大盘
+            ov = get_market_overview()
+            idx_lines = []
+            for idx in (ov.get("indices") or [])[:3]:
+                idx_lines.append(f"{idx.get('name')} {idx.get('price',0):.2f} {idx.get('change_pct',0):+.2f}%")
+
+            # 涨幅榜 Top 5
+            up_stocks = get_top_stocks("changepercent", False, 5) or []
+            up_lines = [f"{s['name']}({s['code']}) {s.get('price',0):.2f} {s.get('change_pct',0):+.2f}%" for s in up_stocks]
+
+            # 成交额 Top 5
+            amt_stocks = get_top_stocks("amount", False, 5) or []
+            amt_lines = [f"{s['name']}({s['code']}) {(s.get('amount',0) or 0)/1e8:.1f}亿" for s in amt_stocks]
+
+            # 持仓
+            pos_text = "无持仓"
             try:
                 from src.trading.engine import TradingEngine
                 with TradingEngine() as eng:
@@ -445,36 +462,49 @@ class AIChat:
                     if acct:
                         ps = eng.get_positions()
                         if ps:
-                            lines = []
+                            pos_lines = []
                             for p in ps:
-                                lines.append(f"- {p.name or p.code}({p.code}) {p.quantity}股 成本{p.cost_price}")
-                            pos_text = "\n".join(lines)
-                        trs = eng.get_trades(10)
-                        trade_summary = "\n".join(
-                            f"- {t.direction} {t.name or t.code} {t.quantity}@{t.price} {'盈亏' + str(t.pnl) if t.pnl else ''}"
-                            for t in (trs or [])[:5])
-            except Exception:
-                trade_summary = "交易记录暂不可用"
+                                from src.data.realtime import get_realtime_quote
+                                q = get_realtime_quote(p.code)
+                                mp = q.get("price", 0) if q else p.cost_price
+                                pnl = (mp - p.cost_price) * p.quantity
+                                pct = (mp - p.cost_price) / p.cost_price * 100 if p.cost_price else 0
+                                pos_lines.append(f"{p.name or p.code}({p.code}) {p.quantity}股 成本{p.cost_price} 现价{mp:.2f} 盈亏{pnl:+.0f}({pct:+.1f}%)")
+                            pos_text = "\n".join(pos_lines)
+            except: pass
+
+            # 最近对话摘要
+            chat_summary = "无对话"
+            if self.history:
+                chat_lines = []
+                for h in self.history[-6:]:
+                    q = str(h.get("question", ""))[:60]
+                    a = str(h.get("answer", ""))[:80]
+                    chat_lines.append(f"Q:{q}\nA:{a}")
+                chat_summary = "\n---\n".join(chat_lines)
 
             prompt = (
-                f"请生成今日收盘总结。\n\n"
-                f"## 今日持仓\n{pos_text}\n\n"
-                f"## 今日交易\n{trade_summary}\n\n"
-                f"## 今日 AI 对话概览\n"
-                f"共 {len(self.history)} 条对话\n\n"
-                f"请按以下格式输出：\n"
-                f"1. 今日市场回顾（一句话）\n"
-                f"2. 我的持仓表现\n"
-                f"3. 今日 AI 判断回顾（哪些对了，哪些需要验证）\n"
-                f"4. 明日关注方向\n"
-                f"5. 操作纪律提醒\n"
-                f"总长度不超过 500 字"
+                f"你正在为一位 A 股短线交易者写今日收盘总结。\n\n"
+                f"【大盘数据】\n" + "\n".join(idx_lines) + "\n\n"
+                f"【涨幅榜】\n" + "\n".join(up_lines) + "\n\n"
+                f"【成交额榜】\n" + "\n".join(amt_lines) + "\n\n"
+                f"【我的持仓】\n{pos_text}\n\n"
+                f"【今日 AI 对话】\n{chat_summary}\n\n"
+                f"---\n"
+                f"请按以下结构输出（每段 2-3 句，引用数据里的具体数字）：\n\n"
+                f"## 大盘\n指数名称 + 涨跌幅 + 一句话定性（强/弱/震荡）。\n\n"
+                f"## 主线\n今天什么板块/方向在涨（引用涨幅榜数据），什么在跌。\n\n"
+                f"## 我的持仓\n如果有持仓，每只盈亏多少，一句话评价。如果无持仓，说现金空仓。\n\n"
+                f"## AI 今天说了什么\n从对话里提取 2-3 个核心判断（不是泛泛而谈，要引用对话里的具体股票/方向/数字）。\n\n"
+                f"## 明天关注\n基于今天数据，明天重点关注什么方向，避开什么方向。给 2-3 个具体可执行建议。\n\n"
+                f"## 纪律\n一句话提醒（如追高、仓位、止损）。\n\n"
+                f"禁止：水话、泛泛而谈、不引用数字、'整体来看''值得关注'。"
             )
             resp = self.client.chat.completions.create(
                 model=self.model,
-                messages=[{"role":"system","content":V6_SYSTEM_PROMPT[:1500]},
+                messages=[{"role":"system","content":V6_SYSTEM_PROMPT[:800]},
                           {"role":"user","content":prompt}],
-                temperature=0.7, max_tokens=800, timeout=30)
+                temperature=0.5, max_tokens=600, timeout=30)
             return resp.choices[0].message.content or "生成失败"
         except Exception as e:
             return f"收盘总结暂不可用: {e}"
@@ -488,7 +518,6 @@ class AIChat:
         if not self.client:
             return "AI 未配置"
         try:
-            # 收集完整交易数据
             from src.trading.engine import TradingEngine
             with TradingEngine() as eng:
                 acct = eng.get_account()
@@ -498,37 +527,39 @@ class AIChat:
                 trades = eng.get_trades(50)
                 positions = eng.get_positions()
 
-            # 统计数据
-            buy_trades = [t for t in trades if t.direction == "buy"]
+            # 分类统计
             sell_trades = [t for t in trades if t.direction == "sell"]
             wins = sum(1 for t in sell_trades if (t.pnl or 0) > 0)
             losses = sum(1 for t in sell_trades if (t.pnl or 0) < 0)
             total_pnl = sum(t.pnl or 0 for t in sell_trades)
+            win_rate = wins / max(len(sell_trades), 1) * 100
 
-            # 构建诊断数据
-            data = (
-                f"## 账户状态\n"
-                f"- 状态: {acct.status}\n"
-                f"- 现金: {acct.cash:.0f}\n"
-                f"- 连续亏损: {acct.consecutive_losses}次\n"
-                f"- 持仓数: {len(positions)}\n\n"
-                f"## 交易统计\n"
-                f"- 总交易: {len(sell_trades)}笔\n"
-                f"- 胜: {wins} 负: {losses}\n"
-                f"- 胜率: {wins / max(len(sell_trades), 1) * 100:.1f}%\n"
-                f"- 总盈亏: {total_pnl:+.0f}\n\n"
-                f"请诊断我的交易行为，指出：\n"
-                f"1. 最大问题是什么（追高/不止损/集中度/频繁交易）\n"
-                f"2. 和上次比有没有进步\n"
-                f"3. 给出 3 个下周可执行的具体改进建议\n"
-                f"总长度不超过 400 字"
+            # 交易明细
+            trade_lines = []
+            for t in trades[-15:]:
+                d = "买" if t.direction == "buy" else "卖"
+                pnl_str = f" 盈亏{t.pnl:+.0f}" if t.direction == "sell" and t.pnl else ""
+                trade_lines.append(f"{d} {t.name or t.code} {t.quantity}股@{t.price:.2f}{pnl_str} {t.created_at.strftime('%m/%d') if t.created_at else ''}")
+
+            prompt = (
+                f"## 账户数据\n"
+                f"现金: {acct.cash:.0f} | 持仓数: {len(positions)} | 连续亏损: {acct.consecutive_losses}次\n"
+                f"已平仓: {len(sell_trades)}笔 | 胜率: {win_rate:.1f}%({wins}胜{losses}负)\n"
+                f"总盈亏: {total_pnl:+.0f}\n\n"
+                f"## 交易明细\n" + "\n".join(trade_lines) + "\n\n"
+                f"---\n"
+                f"请诊断这位交易者的行为。引用具体交易举例。\n\n"
+                f"## 最大问题\n1-2句话指出核心问题（追高/不止损/太集中/频繁交易），引用数据证明。\n\n"
+                f"## 做得好的\n如果有值得肯定的点，提一下。\n\n"
+                f"## 3个改进建议\n具体可执行，例如'下次止损设在-5%而不是-15%'。\n\n"
+                f"禁止泛泛而谈、不引用数据、'建议注意风险'。"
             )
             resp = self.client.chat.completions.create(
                 model=self.model,
-                messages=[{"role": "system", "content": V6_SYSTEM_PROMPT[:1500]},
-                          {"role": "user", "content": data}],
-                temperature=0.7, max_tokens=600, timeout=25)
-            return resp.choices[0].message.content or "诊断生成失败"
+                messages=[{"role":"system","content":V6_SYSTEM_PROMPT[:600]},
+                          {"role":"user","content":prompt}],
+                temperature=0.5, max_tokens=500, timeout=30)
+            return resp.choices[0].message.content or "生成失败"
         except Exception as e:
             return f"账户诊断暂不可用: {e}"
 
