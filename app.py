@@ -356,6 +356,62 @@ code { color: var(--amber); background: var(--float); font-family: var(--mono); 
 }
 .chat-tools { color: var(--weak); font-size: 11px; margin-top: 6px; font-family: var(--sans); }
 
+.ai-answer {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 10px;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.65;
+}
+.ai-section {
+  margin: 12px 0 8px;
+  padding: 9px 10px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(36,107,254,0.10), rgba(36,107,254,0.03));
+  color: #173B8F;
+  font-size: 15px;
+  font-weight: 800;
+}
+.ai-p {
+  margin: 7px 0;
+  color: var(--text);
+}
+.ai-step {
+  margin: 6px 0;
+  padding: 8px 10px;
+  border-left: 3px solid rgba(36,107,254,0.35);
+  background: rgba(244,247,250,0.84);
+  border-radius: 10px;
+}
+.ai-table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin: 8px 0 10px;
+}
+.ai-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 12px;
+  min-width: 430px;
+}
+.ai-table th {
+  text-align: left;
+  color: var(--muted);
+  background: #F4F7FA;
+  border-bottom: 1px solid var(--border);
+  padding: 7px 8px;
+  font-weight: 750;
+}
+.ai-table td {
+  border-bottom: 1px solid #E8EEF5;
+  padding: 8px;
+  vertical-align: top;
+  color: var(--text);
+}
+
 /* Tabs */
 .stTabs [role="tablist"] {
   gap: 2px;

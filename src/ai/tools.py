@@ -57,6 +57,21 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "get_sector_candidates",
+            "description": "按用户提到的行业/概念生成短线候选池，适合回答“电力/半导体买什么”等问题",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "用户原始问题或行业概念关键词"},
+                    "limit": {"type": "integer", "description": "每个行业/概念返回候选数量，默认5"}
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "get_watchlist",
             "description": "获取当前观察池中评分最高的股票列表",
             "parameters": {

@@ -69,6 +69,65 @@ CONCEPTS = {
     "游戏": ["002555","002624","603444","300418","002425","300251","600637","002027","300494","002306"],
 }
 
+# 高频短线候选的标准名称兜底。服务器首次部署、行情源错名或缓存污染时，
+# AI/雷达仍应以代码映射为准，不能把“中芯国际002304”这类错配展示给用户。
+STANDARD_STOCK_NAMES = {
+    "600519": "贵州茅台", "000858": "五粮液", "000568": "泸州老窖",
+    "002304": "洋河股份", "600809": "山西汾酒", "600559": "老白干酒",
+    "000596": "古井贡酒", "600779": "水井坊", "603369": "今世缘",
+    "603198": "迎驾贡酒",
+    "600900": "长江电力", "601985": "中国核电", "003816": "中国广核",
+    "600025": "华能水电", "600011": "华能国际", "600886": "国投电力",
+    "600674": "川投能源", "002015": "协鑫能科", "000883": "湖北能源",
+    "600023": "浙能电力",
+    "002475": "立讯精密", "688981": "中芯国际", "688036": "传音控股",
+    "603501": "豪威集团", "600703": "三安光电", "688256": "寒武纪",
+    "688008": "澜起科技", "688012": "中微公司", "688396": "华润微",
+    "300782": "卓胜微",
+}
+
+GROUP_ALIASES = {
+    "半导体": ("概念", "半导体芯片"),
+    "芯片": ("概念", "半导体芯片"),
+    "电力": ("概念", "电力"),
+    "白酒": ("概念", "白酒"),
+    "AI": ("概念", "AI人工智能"),
+    "人工智能": ("概念", "AI人工智能"),
+}
+
+
+def resolve_stock_name(code: str, fallback: str = "") -> str:
+    """用标准代码表解析股票名；fallback 只用于未知代码。"""
+    code = str(code or "")
+    if code in STANDARD_STOCK_NAMES:
+        return STANDARD_STOCK_NAMES[code]
+    return str(fallback or "") or code
+
+
+def detect_stock_groups(text: str) -> list:
+    """从用户问题中识别行业/概念分组，返回 (kind, name, codes)。"""
+    normalized = str(text or "").replace("，", " ").replace("、", " ").replace("/", " ")
+    groups = []
+    for name, codes in SW_INDUSTRY.items():
+        if name in normalized:
+            groups.append(("行业", name, codes))
+    for name, codes in CONCEPTS.items():
+        if name in normalized:
+            groups.append(("概念", name, codes))
+    for alias, (kind, target) in GROUP_ALIASES.items():
+        if alias in normalized:
+            codes = CONCEPTS.get(target, []) if kind == "概念" else SW_INDUSTRY.get(target, [])
+            if codes:
+                groups.append((kind, target, codes))
+
+    dedup, seen = [], set()
+    for kind, name, codes in groups:
+        key = (kind, name)
+        if key not in seen:
+            seen.add(key)
+            dedup.append((kind, name, codes))
+    return dedup
+
 def fetch_all_stocks() -> list:
     """从新浪拉取全A股列表并缓存"""
     os.makedirs(CACHE_FILE.parent, exist_ok=True)

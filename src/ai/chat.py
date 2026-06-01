@@ -128,34 +128,39 @@ class AIChat:
         has_injected_context = "用户问题是行业/概念选股" in text or "静态候选池" in text
 
         if is_group_question or has_injected_context:
-            candidates = []
-            for line in text.splitlines():
-                stripped = line.strip()
-                if stripped.startswith("- ") and ("(" in stripped or "静态候选池" in stripped):
-                    candidates.append(stripped)
-
-            candidate_text = "\n".join(candidates[:8]) if candidates else (
-                "- 电力方向：优先去雷达页按「电力/公用事业」筛选，重点看承接分和反量化风险。\n"
-                "- 半导体方向：优先去雷达页按「半导体芯片」筛选，重点看题材分、放量滞涨和高位接盘风险。"
-            )
+            groups = self._sector_candidate_groups(text)
+            candidate_text = self._format_sector_candidate_table(groups)
+            primary = self._first_candidate(groups, "电力") or "长江电力(600900)"
+            chip = self._first_candidate(groups, "半导体") or "中芯国际(688981)"
 
             return (
-                "### 人话结论\n"
-                "如果只拿 1 万块做短线，我不会让你直接押一个方向。电力更稳，半导体弹性更大，但也更容易冲高回落。\n\n"
-                "### 我会怎么做\n"
-                "1. 先去雷达页分别切到电力、半导体芯片。\n"
-                "2. 只看机会分靠前、承接不差、反量化风险低/中的票。\n"
-                "3. 谁出现尾盘急拉无回踩、放量不涨、板块不同步，谁直接放弃。\n\n"
-                "### 候选 / 风险 / 条件\n"
+                f"### 人话结论\n"
+                f"1 万做短线，我会先偏电力做防守试错，半导体只做弹性备选。电力看 {primary} 这类承接稳的，半导体看 {chip} 这类主线弹性，但不能追高。\n\n"
+                "### 周一操作建议\n"
+                "你的状态：现金 1 万，适合先小仓验证，不适合一把打满。今天的核心不是“买哪个行业”，而是先找低风险入场点，再决定要不要隔夜。\n\n"
+                "### 周一操作两步走\n"
+                f"第一步：先处理电力。优先看 {primary}，只在低开不破、回踩有承接、反量化风险低/中的情况下试 2-3 成仓。\n"
+                f"第二步：再看半导体。{chip} 这类弹性更大，但必须等板块联动和分时承接确认；如果放量滞涨或高开冲回落，直接放弃。\n\n"
+                "### 候选表\n"
                 f"{candidate_text}\n\n"
-                "核心风险：\n"
-                "1. 电力类通常波动相对稳，但短线弹性不一定强，要防止成交不足和板块不联动。\n"
-                "2. 半导体类弹性更大，但更容易出现高位接盘、放量滞涨和冲高回落。\n"
-                "3. 如果实时数据缺失，不能直接给买入结论，应先进入雷达页按行业/概念确认最新行情。\n\n"
-                "参与条件：热度不弱、承接分高、板块仍有联动、反量化风险不高、没有明显前高压力。\n\n"
-                "放弃条件：尾盘急拉无回踩、放量不涨、板块退潮、跌破分时均价线。\n\n"
+                "### 参与条件\n"
+                "1. 机会分不弱，至少要看到热度和承接同时在线。\n"
+                "2. 分时回踩不破均价线，不能是直线急拉没有回踩。\n"
+                "3. 板块内有 2-3 只股票同步走强，不要买孤立拉升。\n"
+                "4. 反量化风险必须是低或中；出现尾盘诱多、高位接盘、放量滞涨就降级。\n\n"
+                "### 放弃条件\n"
+                "1. 高开太多后 10 分钟内回落，放弃追。\n"
+                "2. 放量但价格推不动，放弃。\n"
+                "3. 板块不联动，只有单票硬拉，放弃。\n"
+                "4. 跌破分时均价线后 10 分钟收不回，离场或不参与。\n\n"
+                "### 周一操作时间表\n"
+                "9:15：看竞价，谁高开太多但量不跟，先剔除。\n"
+                "9:25：只保留电力/半导体里竞价不极端、成交正常的票。\n"
+                "9:30-10:00：不追第一波，只看回踩均价线能不能稳住。\n"
+                "10:00-10:30：若主候选承接稳定，可 2 成仓试错；若半导体强于电力，再考虑 1 成弹性仓。\n"
+                "14:30-15:00：决定是否隔夜。尾盘急拉无回踩不拿，回踩不破且板块仍强才考虑留。\n\n"
                 "### 资金纪律\n"
-                "1 万元更适合先 2-3 成仓验证，别一把打满。先让系统挑候选，再逐只审查，错了损失小，对了再看是否加。"
+                "1 万元建议最多拆成 2 笔：主候选 2000-3000 元，备选 1000-2000 元，剩余现金留给次日修正。第一笔错了，不加仓摊平；第一笔对了，也要等第二个确认点再加。"
             )
 
         return (
@@ -170,6 +175,50 @@ class AIChat:
             "### 资金纪律\n"
             "如果你给出行业、概念或股票代码，我会先做风险审查，再给参与条件、放弃条件和验证建议。"
         )
+
+    @staticmethod
+    def _sector_candidate_groups(text: str) -> list:
+        try:
+            from src.ai.tool_executor import ToolExecutor
+            data = ToolExecutor()._get_sector_candidates(text, limit=4)
+            return data.get("groups", [])
+        except Exception:
+            return []
+
+    @staticmethod
+    def _format_sector_candidate_table(groups: list) -> str:
+        if not groups:
+            return (
+                "| 方向 | 优先看 | 角色 | 怎么用 | 最大风险 |\n"
+                "|---|---|---|---|---|\n"
+                "| 电力 | 长江电力(600900) / 中国核电(601985) | 防守试错 | 只低吸不追高 | 弹性不足、板块不联动 |\n"
+                "| 半导体 | 中芯国际(688981) / 中微公司(688012) | 弹性备选 | 只做承接确认后的短线 | 冲高回落、放量滞涨 |"
+            )
+
+        rows = ["| 方向 | 候选 | 角色 | 当前状态 | 我会怎么处理 |",
+                "|---|---|---|---|---|"]
+        for group in groups:
+            name = group.get("name", "")
+            for item in group.get("candidates", [])[:3]:
+                stock = f"{item.get('name', item.get('code'))}({item.get('code')})"
+                role = item.get("role") or "短线候选"
+                score = item.get("score")
+                risk = item.get("anti_quant_level") or item.get("risk") or "未知"
+                status = item.get("status") or "待确认"
+                score_text = f"机会{score}" if score is not None else "待实时确认"
+                action = "低吸验证" if risk in ("低", "中", "未知") else "只观察不追"
+                rows.append(f"| {name} | {stock} | {role} | {score_text} / {status} / 风险{risk} | {action} |")
+        return "\n".join(rows)
+
+    @staticmethod
+    def _first_candidate(groups: list, keyword: str) -> str:
+        for group in groups:
+            if keyword in group.get("name", ""):
+                candidates = group.get("candidates", [])
+                if candidates:
+                    first = candidates[0]
+                    return f"{first.get('name', first.get('code'))}({first.get('code')})"
+        return ""
 
     @staticmethod
     def _history_file():

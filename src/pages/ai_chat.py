@@ -297,23 +297,8 @@ def _with_context(text: str) -> str:
 
 
 def _build_group_context(text: str) -> str:
-    from src.data.stock_list import CONCEPTS, SW_INDUSTRY
-    groups = []
-    n = text.replace("，"," ").replace("、"," ").replace("/"," ")
-    for name, codes in SW_INDUSTRY.items():
-        if name in n: groups.append(("行业", name, codes))
-    for name, codes in CONCEPTS.items():
-        if name in n: groups.append(("概念", name, codes))
-    aliases = {"半导体":("概念","半导体芯片",CONCEPTS.get("半导体芯片",[])),
-               "芯片":("概念","半导体芯片",CONCEPTS.get("半导体芯片",[])),
-               "电力":("概念","电力",CONCEPTS.get("电力",[]))}
-    for a, g in aliases.items():
-        if a in n and g[2]: groups.append(g)
-    dedup, seen = [], set()
-    for g in groups:
-        k = (g[0], g[1])
-        if k not in seen: seen.add(k); dedup.append(g)
-    groups = dedup[:4]
+    from src.data.stock_list import detect_stock_groups, resolve_stock_name
+    groups = detect_stock_groups(text)[:4]
     if not groups: return ""
     try:
         from src.data.realtime import get_realtime_quote
@@ -321,32 +306,37 @@ def _build_group_context(text: str) -> str:
         engine = V6ScoringEngine()
         lines = [
             "用户问题是行业/概念选股，不要要求用户必须给单只股票代码。",
-            "请像短线老手一样先给人话结论，再给候选、风险、条件和资金纪律。",
-            "如果实时评分暂不可用，也要使用静态候选池说明筛选方向。",
+            "请像短线老手一样直接给候选表、优先顺序、风险、参与条件、放弃条件和资金纪律。",
+            "不要把任务甩给用户去雷达页自己找；如果实时评分暂不可用，也要使用静态候选池给具体股票名和代码。",
+            "\n[静态候选池，实时评分失败时直接引用]",
         ]
+        for kind, name, codes in groups:
+            named = "、".join(f"{resolve_stock_name(cd)}({cd})" for cd in codes[:6])
+            lines.append(f"- {kind}：{name}：{named}")
         try:
             for kind, name, codes in groups:
                 scored = []
                 for cd in codes[:10]:
                     q = get_realtime_quote(cd)
                     if not q: continue
+                    q["name"] = resolve_stock_name(cd, q.get("name", ""))
                     r = engine.score_stock(cd, quote=q)
                     if not r: continue
                     scored.append((r.total_score, q, r))
                 scored.sort(key=lambda x: x[0], reverse=True)
-                lines.append(f"\n{kind}：{name}")
+                lines.append(f"\n[实时六维候选] {kind}：{name}")
                 for _, q, r in scored[:5]:
                     t = "、".join(r.anti_quant.triggers[:2]) if r.anti_quant.triggers else "无"
-                    lines.append(f"- {q.get('name',r.code)}({r.code})：机会分{r.total_score:.0f} 涨幅{q.get('change_pct',0):+.2f}% 状态{r.status_label} 反量化{r.anti_quant.risk_level} 触发:{t}")
+                    lines.append(f"- {resolve_stock_name(r.code, q.get('name', r.code))}({r.code})：机会分{r.total_score:.0f} 涨幅{q.get('change_pct',0):+.2f}% 状态{r.status_label} 反量化{r.anti_quant.risk_level} 触发:{t}")
                 if not scored:
-                    lines.append("- 实时行情暂不可用，静态候选池：" + "、".join(codes[:10]))
+                    lines.append("- 实时行情暂不可用，请直接引用上方静态候选池，不要只给代码。")
         finally: engine.close()
         return "\n".join(lines)
     except:
         names = "、".join(f"{kind}:{name}" for kind, name, _ in groups)
         return (
             f"用户问题是行业/概念选股，不要要求用户必须给单只股票代码。目标：{names}。"
-            "实时评分暂不可用，也要先给人话结论、候选池筛法、风险条件和资金纪律。"
+            "实时评分暂不可用，也要直接给候选表、优先顺序、风险条件、时间表和资金纪律。"
         )
 
 
@@ -356,7 +346,59 @@ def _extract_code(text: str) -> str:
 
 
 def _fmt(text: str) -> str:
-    safe = html.escape(text)
+    lines = str(text or "").splitlines()
+    out = ['<div class="ai-answer">']
+    i = 0
+    while i < len(lines):
+        raw = lines[i].rstrip()
+        line = raw.strip()
+        if not line:
+            i += 1
+            continue
+
+        if line.startswith("|") and i + 1 < len(lines) and set(lines[i + 1].strip()) <= {"|", "-", " "}:
+            table_lines = []
+            while i < len(lines) and lines[i].strip().startswith("|"):
+                table_lines.append(lines[i].strip())
+                i += 1
+            out.append(_markdown_table_to_html(table_lines))
+            continue
+
+        heading = re.match(r"^#{2,4}\s*(.+)$", line)
+        if heading:
+            out.append(f'<div class="ai-section">{_inline(heading.group(1))}</div>')
+            i += 1
+            continue
+
+        if re.match(r"^(\d+[.。]|[-*])\s*", line):
+            out.append(f'<div class="ai-step">{_inline(line)}</div>')
+        else:
+            out.append(f'<div class="ai-p">{_inline(line)}</div>')
+        i += 1
+    out.append("</div>")
+    return "".join(out)
+
+
+def _inline(text: str) -> str:
+    safe = html.escape(str(text or ""))
     safe = re.sub(r"\*\*(.*?)\*\*", r"<strong>\1</strong>", safe)
-    safe = safe.replace("\n\n", "</p><p>").replace("\n", "<br>")
-    return f"<p>{safe}</p>"
+    return safe
+
+
+def _markdown_table_to_html(lines: list[str]) -> str:
+    rows = []
+    for line in lines:
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if cells and all(set(c) <= {"-", " "} for c in cells):
+            continue
+        rows.append(cells)
+    if not rows:
+        return ""
+
+    html_rows = ['<div class="ai-table-wrap"><table class="ai-table">']
+    header = rows[0]
+    html_rows.append("<thead><tr>" + "".join(f"<th>{_inline(c)}</th>" for c in header) + "</tr></thead><tbody>")
+    for row in rows[1:]:
+        html_rows.append("<tr>" + "".join(f"<td>{_inline(c)}</td>" for c in row) + "</tr>")
+    html_rows.append("</tbody></table></div>")
+    return "".join(html_rows)

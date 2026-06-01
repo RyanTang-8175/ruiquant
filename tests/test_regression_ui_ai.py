@@ -1,4 +1,5 @@
 from src.ai.chat import AIChat, SYSTEM_PROMPT
+from src.ai.tool_executor import ToolExecutor
 from src.data.stock_list import CONCEPTS
 from src.pages.ai_chat import _build_group_context
 from src.pages.radar import _resolve_stock_name
@@ -58,6 +59,8 @@ def test_ai_scene_prompt_uses_old_hand_style_and_builtin_roles():
     assert "短线研究员" in prompt
     assert "风险审查员" in prompt
     assert "不要先要求用户给单只股票代码" in prompt
+    assert "直接给候选表" in prompt
+    assert "不要把任务甩给用户去雷达页自己找" in prompt
 
 
 def test_ai_fallback_handles_sector_questions_without_single_stock_demand():
@@ -65,11 +68,24 @@ def test_ai_fallback_handles_sector_questions_without_single_stock_demand():
     answer = ai._fallback_answer("我有1w块，想买电力行业或半导体行业，该买什么股票")
 
     assert "人话结论" in answer
-    assert "我会怎么做" in answer
+    assert "周一操作建议" in answer
+    assert "周一操作两步走" in answer
     assert "资金纪律" in answer
-    assert "电力" in answer
-    assert "半导体" in answer
+    assert "长江电力" in answer
+    assert "中芯国际" in answer
+    assert "时间表" in answer
+    assert "雷达页分别切到" not in answer
+    assert "自己筛" not in answer
     assert "贵州茅台" not in answer
+
+
+def test_sector_candidate_tool_returns_named_candidates():
+    data = ToolExecutor()._get_sector_candidates("我有1w块，想买电力行业或半导体行业，该买什么股票", limit=3)
+
+    assert data["groups"]
+    text = str(data)
+    assert "长江电力" in text
+    assert "中芯国际" in text or "立讯精密" in text
 
 
 def test_radar_stock_name_uses_code_canonical_name_over_quote_name():

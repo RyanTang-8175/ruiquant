@@ -251,7 +251,7 @@ def _stock_name_lookup() -> dict:
     """标准股票名称表。雷达页展示名只信任代码映射，避免行情源/前端状态造成名称错位。"""
     lookup = {}
     try:
-        from src.data.stock_list import CACHE_FILE, fetch_all_stocks
+        from src.data.stock_list import CACHE_FILE, fetch_all_stocks, STANDARD_STOCK_NAMES
 
         if Path(CACHE_FILE).exists():
             with open(CACHE_FILE, "r", encoding="utf-8") as f:
@@ -272,38 +272,10 @@ def _stock_name_lookup() -> dict:
         pass
 
     # 兜底覆盖常用行业/概念核心股，服务器首次部署无缓存时仍能避免明显错名。
-    lookup.update({
-        "600519": "贵州茅台",
-        "000858": "五粮液",
-        "000568": "泸州老窖",
-        "002304": "洋河股份",
-        "600809": "山西汾酒",
-        "600559": "老白干酒",
-        "000596": "古井贡酒",
-        "600779": "水井坊",
-        "603369": "今世缘",
-        "603198": "迎驾贡酒",
-        "600900": "长江电力",
-        "601985": "中国核电",
-        "003816": "中国广核",
-        "600025": "华能水电",
-        "600011": "华能国际",
-        "600886": "国投电力",
-        "600674": "川投能源",
-        "002015": "协鑫能科",
-        "000883": "湖北能源",
-        "600023": "浙能电力",
-        "002475": "立讯精密",
-        "688981": "中芯国际",
-        "688036": "传音控股",
-        "603501": "豪威集团",
-        "600703": "三安光电",
-        "688256": "寒武纪",
-        "688008": "澜起科技",
-        "688012": "中微公司",
-        "688396": "华润微",
-        "300782": "卓胜微",
-    })
+    try:
+        lookup.update(STANDARD_STOCK_NAMES)
+    except Exception:
+        pass
     return lookup
 
 

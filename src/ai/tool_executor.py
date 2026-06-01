@@ -14,6 +14,7 @@ class ToolExecutor:
             "get_technical_analysis": self._get_technical_analysis,
             "get_scoring_result": self._get_scoring_result,
             "get_market_snapshot": self._get_market_snapshot,
+            "get_sector_candidates": self._get_sector_candidates,
             "get_watchlist": self._get_watchlist,
             "get_news": self._get_news,
             "get_financial_data": self._get_financial_data,
@@ -100,6 +101,78 @@ class ToolExecutor:
                 for s in r
             ],
         }
+
+    def _get_sector_candidates(self, query: str, limit: int = 5) -> dict:
+        """按行业/概念返回具名候选，供 AI 直接回答，不再让用户自己去雷达页找。"""
+        from src.data.stock_list import detect_stock_groups, resolve_stock_name
+        from src.data.realtime import get_realtime_quote
+        from src.scoring.engine import V6ScoringEngine
+
+        groups = detect_stock_groups(query)[:4]
+        if not groups:
+            return {"groups": [], "note": "未识别到行业或概念关键词"}
+
+        payload = []
+        with V6ScoringEngine() as engine:
+            for kind, name, codes in groups:
+                items = []
+                for code in codes[:12]:
+                    quote = None
+                    result = None
+                    try:
+                        quote = get_realtime_quote(code)
+                        if quote:
+                            quote["name"] = resolve_stock_name(code, quote.get("name", ""))
+                            result = engine.score_stock(code, quote=quote)
+                    except Exception:
+                        quote = None
+                    if result:
+                        d = result.to_dict()
+                        anti = d.get("anti_quant", {})
+                        items.append({
+                            "code": code,
+                            "name": resolve_stock_name(code, d.get("name", "")),
+                            "score": round(float(d.get("total_score", 0)), 1),
+                            "change_pct": quote.get("change_pct", 0) if quote else None,
+                            "status": d.get("status_label", ""),
+                            "risk": d.get("risk_level", ""),
+                            "anti_quant_level": anti.get("level") or anti.get("risk_level", ""),
+                            "triggers": anti.get("triggers", [])[:3],
+                            "role": self._candidate_role(name, code),
+                        })
+                    else:
+                        items.append({
+                            "code": code,
+                            "name": resolve_stock_name(code),
+                            "score": None,
+                            "change_pct": None,
+                            "status": "待实时确认",
+                            "risk": "未知",
+                            "anti_quant_level": "未知",
+                            "triggers": [],
+                            "role": self._candidate_role(name, code),
+                        })
+                items.sort(key=lambda x: (x["score"] is not None, x["score"] or 0), reverse=True)
+                payload.append({"kind": kind, "name": name, "candidates": items[:max(1, limit)]})
+
+        return {
+            "groups": payload,
+            "answer_rule": "必须直接给候选表、优先顺序、参与条件、放弃条件、资金纪律，不要让用户自己去雷达页找。",
+        }
+
+    @staticmethod
+    def _candidate_role(group_name: str, code: str) -> str:
+        if group_name in ("电力", "公用事业"):
+            if code in {"600900", "601985", "600011", "600886"}:
+                return "稳健观察"
+            return "弹性备选"
+        if group_name in ("半导体芯片", "电子"):
+            if code in {"688981", "688012", "688008", "603501"}:
+                return "主线弹性"
+            return "高弹备选"
+        if group_name == "白酒":
+            return "消费权重"
+        return "短线候选"
 
     def _get_news(self, code: str = None, limit: int = 10) -> dict:
         from src.news.fetcher import fetch_all_news, fetch_stock_news
