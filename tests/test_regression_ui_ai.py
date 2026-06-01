@@ -6,6 +6,22 @@ from src.pages.radar import _resolve_stock_name
 from src.scoring.engine import ScoringEngine, V6ScoringEngine
 
 
+def test_realtime_quote_normalizes_code_and_name(monkeypatch):
+    from src.data import realtime
+
+    realtime._QCACHE.clear()
+
+    class Resp:
+        text = 'v_sh600900="1~错名~999999~25.00~24.50~24.60~1000~0~0~0~0~0~0~0~0~0~0~0~0~0~0~0~0~0~0~0~0~0~0~0~0~0~2.04~25.50~24.20~0~0~12~1.2~10~0~0~0~5.3~0~0~0~0~0~1.4";'
+
+    monkeypatch.setattr(realtime.requests, "get", lambda *a, **k: Resp())
+
+    q = realtime.get_realtime_quote("600900")
+
+    assert q["code"] == "600900"
+    assert q["name"] == "长江电力"
+
+
 def test_scoring_engines_support_context_manager():
     with ScoringEngine() as engine:
         assert engine is not None
@@ -86,6 +102,11 @@ def test_sector_candidate_tool_returns_named_candidates():
     text = str(data)
     assert "长江电力" in text
     assert "中芯国际" in text or "立讯精密" in text
+
+    for group in data["groups"]:
+        for item in group["candidates"]:
+            if item["score"] is None:
+                assert item["action"] == "等待实时确认"
 
 
 def test_radar_stock_name_uses_code_canonical_name_over_quote_name():

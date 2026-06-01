@@ -139,6 +139,7 @@ class ToolExecutor:
                             "anti_quant_level": anti.get("level") or anti.get("risk_level", ""),
                             "triggers": anti.get("triggers", [])[:3],
                             "role": self._candidate_role(name, code),
+                            "action": self._candidate_action(anti.get("level") or anti.get("risk_level", "")),
                         })
                     else:
                         items.append({
@@ -151,6 +152,7 @@ class ToolExecutor:
                             "anti_quant_level": "未知",
                             "triggers": [],
                             "role": self._candidate_role(name, code),
+                            "action": "等待实时确认",
                         })
                 items.sort(key=lambda x: (x["score"] is not None, x["score"] or 0), reverse=True)
                 payload.append({"kind": kind, "name": name, "candidates": items[:max(1, limit)]})
@@ -173,6 +175,14 @@ class ToolExecutor:
         if group_name == "白酒":
             return "消费权重"
         return "短线候选"
+
+    @staticmethod
+    def _candidate_action(risk_level: str) -> str:
+        if risk_level in ("高", "极高"):
+            return "只观察不追"
+        if risk_level in ("低", "中"):
+            return "低吸验证"
+        return "等待实时确认"
 
     def _get_news(self, code: str = None, limit: int = 10) -> dict:
         from src.news.fetcher import fetch_all_news, fetch_stock_news

@@ -35,6 +35,8 @@ _QCACHE = {}
 
 def get_realtime_quote(code: str) -> Optional[Dict]:
     """单股行情 — 腾讯→新浪，30秒内存缓存"""
+    from src.data.stock_list import resolve_stock_name
+    code = str(code or "")
     n = _t.time()
     if code in _QCACHE and n - _QCACHE[code][1] < 30:
         return _QCACHE[code][0]
@@ -42,6 +44,8 @@ def get_realtime_quote(code: str) -> Optional[Dict]:
         r = requests.get(f'http://qt.gtimg.cn/q={_tc_code(code)}', headers=H, timeout=5)
         q = _parse_gtimg(r.text)
         if q and q.get("price",0)>0:
+            q["code"] = code
+            q["name"] = resolve_stock_name(code, q.get("name", ""))
             _QCACHE[code] = (q, n); return q
     except: pass
     try:
@@ -53,6 +57,7 @@ def get_realtime_quote(code: str) -> Optional[Dict]:
             q = {"code":code,"name":p[0],"price":v(3),"prev_close":v(2),"open":v(1),
                  "high":v(4),"low":v(5),"volume":int(v(8)),"amount":v(9),
                  "change_pct":v(3)/v(2)*100-100 if v(2)>0 else 0}
+            q["name"] = resolve_stock_name(code, q.get("name", ""))
             _QCACHE[code] = (q, n); return q
     except: pass
     return None
@@ -70,6 +75,7 @@ def get_market_overview() -> Dict:
 
 def get_top_stocks(sort_field: str = "changepercent", asc: bool = False, limit: int = 15) -> List[Dict]:
     """排行榜 — 新浪API直接按指定字段排序返回(与新浪财经/同花顺一致)"""
+    from src.data.stock_list import resolve_stock_name
     try:
         url = "http://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/Market_Center.getHQNodeData"
         params = {"page":1, "num":min(limit+10, 100), "sort":sort_field, "asc":0 if asc else 1, "node":"hs_a"}
@@ -77,9 +83,10 @@ def get_top_stocks(sort_field: str = "changepercent", asc: bool = False, limit: 
         items = r.json()
         stocks = []
         for item in items:
+            code = str(item.get("code",""))
             stocks.append({
-                "code": str(item.get("code","")),
-                "name": item.get("name",""),
+                "code": code,
+                "name": resolve_stock_name(code, item.get("name","")),
                 "price": float(item.get("trade",0) or 0),
                 "change_pct": float(item.get("changepercent",0) or 0),
                 "volume": int(item.get("volume",0) or 0),

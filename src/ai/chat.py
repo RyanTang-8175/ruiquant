@@ -206,7 +206,7 @@ class AIChat:
                 risk = item.get("anti_quant_level") or item.get("risk") or "未知"
                 status = item.get("status") or "待确认"
                 score_text = f"机会{score}" if score is not None else "待实时确认"
-                action = "低吸验证" if risk in ("低", "中", "未知") else "只观察不追"
+                action = item.get("action") or ("低吸验证" if risk in ("低", "中") else "等待实时确认")
                 rows.append(f"| {name} | {stock} | {role} | {score_text} / {status} / 风险{risk} | {action} |")
         return "\n".join(rows)
 
