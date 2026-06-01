@@ -297,9 +297,15 @@ class V6ScoringEngine:
         except Exception: pass
 
         lines = [
+            f"[{d['name']}({code}) 精准报价]",
+            f"现价={quote.get('price',0):.2f} | 涨幅={quote.get('change_pct',0):+.2f}%",
+            f"开盘={quote.get('open',0):.2f} | 最高={quote.get('high',0):.2f} | 最低={quote.get('low',0):.2f} | 昨收={quote.get('prev_close',0):.2f}",
+            f"振幅={quote.get('amplitude',0):.2f}% | 量比={quote.get('volume_ratio',0):.2f} | 换手={quote.get('turnover',0):.2f}%",
+            f"成交额={(quote.get('amount',0) or 0)/1e8:.1f}亿",
+            f"",
             f"[{d['name']}({code}) 六维评分]",
-            f"机会分: {d['total_score']}/100 状态: {d['status_label']} 风险: {d['risk_level']}",
-            f"热度 {d['heat']['score']:.0f} | 承接 {d['support']['score']:.0f} | 题材 {d['theme']['score']:.0f} | 延续 {d['continuation']['score']:.0f} | 策略匹配 {d['strategy_match']['score']:.0f}",
+            f"机会分={d['total_score']}/100 | 状态={d['status_label']} | 风险={d['risk_level']}",
+            f"热度={d['heat']['score']:.0f} | 承接={d['support']['score']:.0f} | 题材={d['theme']['score']:.0f} | 延续={d['continuation']['score']:.0f} | 策略={d['strategy_match']['score']:.0f}",
             f"",
             f"[热度明细] {result.heat.explanation}",
             f"[承接明细] {result.support.explanation}",

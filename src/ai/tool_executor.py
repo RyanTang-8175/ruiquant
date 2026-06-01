@@ -37,9 +37,16 @@ class ToolExecutor:
             "code": q.get("code"), "name": q.get("name"),
             "price": q.get("price"), "change_pct": q.get("change_pct"),
             "open": q.get("open"), "high": q.get("high"), "low": q.get("low"),
-            "pre_close": q.get("prev_close"), "volume": q.get("volume"),
-            "amount": q.get("amount"), "turnover": q.get("turnover"),
-            "volume_ratio": q.get("volume_ratio", 1.0), "pe_ratio": q.get("pe_ratio"),
+            "pre_close": q.get("prev_close"), "amplitude": q.get("amplitude"),
+            "volume": q.get("volume"),
+            "amount_display": f"{(q.get('amount',0) or 0)/1e8:.1f}亿",
+            "turnover": q.get("turnover"), "volume_ratio": q.get("volume_ratio", 1.0),
+            "pe_ratio": q.get("pe_ratio"),
+            "heat_label": (
+                "放量拉升" if (q.get("volume_ratio",0) or 0) > 1.2 and (q.get("change_pct",0) or 0) > 2
+                else "缩量下跌" if (q.get("volume_ratio",0) or 0) < 0.8 and (q.get("change_pct",0) or 0) < 0
+                else "温和放量" if (q.get("volume_ratio",0) or 0) > 1.0
+                else "正常"),
         }
 
     def _get_technical_analysis(self, code: str, days: int = 60) -> dict:
