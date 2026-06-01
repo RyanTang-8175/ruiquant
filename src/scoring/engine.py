@@ -290,6 +290,10 @@ class V6ScoringEngine:
                 vol_today = kls[-1].get("volume", 0) if kls else 0
                 vratio = vol_today / vol_5d_avg if vol_5d_avg > 0 else 1
                 kline_text = f"MA5={ma5:.2f} MA10={ma10:.2f} 近5日涨幅={chg_5d:.1f}% 量/5日均量={vratio:.1f}倍"
+                kline_close = closes[-1] if closes else 0
+                live = quote.get("price", 0) if quote else 0
+                if live > 0 and abs(live - kline_close) > 0.05:
+                    kline_text += f" [K线收盘({kline_close:.2f})≠实时({live:.2f}),均线基于历史数据]"
         except Exception: pass
 
         lines = [

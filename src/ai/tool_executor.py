@@ -43,7 +43,7 @@ class ToolExecutor:
         }
 
     def _get_technical_analysis(self, code: str, days: int = 60) -> dict:
-        from src.data.realtime import get_kline; import pandas as pd
+        from src.data.realtime import get_kline, get_realtime_quote; import pandas as pd
         kl = get_kline(code, period="101", count=days)
         if not kl: return {"error":f"无{code}K线数据"}
         df = pd.DataFrame(kl); c = df['close']
@@ -51,7 +51,17 @@ class ToolExecutor:
         ma10 = round(float(c.rolling(10).mean().iloc[-1]),2) if len(c)>=10 else 0
         ma20 = round(float(c.rolling(20).mean().iloc[-1]),2) if len(c)>=20 else 0
         trend = "多头排列" if ma5>ma10>ma20 else "空头排列" if ma5<ma10<ma20 else "交叉整理"
-        return {"code":code,"trend":trend,"ma5":ma5,"ma10":ma10,"ma20":ma20,"latest_close":float(c.iloc[-1]),"data_points":len(kl)}
+
+        live = get_realtime_quote(code)
+        live_price = live.get("price", 0) if live else 0
+        kline_close = float(c.iloc[-1])
+        note = ""
+        if live_price > 0 and abs(live_price - kline_close) > 0.01:
+            note = f"K线均线基于历史收盘(最新{kline_close:.2f})计算，与实时价({live_price:.2f})可能不同。分析请以实时行情为准。"
+
+        return {"code":code,"trend":trend,"ma5":ma5,"ma10":ma10,"ma20":ma20,
+                "kline_latest_close":kline_close,"live_price":live_price,
+                "note":note,"data_points":len(kl)}
 
     def _get_scoring_result(self, code: str) -> dict:
         from src.scoring.engine import V6ScoringEngine

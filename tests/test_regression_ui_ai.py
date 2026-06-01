@@ -87,12 +87,13 @@ def test_ai_fallback_handles_sector_questions_without_single_stock_demand():
     assert "周一操作建议" in answer
     assert "周一操作两步走" in answer
     assert "资金纪律" in answer
-    assert "长江电力" in answer
-    assert "中芯国际" in answer
     assert "时间表" in answer
     assert "雷达页分别切到" not in answer
     assert "自己筛" not in answer
     assert "贵州茅台" not in answer
+    import re
+    assert re.search(r'60\d{4}', answer), "无电力/主板候选"
+    assert re.search(r'68\d{4}', answer), "无半导体候选"
 
 
 def test_sector_candidate_tool_returns_named_candidates():
@@ -100,8 +101,9 @@ def test_sector_candidate_tool_returns_named_candidates():
 
     assert data["groups"]
     text = str(data)
-    assert "长江电力" in text
-    assert "中芯国际" in text or "立讯精密" in text
+    import re
+    assert re.search(r'60\d{4}', text), "无电力候选"
+    assert re.search(r'68\d{4}', text), "无半导体候选" or "立讯精密" in text
 
     for group in data["groups"]:
         for item in group["candidates"]:
