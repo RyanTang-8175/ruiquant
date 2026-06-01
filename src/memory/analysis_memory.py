@@ -22,6 +22,9 @@ class AnalysisMemory:
     def __init__(self):
         self.db = SessionLocal()
 
+    def __enter__(self): return self
+    def __exit__(self, *a): self.close(); return False
+
     def close(self):
         try: self.db.close()
         except: pass
