@@ -432,79 +432,107 @@ class AIChat:
     # ═══════════════════════════════════════
 
     def closing_summary(self) -> str:
-        """生成当日收盘总结 —— 注入真实市场数据 + 对话内容"""
+        """收盘总结 — 印证AI判断 + 真实数据驱动的明日规划"""
         if not self.client:
             return "AI 未配置"
         try:
-            # ═══ 收集真实数据 ═══
             from src.data.realtime import get_market_overview, get_top_stocks
 
-            # 大盘
+            # ═══ 大盘 ═══
             ov = get_market_overview()
-            idx_lines = []
-            for idx in (ov.get("indices") or [])[:3]:
-                idx_lines.append(f"{idx.get('name')} {idx.get('price',0):.2f} {idx.get('change_pct',0):+.2f}%")
+            idx_lines = [f"{i.get('name')} {i.get('price',0):.2f} {i.get('change_pct',0):+.2f}%" for i in (ov.get("indices") or [])[:3]]
 
-            # 涨幅榜 Top 5
-            up_stocks = get_top_stocks("changepercent", False, 5) or []
-            up_lines = [f"{s['name']}({s['code']}) {s.get('price',0):.2f} {s.get('change_pct',0):+.2f}%" for s in up_stocks]
+            # ═══ 涨幅榜 Top 8 + 跌幅榜 Top 5 ═══
+            up = get_top_stocks("changepercent", False, 8) or []
+            up_lines = [f"{s['name']}({s['code']}) {s.get('price',0):.2f} {s.get('change_pct',0):+.2f}% 换手{s.get('turnover',0):.1f}%" for s in up]
 
-            # 成交额 Top 5
-            amt_stocks = get_top_stocks("amount", False, 5) or []
-            amt_lines = [f"{s['name']}({s['code']}) {(s.get('amount',0) or 0)/1e8:.1f}亿" for s in amt_stocks]
+            dn = get_top_stocks("changepercent", True, 5) or []
+            dn_lines = [f"{s['name']}({s['code']}) {s.get('price',0):.2f} {s.get('change_pct',0):+.2f}%" for s in dn]
 
-            # 持仓
+            # ═══ 成交额 Top 8 ═══
+            amt = get_top_stocks("amount", False, 8) or []
+            amt_lines = [f"{s['name']}({s['code']}) {(s.get('amount',0) or 0)/1e8:.1f}亿 {s.get('change_pct',0):+.2f}%" for s in amt]
+
+            # ═══ 今日推荐板块 ═══
+            try:
+                from src.pages.radar import _compute_daily_recs
+                recs = _compute_daily_recs()
+                top_inds = [(name, score, reason) for name, score, reason in recs.get("industries", [])[:3]]
+                top_cons = [(name, score, reason) for name, score, reason in recs.get("concepts", [])[:3]]
+                sector_text = (
+                    "推荐行业: " + "; ".join(f"{n}(活跃度{s:.0f}, {r})" for n,s,r in top_inds) + "\n"
+                    "推荐概念: " + "; ".join(f"{n}(活跃度{s:.0f}, {r})" for n,s,r in top_cons)
+                )
+            except Exception:
+                sector_text = "板块数据暂不可用"
+
+            # ═══ 持仓 ═══
             pos_text = "无持仓"
             try:
                 from src.trading.engine import TradingEngine
+                from src.data.realtime import get_realtime_quote
                 with TradingEngine() as eng:
                     acct = eng.get_account()
                     if acct:
                         ps = eng.get_positions()
                         if ps:
-                            pos_lines = []
+                            plines = []
                             for p in ps:
-                                from src.data.realtime import get_realtime_quote
                                 q = get_realtime_quote(p.code)
-                                mp = q.get("price", 0) if q else p.cost_price
+                                mp = q.get("price",0) if q else p.cost_price
                                 pnl = (mp - p.cost_price) * p.quantity
                                 pct = (mp - p.cost_price) / p.cost_price * 100 if p.cost_price else 0
-                                pos_lines.append(f"{p.name or p.code}({p.code}) {p.quantity}股 成本{p.cost_price} 现价{mp:.2f} 盈亏{pnl:+.0f}({pct:+.1f}%)")
-                            pos_text = "\n".join(pos_lines)
+                                plines.append(f"{p.name or p.code}({p.code}) 成本{p.cost_price} 现价{mp:.2f} 盈亏{pnl:+.0f}({pct:+.1f}%)")
+                            pos_text = "\n".join(plines)
+                        if acct.cash:
+                            pos_text += f"\n现金余额: {acct.cash:.0f}"
             except: pass
 
-            # 最近对话摘要
-            chat_summary = "无对话"
+            # ═══ 今日对话全文（不截断，让AI能验证自己说过什么）═══
+            chat_full = "无对话"
             if self.history:
-                chat_lines = []
-                for h in self.history[-6:]:
-                    q = str(h.get("question", ""))[:60]
-                    a = str(h.get("answer", ""))[:80]
-                    chat_lines.append(f"Q:{q}\nA:{a}")
-                chat_summary = "\n---\n".join(chat_lines)
+                clines = []
+                for h in self.history[-8:]:
+                    q_full = str(h.get("question", ""))
+                    a_full = str(h.get("answer", ""))
+                    clines.append(f"### 用户问\n{q_full}\n### AI 答\n{a_full}\n")
+                chat_full = "\n---\n".join(clines)
 
             prompt = (
-                f"你正在为一位 A 股短线交易者写今日收盘总结。\n\n"
-                f"【大盘数据】\n" + "\n".join(idx_lines) + "\n\n"
-                f"【涨幅榜】\n" + "\n".join(up_lines) + "\n\n"
-                f"【成交额榜】\n" + "\n".join(amt_lines) + "\n\n"
+                "你正在写 AlphaEye 今日收盘规划。请认真比对「AI 今天说了什么」和「市场实际数据」，"
+                "逐条验证 AI 的判断是否被今日走势印证。\n\n"
+                f"【真实大盘】\n" + "\n".join(idx_lines) + "\n\n"
+                f"【今日涨幅榜】\n" + "\n".join(up_lines) + "\n\n"
+                f"【今日跌幅榜】\n" + "\n".join(dn_lines) + "\n\n"
+                f"【今日成交额榜】\n" + "\n".join(amt_lines) + "\n\n"
+                f"【今日板块热度】\n{sector_text}\n\n"
                 f"【我的持仓】\n{pos_text}\n\n"
-                f"【今日 AI 对话】\n{chat_summary}\n\n"
-                f"---\n"
-                f"请按以下结构输出（每段 2-3 句，引用数据里的具体数字）：\n\n"
-                f"## 大盘\n指数名称 + 涨跌幅 + 一句话定性（强/弱/震荡）。\n\n"
-                f"## 主线\n今天什么板块/方向在涨（引用涨幅榜数据），什么在跌。\n\n"
-                f"## 我的持仓\n如果有持仓，每只盈亏多少，一句话评价。如果无持仓，说现金空仓。\n\n"
-                f"## AI 今天说了什么\n从对话里提取 2-3 个核心判断（不是泛泛而谈，要引用对话里的具体股票/方向/数字）。\n\n"
-                f"## 明天关注\n基于今天数据，明天重点关注什么方向，避开什么方向。给 2-3 个具体可执行建议。\n\n"
-                f"## 纪律\n一句话提醒（如追高、仓位、止损）。\n\n"
-                f"禁止：水话、泛泛而谈、不引用数字、'整体来看''值得关注'。"
+                f"【今日 AI 对话全文】\n{chat_full}\n\n"
+                "---\n"
+                "请按以下结构输出，每段必须引用上面的真实数字：\n\n"
+                "## 今日盘面\n"
+                "三大指数涨跌幅 + 成交量感觉（引用成交额榜数据） + 涨跌停情况。\n\n"
+                "## AI判断印证\n"
+                "对照「AI 对话」和「市场数据」，逐条检查 AI 的判断：\n"
+                "- 哪些判断被走势印证了（引用具体股票/指数涨跌幅）\n"
+                "- 哪些判断偏了或没对上（也要说，诚实复盘）\n"
+                "- 哪些判断还需要明天验证\n\n"
+                "## 主线与领跌\n"
+                "今天实际涨得好的方向（引用涨幅榜+板块热度）。跌得多的方向（引用跌幅榜）。\n\n"
+                "## 明日计划\n"
+                "基于今天走势，明天重点看什么。给出：\n"
+                "- 2-3 个明天值得关注的板块/概念（引用板块热度数据）\n"
+                "- 2-3 只明天值得加入观察池的具体股票（必须来自涨幅榜/成交额榜中的真实代码，附机会分）\n"
+                "- 2-3 个明天要避开的方向\n\n"
+                "## 纪律\n"
+                "一句明日交易纪律。\n\n"
+                "要求：每个数字来源于上面真实数据。不编造。不泛泛。不写'值得关注'。"
             )
             resp = self.client.chat.completions.create(
                 model=self.model,
                 messages=[{"role":"system","content":V6_SYSTEM_PROMPT[:800]},
                           {"role":"user","content":prompt}],
-                temperature=0.5, max_tokens=600, timeout=30)
+                temperature=0.4, max_tokens=900, timeout=30)
             return resp.choices[0].message.content or "生成失败"
         except Exception as e:
             return f"收盘总结暂不可用: {e}"
