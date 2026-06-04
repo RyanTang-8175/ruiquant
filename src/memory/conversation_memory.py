@@ -137,6 +137,63 @@ class ConversationMemory:
             for r in rows
         ]
 
+    def get_recent_pairs(self, limit: int = 20) -> list:
+        """把数据库消息还原为页面可展示的问答对。"""
+        rows = (self.db.query(AIMessage)
+                .order_by(desc(AIMessage.created_at), desc(AIMessage.id))
+                .limit(limit * 4)
+                .all())
+        rows = list(reversed(rows))
+        pairs = []
+        last_user = None
+        for row in rows:
+            if row.role == "user":
+                last_user = row
+            elif row.role == "assistant" and last_user and last_user.session_id == row.session_id:
+                pairs.append({
+                    "question": last_user.content,
+                    "answer": row.content,
+                    "timestamp": row.created_at.isoformat(),
+                    "tools_used": row.tools_used or [],
+                    "stock_code": row.stock_code or last_user.stock_code,
+                    "session_id": row.session_id,
+                })
+                last_user = None
+        return pairs[-limit:]
+
+    def import_legacy_history(self, items: list[dict], source: str = "legacy_json") -> int:
+        """导入旧版 latest_conversation.json，保留旧聊天。"""
+        imported = 0
+        for item in items or []:
+            question = str(item.get("question") or "").strip()
+            answer = str(item.get("answer") or "").strip()
+            if not question and not answer:
+                continue
+            if answer and self.db.query(AIMessage).filter(AIMessage.content == answer).first():
+                continue
+            stock_code = _extract_code(question + "\n" + answer)
+            session_id = self.create_session("legacy_chat", title=(question or source)[:80])
+            ts = _parse_time(item.get("timestamp"))
+            if question:
+                user_id = self.save_message(
+                    session_id, "user", question, stock_code=stock_code or None,
+                    tools_used=[],
+                )
+                if ts:
+                    msg = self.db.query(AIMessage).filter(AIMessage.id == user_id).first()
+                    msg.created_at = ts
+            if answer:
+                ai_id = self.save_message(
+                    session_id, "assistant", answer, stock_code=stock_code or None,
+                    tools_used=item.get("tools_used") or [],
+                )
+                if ts:
+                    msg = self.db.query(AIMessage).filter(AIMessage.id == ai_id).first()
+                    msg.created_at = ts
+            imported += 1
+        self.db.commit()
+        return imported
+
     def save_to_json(self, filepath: str):
         sessions = []
         for s in self.list_sessions():
@@ -144,3 +201,19 @@ class ConversationMemory:
             sessions.append({**s, "messages": msgs})
         with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(sessions, f, ensure_ascii=False, indent=2)
+
+
+def _extract_code(text: str) -> str:
+    import re
+
+    m = re.search(r"\b(\d{6})\b", text or "")
+    return m.group(1) if m else ""
+
+
+def _parse_time(value):
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value))
+    except Exception:
+        return None

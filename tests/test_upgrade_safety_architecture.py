@@ -230,6 +230,64 @@ def test_ai_chat_api_failure_is_persisted(tmp_path, monkeypatch):
     assert list(scratch_dir.glob("*.jsonl"))
 
 
+def test_legacy_conversation_json_imports_to_db(tmp_path, monkeypatch):
+    db_path = tmp_path / "legacy.db"
+    legacy_path = tmp_path / "latest_conversation.json"
+    monkeypatch.setenv("DATABASE_PATH", str(db_path))
+    monkeypatch.setenv("ALPHAEYE_CONVERSATION_FILE", str(legacy_path))
+    legacy_path.write_text(
+        """
+[
+  {
+    "question": "分析 600900",
+    "answer": "### 人话结论\\n长江电力先观察。\\n\\n| 维度 | 结论 |\\n|---|---|\\n| 风险 | 中 |",
+    "timestamp": "2026-06-01T10:00:00",
+    "tools_used": ["get_stock_quote"]
+  }
+]
+""",
+        encoding="utf-8",
+    )
+
+    import importlib
+    import src.config as config
+    import src.utils.database as database
+    import src.data.models_v6 as models_v6
+
+    importlib.reload(config)
+    importlib.reload(database)
+    importlib.reload(models_v6)
+    models_v6.Base.metadata.create_all(database.engine)
+
+    from src.ai.chat import AIChat
+
+    ai = AIChat()
+    loaded = ai.load_from_disk()
+
+    db = database.SessionLocal()
+    try:
+        messages = db.query(models_v6.AIMessage).order_by(models_v6.AIMessage.id).all()
+    finally:
+        db.close()
+
+    assert loaded is True
+    assert len(ai.get_history()) == 1
+    assert len(messages) == 2
+    assert messages[0].stock_code == "600900"
+    assert messages[1].tools_used == ["get_stock_quote"]
+
+
+def test_ai_prompt_requires_detailed_financial_memo():
+    from src.ai.chat import AIChat
+
+    prompt = AIChat.build_system_prompt("deep_analysis", "分析 600900")
+
+    for section in ["结论摘要", "证据表", "反量化风险表", "交易计划表", "失效条件", "复盘入库"]:
+        assert section in prompt
+    assert "文表并用" in prompt
+    assert "不要用两三句话糊弄" in prompt
+
+
 class _FakeOpenAIClient:
     def __init__(self, answer: str):
         self.answer = answer

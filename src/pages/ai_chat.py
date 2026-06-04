@@ -11,23 +11,23 @@ def _quick_tasks(code: str) -> list:
     if code:
         return [
             ("深度审查", f"全面分析 {code} 风险与机会",
-             f"请对 {code} 做完整深度分析。先调行情/评分/技术三个工具，然后按风险→机会→条件→周期顺序输出。每个专业术语附白话解释。最后用一句话总结。"),
+             f"请对 {code} 做完整深度分析。先调行情/评分/技术/新闻工具，然后输出完整研究备忘录：结论摘要、数据状态表、证据表、反量化风险表、交易计划表、反证与失效条件、复盘入库。每个专业术语附白话解释，越详细越好。"),
             ("观察计划", f"{code} 现在能观察吗",
-             f"请判断 {code} 现在是否适合加入观察/模拟验证。回答只能是：可观察、仅模拟、等待触发、暂停。列出参与前必须满足的 3 个条件和 3 个离场红线。不要长篇大论，只给关键判断和数字。"),
+             f"请判断 {code} 是否适合加入观察/模拟验证。必须文表并用，输出结论摘要、证据表、反量化风险表、交易计划表、失效条件、实验室入库字段。回答只能使用：可观察、仅模拟、等待触发、暂停。"),
             ("持股多久", f"{code} 适合持有多久",
-             f"判断 {code} 适合隔夜、1-2天还是2-3天。给出继续持有条件、离场条件、明早要盯的 3 个关键点。"),
+             f"判断 {code} 适合隔夜、1-2天还是2-3天。请输出持股周期判断表、继续持有条件、离场条件、明早竞价/开盘/尾盘观察清单、反证与失效条件。"),
             ("反量化扫描", f"{code} 有被收割风险吗",
-             f"对 {code} 做完整反量化扫描：尾盘诱多/高位接盘/分时脉冲/放量滞涨/板块背离。每条用大白话解释它是什么、为什么触发、对散户意味着什么。"),
+             f"对 {code} 做完整反量化扫描：尾盘诱多/高位接盘/分时脉冲/放量滞涨/板块背离。必须给风险表：当前判断、触发证据、散户容易怎么亏、应对动作、实验室验证字段。每条用大白话解释。"),
         ]
     return [
         ("今日选股", "今天有哪些短线机会",
-         "基于市场环境和六维评分框架，推荐今天值得研究的 3-5 个短线方向或板块，说明逻辑和风险。"),
+         "基于市场环境和六维评分框架，给今天值得研究的 3-5 个短线方向或板块。必须输出候选表、证据表、风险表、时间表、资金纪律、实验室入库字段。越详细越好。"),
         ("大盘解读", "今天适合做短线吗",
-         "分析今天大盘和板块环境。适不适合做短线？什么板块强？什么在退潮？给出操作纪律提醒。"),
+         "分析今天大盘和板块环境。适不适合做短线？什么板块强？什么在退潮？请输出市场状态表、主线/退潮表、操作时间表、禁止动作和复盘字段。"),
         ("交易复盘", "我的交易表现如何",
-         "复盘我最近的模拟交易。区分策略胜率、AI 准确度、我的执行偏差。数据不足时告诉我需要什么。"),
+         "复盘我最近的模拟交易。区分策略胜率、AI 准确度、我的执行偏差。必须输出问题归因表、下次执行清单、冷静期/观察期建议。数据不足时告诉我缺哪些字段。"),
         ("学习模式", "教我理解一个概念",
-         "用新手能听懂的方式解释：1)反量化风险是什么，散户怎么识别 2)尾盘隔夜策略的核心逻辑。每个概念配实例说明。"),
+         "用新手能听懂的方式解释：1)反量化风险是什么，散户怎么识别 2)尾盘隔夜策略的核心逻辑。请用表格、例子、错误示范和检查清单讲清楚。"),
     ]
 
 
@@ -35,6 +35,14 @@ def render_ai_chat_page():
     ai = _get_ai()
     history = ai.get_history()
     selected_code = st.session_state.get("selected_stock", "")
+
+    st.markdown(
+        '<div class="ai-hero">'
+        '<div class="ai-hero-title">AlphaEye Research Desk</div>'
+        '<div class="ai-hero-sub">金融老手式 AI 研究台：先证据，再风险，再计划。所有回答自动进入研究记忆和实验室验证链路。</div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
 
     # 搜索
     from src.ui.search import render_search_bar
@@ -47,12 +55,16 @@ def render_ai_chat_page():
     # 状态条
     env = _market_label()
     stock = selected_code or "未选择"
+    mem_count = _memory_count()
     st.markdown(
-        f'<div style="display:flex;gap:8px;margin:6px 0 10px;font-size:12px;color:#5D6B7C">'
-        f'<span>市场 {env}</span><span>|</span>'
-        f'<span>股票 {stock}</span><span>|</span>'
-        f'<span>对话 {len(history)} 条</span></div>',
-        unsafe_allow_html=True)
+        '<div class="ai-statusbar">'
+        f'<div class="ai-stat"><div class="ai-stat-label">市场温度</div><div class="ai-stat-value">{env}</div></div>'
+        f'<div class="ai-stat"><div class="ai-stat-label">当前标的</div><div class="ai-stat-value">{stock}</div></div>'
+        f'<div class="ai-stat"><div class="ai-stat-label">本页对话</div><div class="ai-stat-value">{len(history)}</div></div>'
+        f'<div class="ai-stat"><div class="ai-stat-label">研究记忆</div><div class="ai-stat-value">{mem_count}</div></div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
 
     if selected_code:
         st.markdown(
@@ -64,7 +76,7 @@ def render_ai_chat_page():
     _render_memory_panel(selected_code)
 
     # ── 快捷任务 ──
-    st.markdown('<div class="sec-h">快捷任务</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sec-h">研究模板</div>', unsafe_allow_html=True)
     tasks = _quick_tasks(selected_code)
     for row in range(2):
         cols = st.columns(2)
@@ -89,7 +101,7 @@ def render_ai_chat_page():
     # 对话记录：每条 AI 回复可折叠，自动提取标题
     # ═══════════════════════════════════
     if history:
-        st.markdown('<div class="sec-h">对话</div>', unsafe_allow_html=True)
+        st.markdown('<div class="sec-h">研究记录</div>', unsafe_allow_html=True)
         # 默认展开最新2条
         for idx, item in enumerate(history):
             is_recent = idx >= len(history) - 2
@@ -223,7 +235,7 @@ def _render_item(item: dict, idx: int, is_recent: bool = False):
 
 
 def _render_memory_panel(selected_code: str):
-    with st.expander("研究记忆", expanded=False):
+    with st.expander("研究记忆 / 旧聊天迁移", expanded=False):
         try:
             from src.memory.conversation_memory import ConversationMemory
 
@@ -233,7 +245,7 @@ def _render_memory_panel(selected_code: str):
                 with tabs[0]:
                     rows = memory.list_recent_threads(limit=8)
                     if not rows:
-                        st.caption("暂无数据库会话。新的对话会自动保存到这里。")
+                        st.caption("暂无数据库会话。若旧版 data/conversations/latest_conversation.json 仍在，打开本页会自动导入。")
                     for row in rows:
                         _memory_row(row, prefix="recent")
                 with tabs[1]:
@@ -277,6 +289,19 @@ def _memory_row(row: dict, prefix: str):
     if content and st.button("带入追问", key=f"mem_{prefix}_{row.get('id', row.get('session_id'))}", use_container_width=True):
         st.session_state["qq"] = f"基于这条历史记录继续分析：{content[:800]}"
         st.rerun()
+
+
+def _memory_count() -> int:
+    try:
+        from src.memory.conversation_memory import ConversationMemory
+
+        memory = ConversationMemory()
+        try:
+            return len(memory.list_recent_threads(limit=200))
+        finally:
+            memory.close()
+    except Exception:
+        return 0
 
 
 def _extract_title(text: str) -> str:

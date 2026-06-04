@@ -1,6 +1,6 @@
 """AlphaEye AI — 短线风险审查与选股分析引擎"""
 
-import json, logging, re, traceback
+import json, logging, os, re, traceback
 from datetime import datetime, date
 from src.config import get_setting
 from src.ai.tools import TOOLS
@@ -15,7 +15,7 @@ WDAY = ["周一","周二","周三","周四","周五","周六","周日"][date.tod
 SYSTEM_PROMPT = V6_SYSTEM_PROMPT
 
 # In chat(), update max_tokens to 4000 for detailed responses
-MAX_TOKENS = 3200
+MAX_TOKENS = 7000
 TOOL_ROUNDS = 6
 HISTORY_LEN = 20
 
@@ -61,7 +61,7 @@ class AIChat:
                     resp = self.client.chat.completions.create(
                         model=self.model, messages=messages,
                         tools=TOOLS, tool_choice="auto",
-                        temperature=0.5, max_tokens=MAX_TOKENS, timeout=30)
+                        temperature=0.35, max_tokens=MAX_TOKENS, timeout=30)
                 except Exception as api_err:
                     logger.error(f"API r{rnd}: {api_err}")
                     err_msg = str(api_err)[:200]
@@ -81,7 +81,7 @@ class AIChat:
                         fallback = self.client.chat.completions.create(
                             model=self.model,
                             messages=messages + [{"role":"user","content":"请基于已有信息直接回答，不需要调用工具。"}],
-                            temperature=0.7, max_tokens=MAX_TOKENS//2, timeout=15)
+                            temperature=0.35, max_tokens=MAX_TOKENS//2, timeout=15)
                         fb = fallback.choices[0].message.content or ""
                         if fb:
                             return self._finalize_response(
@@ -150,6 +150,10 @@ class AIChat:
             "行业", "概念", "板块", "电力", "半导体", "芯片", "买什么", "推荐", "股票池", "候选",
         ])
         has_injected_context = "用户问题是行业/概念选股" in text or "静态候选池" in text
+        code = self._extract_stock_code(text)
+
+        if code and not (is_group_question or has_injected_context):
+            return self._fallback_stock_report(code, text)
 
         if is_group_question or has_injected_context:
             groups = self._sector_candidate_groups(text)
@@ -188,16 +192,70 @@ class AIChat:
             )
 
         return (
-            "### 人话结论\n"
-            "这题我能先给你交易思路，但现在没有拿到足够实时数据，所以我不会瞎编买入价、止损价或确定结论。\n\n"
-            "### 我会怎么做\n"
-            "先看风险，再看机会：有没有尾盘诱多、放量滞涨、板块退潮；再看承接、题材、持股周期。\n\n"
-            "### 你可以这样问\n"
-            "- 分析某只股票的短线风险和反量化风险\n"
-            "- 按某个行业/概念筛选候选股\n"
-            "- 判断一只股票更适合隔夜、1-2 天还是 2-3 天\n\n"
-            "### 资金纪律\n"
-            "如果你给出行业、概念或股票代码，我会先做风险审查，再给参与条件、放弃条件和验证建议。"
+            "## 结论摘要\n"
+            "我可以继续做研究，但现在没有拿到足够实时数据，所以不会编造价格、点位或确定结论。正确做法是先把问题拆成数据状态、风险、计划和复盘字段。\n\n"
+            "## 数据状态\n"
+            "| 数据 | 是否可用 | 你怎么用 | 局限 |\n"
+            "|---|---|---|---|\n"
+            "| 行情/评分 | 暂缺 | 需要判断热度、承接、反量化 | 当前不能给确定触发 |\n"
+            "| 新闻/题材 | 暂缺 | 判断是否有催化 | 不能臆测利好 |\n"
+            "| 历史记忆 | 可继续检索 | 找过往判断是否失效 | 需要具体股票或主题 |\n\n"
+            "## 我会怎么做\n"
+            "| 步骤 | 要检查什么 | 为什么重要 |\n"
+            "|---|---|---|\n"
+            "| 1 | 先看大盘和板块是否退潮 | 环境差时个股信号容易失真 |\n"
+            "| 2 | 再看个股热度、承接和量价 | 防止追在量化收割点 |\n"
+            "| 3 | 最后写入实验室验证 | 不靠感觉，靠 T+1/T+2/T+3 复盘 |\n\n"
+            "## 你可以这样问\n"
+            "- 分析 600900 的短线风险和反量化风险\n"
+            "- 今天电力和半导体哪个更值得观察\n"
+            "- 把这只票加入实验室验证需要写哪些条件\n\n"
+            "## 复盘入库\n"
+            "下一步请至少给我股票代码、观察周期和你的假设，我会输出：研究假设、触发条件、失效条件、止损规则、T+1/T+2/T+3 观察点。"
+        )
+
+    @staticmethod
+    def _fallback_stock_report(code: str, user_message: str) -> str:
+        return (
+            f"## 结论摘要\n"
+            f"{code} 这次先按“研究/观察”处理，不给实盘买入结论。原因是当前工具或实时数据不足，我不能假装已经验证过价格、量比、板块联动和新闻催化。\n\n"
+            "## 数据状态\n"
+            "| 数据 | 是否可用 | 你怎么用 | 局限 |\n"
+            "|---|---|---|---|\n"
+            f"| 个股 {code} 行情 | 暂缺或不完整 | 判断涨跌幅、量比、换手、位置 | 不能编造实时价 |\n"
+            "| 六维评分 | 待工具返回 | 判断热度、承接、题材、延续、策略匹配 | 分数缺失时只能给框架 |\n"
+            "| 反量化扫描 | 待工具返回 | 排查诱多、接盘、脉冲、滞涨、背离 | 不能替代盘中观察 |\n"
+            "| 新闻/题材 | 待工具返回 | 判断催化是否真实 | 不能把传闻当依据 |\n\n"
+            "## 证据表\n"
+            "| 维度 | 现在能判断什么 | 白话解释 | 对结论的影响 |\n"
+            "|---|---|---|---|\n"
+            "| 价格位置 | 暂不能确认 | 没有可靠实时价就不知道是否追高 | 不给参与结论 |\n"
+            "| 承接 | 暂不能确认 | 要看回踩均价线是否有人接 | 只能列观察条件 |\n"
+            "| 板块联动 | 暂不能确认 | 单票硬拉容易坑人 | 必须等同板块确认 |\n"
+            "| 风险 | 默认按中性偏谨慎 | 数据缺失时风险要上调 | 只允许模拟验证 |\n\n"
+            "## 反量化风险表\n"
+            "| 风险项 | 当前判断 | 触发证据 | 散户容易怎么亏 | 应对 |\n"
+            "|---|---|---|---|---|\n"
+            "| 尾盘诱多 | 待确认 | 14:30 后急拉但无回踩 | 追高隔夜，次日低开 | 只记录不追 |\n"
+            "| 高位接盘 | 待确认 | 高开冲高后量价背离 | 买在情绪顶 | 等二次承接 |\n"
+            "| 分时脉冲 | 待确认 | 直线拉升后快速回落 | 被短线资金收割 | 不追第一波 |\n"
+            "| 放量滞涨 | 待确认 | 成交放大但价格推不动 | 主力出货时接盘 | 出现则放弃 |\n"
+            "| 板块背离 | 待确认 | 个股涨、板块不跟 | 孤立拉升难持续 | 必须看联动 |\n\n"
+            "## 交易计划表\n"
+            "| 动作 | 触发条件 | 禁止条件 | 仓位/验证方式 | 复盘记录 |\n"
+            "|---|---|---|---|---|\n"
+            "| 加入观察 | 回踩不破均价线，板块同步走强 | 高开急冲无回踩 | 只观察或模拟 | 记录触发时间 |\n"
+            "| 模拟验证 | 评分和反量化风险都可接受 | 风险升至高/极高 | 小样本模拟 | 记录 T+1/T+2/T+3 |\n"
+            "| 暂停 | 大盘弱、板块退潮 | 无 | 不做动作 | 记录为什么放弃 |\n"
+            "| 退出假设 | 跌破昨日低点或放量滞涨 | 无 | 验证失败 | 写入实验室 |\n\n"
+            "## 反证与失效条件\n"
+            "1. 开盘高冲后 10 分钟内跌回均价线下方。\n"
+            "2. 放量但价格无法继续上推。\n"
+            "3. 同板块核心股没有联动。\n"
+            "4. 大盘和情绪转弱，短线资金退潮。\n"
+            "5. 新闻催化无法被公告、互动平台或板块表现验证。\n\n"
+            "## 复盘入库\n"
+            f"建议把 {code} 加入实验室时写入：假设、触发条件、失效条件、止损规则、T+1 高点/低点、T+2 是否延续、T+3 是否回撤。"
         )
 
     @staticmethod
@@ -247,6 +305,9 @@ class AIChat:
     @staticmethod
     def _history_file():
         from pathlib import Path
+        env_file = os.getenv("ALPHAEYE_CONVERSATION_FILE")
+        if env_file:
+            return Path(env_file)
         d = Path(__file__).parent.parent.parent / "data" / "conversations"
         d.mkdir(parents=True, exist_ok=True)
         return d / "latest_conversation.json"
@@ -272,17 +333,40 @@ class AIChat:
         return False
 
     def load_from_disk(self):
-        """从文件恢复对话"""
+        """从旧 JSON 和数据库恢复对话。"""
         try:
             import json as _json
             f = self._history_file()
             if f.exists():
                 with open(f, 'r', encoding='utf-8') as ff:
                     self.history = _json.load(ff)
+                self._import_legacy_history(self.history, source=str(f))
                 return True
         except Exception as e:
             logger.warning(f"加载对话失败: {e}")
-        return False
+        loaded = self.load_from_memory()
+        return bool(loaded)
+
+    def load_from_memory(self, limit: int = HISTORY_LEN):
+        memory = self._get_memory()
+        if not memory:
+            return []
+        try:
+            self.history = memory.get_recent_pairs(limit=limit)
+            return self.history
+        except Exception as exc:
+            logger.warning(f"从数据库加载对话失败: {exc}")
+            return []
+
+    def _import_legacy_history(self, items: list[dict], source: str = "legacy_json") -> int:
+        memory = self._get_memory()
+        if not memory:
+            return 0
+        try:
+            return memory.import_legacy_history(items, source=source)
+        except Exception as exc:
+            logger.warning(f"导入旧对话失败: {exc}")
+            return 0
 
     def get_last_tools_used(self): return self._tools_used
 
@@ -434,6 +518,11 @@ class AIChat:
             "- 默认输出“观察/模拟/验证/放弃”四类动作，不输出实盘买入指令。\n"
             "- 用户处于谨慎或冷静期时，只能给观察、模拟和复盘计划。\n"
             "- 每个候选都必须写清失效条件和止损纪律；没有条件就不能给参与结论。",
+            "## 参考项目内化为工作流\n"
+            "- Dexter 原则：先规划、再调用工具、最后自我校验；回答必须说明数据来源和缺口。\n"
+            "- Vibe-Trading 原则：把问题拆成研究员、风控、执行、复盘四个角色；每个角色都要给输出。\n"
+            "- daily_stock_analysis 原则：输出像决策仪表盘，必须有表格、评分/风险、行动清单和推送级摘要。\n"
+            "- 这些只是工作流参考，不代表照搬任何项目，也不允许编造数据。",
             "## 本次启用的内置技能/角色\n" + "\n".join(role_lines),
             STYLE_CONTRACT,
             scene_prompt(scene),
