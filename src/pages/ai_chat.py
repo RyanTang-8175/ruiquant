@@ -60,6 +60,8 @@ def render_ai_chat_page():
             f'当前 <strong>{selected_code}</strong> · AI 自动注入评分、K线和反量化详情</div>',
             unsafe_allow_html=True)
 
+    _render_memory_panel(selected_code)
+
     # ── 快捷任务 ──
     st.markdown('<div class="sec-h">快捷任务</div>', unsafe_allow_html=True)
     tasks = _quick_tasks(selected_code)
@@ -217,6 +219,63 @@ def _render_item(item: dict, idx: int, is_recent: bool = False):
                              use_container_width=True):
                     st.session_state["qq"] = fu
                     st.rerun()
+
+
+def _render_memory_panel(selected_code: str):
+    with st.expander("研究记忆", expanded=False):
+        try:
+            from src.memory.conversation_memory import ConversationMemory
+
+            memory = ConversationMemory()
+            try:
+                tabs = st.tabs(["最近", "当前股票", "搜索"])
+                with tabs[0]:
+                    rows = memory.list_recent_threads(limit=8)
+                    if not rows:
+                        st.caption("暂无数据库会话。新的对话会自动保存到这里。")
+                    for row in rows:
+                        _memory_row(row, prefix="recent")
+                with tabs[1]:
+                    if not selected_code:
+                        st.caption("先选择股票，或在问题中输入 6 位代码。")
+                    else:
+                        rows = memory.get_stock_conversations(selected_code, limit=8)
+                        if not rows:
+                            st.caption(f"暂无 {selected_code} 的历史对话。")
+                        for row in rows:
+                            _memory_row(row, prefix="stock")
+                with tabs[2]:
+                    kw = st.text_input("搜索历史", placeholder="例如：止损 / 半导体 / 600900", key="ai_memory_search")
+                    if kw.strip():
+                        rows = memory.search_messages(kw, limit=10)
+                        if not rows:
+                            st.caption("没有匹配结果")
+                        for row in rows:
+                            _memory_row(row, prefix="search")
+            finally:
+                memory.close()
+        except Exception as exc:
+            st.caption(f"研究记忆暂不可用: {exc}")
+
+
+def _memory_row(row: dict, prefix: str):
+    content = str(row.get("last_content") or row.get("content") or "").replace("\n", " ")
+    role = row.get("last_role") or row.get("role") or ""
+    stock = row.get("stock_code") or ""
+    ts = str(row.get("updated_at") or row.get("created_at") or "")[:16]
+    label = "用户" if role == "user" else "AI" if role == "assistant" else role
+    title = content[:90] or row.get("title") or "空会话"
+    st.markdown(
+        f'<div class="ai-memory-row">'
+        f'<div style="min-width:0;flex:1">'
+        f'<div class="ai-memory-q">{html.escape(title)}</div>'
+        f'<div style="font-size:11px;color:var(--muted);margin-top:2px">{html.escape(label)} {html.escape(stock)} · {html.escape(ts)}</div>'
+        f'</div></div>',
+        unsafe_allow_html=True,
+    )
+    if content and st.button("带入追问", key=f"mem_{prefix}_{row.get('id', row.get('session_id'))}", use_container_width=True):
+        st.session_state["qq"] = f"基于这条历史记录继续分析：{content[:800]}"
+        st.rerun()
 
 
 def _extract_title(text: str) -> str:

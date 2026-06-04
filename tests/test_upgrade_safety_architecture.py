@@ -126,6 +126,38 @@ def test_ai_chat_persists_db_memory_and_analysis(tmp_path, monkeypatch):
     assert list(scratch_dir.glob("*.jsonl"))
 
 
+def test_conversation_memory_indexes_threads_and_search(tmp_path, monkeypatch):
+    db_path = tmp_path / "memory.db"
+    monkeypatch.setenv("DATABASE_PATH", str(db_path))
+
+    import importlib
+    import src.config as config
+    import src.utils.database as database
+    import src.data.models_v6 as models_v6
+
+    importlib.reload(config)
+    importlib.reload(database)
+    importlib.reload(models_v6)
+    models_v6.Base.metadata.create_all(database.engine)
+
+    from src.memory.conversation_memory import ConversationMemory
+
+    memory = ConversationMemory()
+    try:
+        sid = memory.create_session("deep_analysis", "长江电力复盘")
+        memory.save_message(sid, "user", "分析 600900 止损纪律", stock_code="600900")
+        memory.save_message(sid, "assistant", "长江电力先观察，止损条件是跌破均价线。", stock_code="600900")
+        threads = memory.list_recent_threads()
+        stock_rows = memory.get_stock_conversations("600900")
+        search_rows = memory.search_messages("止损")
+    finally:
+        memory.close()
+
+    assert threads[0]["stock_code"] == "600900"
+    assert any("均价线" in row["content"] for row in stock_rows)
+    assert len(search_rows) >= 2
+
+
 class _FakeOpenAIClient:
     def __init__(self, answer: str):
         self.answer = answer

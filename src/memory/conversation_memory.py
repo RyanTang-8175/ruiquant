@@ -65,7 +65,8 @@ class ConversationMemory:
                 .order_by(AIMessage.created_at)
                 .limit(limit).all())
         return [
-            {"role": r.role, "content": r.content,
+            {"id": r.id, "role": r.role, "content": r.content,
+             "stock_code": r.stock_code,
              "structured_output": r.structured_output,
              "tools_used": r.tools_used,
              "created_at": r.created_at.isoformat()}
@@ -89,13 +90,49 @@ class ConversationMemory:
             for r in rows
         ]
 
+    def list_recent_threads(self, limit: int = 20) -> list:
+        """返回会话摘要，给移动端/AI页做历史入口。"""
+        sessions = self.list_sessions(limit=limit)
+        out = []
+        for session in sessions:
+            latest = (self.db.query(AIMessage)
+                      .filter(AIMessage.session_id == session["id"])
+                      .order_by(desc(AIMessage.created_at))
+                      .first())
+            out.append({
+                **session,
+                "last_role": latest.role if latest else "",
+                "last_content": latest.content[:160] if latest else "",
+                "stock_code": latest.stock_code if latest else None,
+            })
+        return out
+
     def get_stock_conversations(self, code: str, limit: int = 10) -> list:
         rows = (self.db.query(AIMessage)
                 .filter(AIMessage.stock_code == code)
                 .order_by(desc(AIMessage.created_at))
                 .limit(limit).all())
         return [
-            {"role": r.role, "content": r.content[:500],
+            {"id": r.id, "session_id": r.session_id,
+             "role": r.role, "content": r.content[:500],
+             "structured_output": r.structured_output,
+             "tools_used": r.tools_used,
+             "created_at": r.created_at.isoformat()}
+            for r in rows
+        ]
+
+    def search_messages(self, keyword: str, limit: int = 20) -> list:
+        kw = f"%{keyword.strip()}%"
+        rows = (self.db.query(AIMessage)
+                .filter(AIMessage.content.like(kw))
+                .order_by(desc(AIMessage.created_at))
+                .limit(limit).all())
+        return [
+            {"id": r.id, "session_id": r.session_id,
+             "role": r.role, "stock_code": r.stock_code,
+             "content": r.content[:500],
+             "structured_output": r.structured_output,
+             "tools_used": r.tools_used,
              "created_at": r.created_at.isoformat()}
             for r in rows
         ]

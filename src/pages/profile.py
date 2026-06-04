@@ -17,6 +17,9 @@ def render_profile_page():
     pl = s.get("profit_loss_ratio", 0)
     c3.metric("盈亏比", f"{pl:.2f}" if s.get("total_trades") else "-")
 
+    st.markdown('<div class="sec-h">系统状态</div>', unsafe_allow_html=True)
+    _system_status()
+
     st.markdown('<div class="sec-h">偏好</div>', unsafe_allow_html=True)
     try:
         from src.memory.user_profile import get_profile
@@ -32,19 +35,66 @@ def render_profile_page():
             st.caption("常看: " + " | ".join(f"{n}({c})" for c, n, _ in top))
     except: pass
 
-    st.markdown('<div class="sec-h">AI 配置</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sec-h">AI / 数据源配置</div>', unsafe_allow_html=True)
     cur_k = get_setting("api_key","DEEPSEEK_API_KEY","")
     cur_u = get_setting("base_url","DEEPSEEK_BASE_URL","https://api.deepseek.com")
     cur_m = get_setting("model","DEEPSEEK_MODEL","deepseek-chat")
+    cur_dp = get_setting("data_provider","ALPHAEYE_DATA_PROVIDER","open")
+    cur_ifind_user = get_setting("ifind_username","IFIND_USERNAME","")
+    cur_ifind_token = get_setting("ifind_token","IFIND_TOKEN","")
     with st.form("cfg"):
         nk = st.text_input("API Key", value=cur_k, type="password", placeholder="sk-...")
         nu = st.text_input("Base URL", value=cur_u)
         nm = st.text_input("Model", value=cur_m)
+        ndp = st.selectbox("数据源", ["open", "ifind"], index=0 if cur_dp != "ifind" else 1)
+        ifu = st.text_input("iFinD 用户名", value=cur_ifind_user)
+        ift = st.text_input("iFinD Token", value=cur_ifind_token, type="password")
         if st.form_submit_button("保存", use_container_width=True, type="primary"):
             save_settings({"api_key":nk,"base_url":nu,"model":nm,
+                           "data_provider":ndp,
+                           "ifind_username":ifu,
+                           "ifind_token":ift,
                            "phone":get_setting("phone","","")})
             st.success("已保存"); st.rerun()
 
     if st.button("退出登录", use_container_width=True):
         save_settings({"phone":"","api_key":"","base_url":"","model":""})
         st.session_state["logged_in"] = False; st.rerun()
+
+
+def _system_status():
+    try:
+        from src.data.providers.registry import provider_status, clear_provider_cache
+
+        clear_provider_cache()
+        status = provider_status()
+        c1, c2 = st.columns(2)
+        c1.metric("数据源", status.get("provider", "open"))
+        c2.metric("状态", "可用" if status.get("ready") else "待配置")
+        if status.get("message"):
+            st.caption(status["message"])
+    except Exception as exc:
+        st.caption(f"数据源状态不可用: {exc}")
+
+    try:
+        from src.risk.user_state import get_user_risk_state
+
+        state = get_user_risk_state()
+        c3, c4 = st.columns(2)
+        c3.metric("执行状态", state.get("mode", "-"))
+        c4.metric("风险分", state.get("score", 0))
+        st.caption(state.get("action_policy", ""))
+    except Exception:
+        pass
+
+    try:
+        from src.memory.conversation_memory import ConversationMemory
+
+        memory = ConversationMemory()
+        try:
+            sessions = memory.list_recent_threads(limit=100)
+        finally:
+            memory.close()
+        st.caption(f"AI 研究记忆：{len(sessions)} 个会话已入库")
+    except Exception:
+        pass
