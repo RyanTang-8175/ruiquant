@@ -1,5 +1,6 @@
 from pathlib import Path
 from datetime import datetime
+from types import SimpleNamespace
 
 
 def test_data_provider_registry_exposes_ifind_stub(monkeypatch):
@@ -82,3 +83,54 @@ def test_scratchpad_records_tool_audit(tmp_path, monkeypatch):
     text = Path(path).read_text(encoding="utf-8")
     assert "get_market_snapshot" in text
     assert "只观察不追" in text
+
+
+def test_ai_chat_persists_db_memory_and_analysis(tmp_path, monkeypatch):
+    db_path = tmp_path / "chat.db"
+    scratch_dir = tmp_path / "scratch"
+    monkeypatch.setenv("DATABASE_PATH", str(db_path))
+    monkeypatch.setenv("ALPHAEYE_SCRATCHPAD_DIR", str(scratch_dir))
+
+    import importlib
+    import src.config as config
+    import src.utils.database as database
+    import src.data.models_v6 as models_v6
+
+    importlib.reload(config)
+    importlib.reload(database)
+    importlib.reload(models_v6)
+    models_v6.Base.metadata.create_all(database.engine)
+
+    from src.ai.chat import AIChat
+
+    ai = AIChat()
+    ai.client = _FakeOpenAIClient(
+        "### 人话结论\n先观察，不追。\n\n风险等级：中\n持有周期：1-2天"
+    )
+    ai.history = []
+
+    answer = ai.chat("分析 600900 今天还能不能观察")
+
+    db = database.SessionLocal()
+    try:
+        messages = db.query(models_v6.AIMessage).all()
+        analyses = db.query(models_v6.AIAnalysisRecord).all()
+    finally:
+        db.close()
+
+    assert "先观察" in answer
+    assert len(messages) == 2
+    assert messages[-1].structured_output["risk_level"] == "中"
+    assert len(analyses) == 1
+    assert analyses[0].stock_code == "600900"
+    assert list(scratch_dir.glob("*.jsonl"))
+
+
+class _FakeOpenAIClient:
+    def __init__(self, answer: str):
+        self.answer = answer
+        self.chat = SimpleNamespace(completions=self)
+
+    def create(self, **kwargs):
+        message = SimpleNamespace(content=self.answer, tool_calls=None)
+        return SimpleNamespace(choices=[SimpleNamespace(message=message)])

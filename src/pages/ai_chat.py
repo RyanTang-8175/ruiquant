@@ -12,8 +12,8 @@ def _quick_tasks(code: str) -> list:
         return [
             ("深度审查", f"全面分析 {code} 风险与机会",
              f"请对 {code} 做完整深度分析。先调行情/评分/技术三个工具，然后按风险→机会→条件→周期顺序输出。每个专业术语附白话解释。最后用一句话总结。"),
-            ("能不能买", f"{code} 现在能参与吗",
-             f"请直接判断 {code} 现在能不能参与。回答：能/不能/有条件能。列出参与前必须满足的 3 个条件和 3 个离场红线。不要长篇大论，只给关键判断和数字。"),
+            ("观察计划", f"{code} 现在能观察吗",
+             f"请判断 {code} 现在是否适合加入观察/模拟验证。回答只能是：可观察、仅模拟、等待触发、暂停。列出参与前必须满足的 3 个条件和 3 个离场红线。不要长篇大论，只给关键判断和数字。"),
             ("持股多久", f"{code} 适合持有多久",
              f"判断 {code} 适合隔夜、1-2天还是2-3天。给出继续持有条件、离场条件、明早要盯的 3 个关键点。"),
             ("反量化扫描", f"{code} 有被收割风险吗",
@@ -277,7 +277,38 @@ def _with_context(text: str) -> str:
         if ctx: parts.insert(1, ctx)
     except Exception: pass
 
+    # 用户执行风险闸门
+    try:
+        from src.risk.user_state import get_user_risk_state
+
+        state = get_user_risk_state()
+        reasons = "；".join(state.get("reasons", [])[:3])
+        parts.insert(1, (
+            "\n[系统: 用户执行风险闸门]\n"
+            f"状态: {state.get('mode')} / 风险分 {state.get('score')}\n"
+            f"动作边界: {state.get('action_policy')}\n"
+            f"原因: {reasons}\n"
+            "AI 回答必须遵守动作边界。"
+        ))
+    except Exception:
+        pass
+
     if stock_code:
+        try:
+            from src.ai.context_builder import AIContextBuilder
+            from src.memory.stock_memory import StockMemory
+            from src.memory.analysis_memory import AnalysisMemory
+
+            sm = StockMemory()
+            try:
+                with AnalysisMemory() as am:
+                    rich = AIContextBuilder(stock_memory=sm, analysis=am).build(text, stock_code)
+                if rich:
+                    parts.append(f"\n\n[系统: 股票长期记忆/历史验证]\n{rich}")
+            finally:
+                sm.close()
+        except Exception:
+            pass
         try:
             from src.scoring.engine import V6ScoringEngine
             with V6ScoringEngine() as e:

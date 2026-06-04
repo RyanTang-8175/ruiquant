@@ -7,7 +7,6 @@ from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import desc
-from src.utils.database import SessionLocal
 from src.data.models_v6 import (
     AIAnalysisRecord, VerificationRecord, VerificationBackfill,
     UserFeedback,
@@ -20,6 +19,8 @@ class AnalysisMemory:
     """AI 分析结果持久化管理器"""
 
     def __init__(self):
+        from src.utils.database import SessionLocal
+
         self.db = SessionLocal()
 
     def __enter__(self): return self

@@ -7,7 +7,6 @@ from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import desc
-from src.utils.database import SessionLocal
 from src.data.models_v6 import (
     Stock, StockSnapshot, StockMemoryEntry,
     ScoreRecordV6, AntiQuantRecord, StrategySignal,
@@ -20,6 +19,8 @@ class StockMemory:
     """股票记忆管理器"""
 
     def __init__(self):
+        from src.utils.database import SessionLocal
+
         self.db = SessionLocal()
 
     def close(self):

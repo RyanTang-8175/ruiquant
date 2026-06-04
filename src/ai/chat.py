@@ -1,6 +1,6 @@
 """AlphaEye AI — 短线风险审查与选股分析引擎"""
 
-import json, logging, traceback
+import json, logging, re, traceback
 from datetime import datetime, date
 from src.config import get_setting
 from src.ai.tools import TOOLS
@@ -35,6 +35,7 @@ class AIChat:
         self.history = []
         self.tool_executor = ToolExecutor()
         self._tools_used = []
+        self._memory = None
 
     def chat(self, user_message: str, context: dict = None) -> str:
         if not self.client:
@@ -42,6 +43,9 @@ class AIChat:
 
         try:
             scene = self.detect_scene(user_message)
+            stock_code = self._extract_stock_code(user_message)
+            run_id, scratchpad = self._start_audit(user_message, scene)
+            session_id = self._save_user_message(user_message, scene, stock_code)
             messages = [{"role":"system","content":self.build_system_prompt(scene, user_message)}]
             for h in self.history[-HISTORY_LEN:]:
                 messages.append({"role":"user","content":h["question"]})
@@ -96,6 +100,7 @@ class AIChat:
                         result = self.tool_executor.execute(nm, args)
                     except Exception:
                         result = json.dumps({"error": f"工具 {nm} 执行失败"}, ensure_ascii=False)
+                    self._log_audit_tool(scratchpad, run_id, nm, args, result)
 
                     messages.append({"role":"tool","tool_call_id":tc.id,"content":result})
             else:
@@ -112,6 +117,14 @@ class AIChat:
                 "tools_used": self._tools_used.copy(),
             })
             self.save_to_disk()
+            self._save_ai_message(
+                session_id=session_id,
+                user_message=user_message,
+                answer=answer,
+                stock_code=stock_code,
+                scene=scene,
+            )
+            self._finish_audit(scratchpad, run_id, answer)
             return answer
 
         except Exception as e:
@@ -135,12 +148,12 @@ class AIChat:
 
             return (
                 f"### 人话结论\n"
-                f"1 万做短线，我会先偏电力做防守试错，半导体只做弹性备选。电力看 {primary} 这类承接稳的，半导体看 {chip} 这类主线弹性，但不能追高。\n\n"
+                f"1 万做短线，我会先偏电力做防守模拟，半导体只做弹性观察。电力看 {primary} 这类承接稳的，半导体看 {chip} 这类主线弹性，但不能追高。\n\n"
                 "### 周一操作建议\n"
-                "你的状态：现金 1 万，适合先小仓验证，不适合一把打满。今天的核心不是“买哪个行业”，而是先找低风险入场点，再决定要不要隔夜。\n\n"
+                "你的状态：现金 1 万，适合先小样本模拟验证，不适合一把打满。今天的核心不是“买哪个行业”，而是先找低风险观察点，再决定要不要加入实验室验证。\n\n"
                 "### 周一操作两步走\n"
-                f"第一步：先处理电力。优先看 {primary}，只在低开不破、回踩有承接、反量化风险低/中的情况下试 2-3 成仓。\n"
-                f"第二步：再看半导体。{chip} 这类弹性更大，但必须等板块联动和分时承接确认；如果放量滞涨或高开冲回落，直接放弃。\n\n"
+                f"第一步：先处理电力。优先看 {primary}，只在低开不破、回踩有承接、反量化风险低/中的情况下加入观察或模拟验证。\n"
+                f"第二步：再看半导体。{chip} 这类弹性更大，但必须等板块联动和分时承接确认；如果放量滞涨或高开冲回落，直接放弃，不做追高验证。\n\n"
                 "### 候选表\n"
                 f"{candidate_text}\n\n"
                 "### 参与条件\n"
@@ -157,10 +170,10 @@ class AIChat:
                 "9:15：看竞价，谁高开太多但量不跟，先剔除。\n"
                 "9:25：只保留电力/半导体里竞价不极端、成交正常的票。\n"
                 "9:30-10:00：不追第一波，只看回踩均价线能不能稳住。\n"
-                "10:00-10:30：若主候选承接稳定，可 2 成仓试错；若半导体强于电力，再考虑 1 成弹性仓。\n"
+                "10:00-10:30：若主候选承接稳定，可先做模拟验证；若半导体强于电力，再考虑加入弹性观察。\n"
                 "14:30-15:00：决定是否隔夜。尾盘急拉无回踩不拿，回踩不破且板块仍强才考虑留。\n\n"
                 "### 资金纪律\n"
-                "1 万元建议最多拆成 2 笔：主候选 2000-3000 元，备选 1000-2000 元，剩余现金留给次日修正。第一笔错了，不加仓摊平；第一笔对了，也要等第二个确认点再加。"
+                "1 万元建议最多拆成 2 个观察计划：主候选和备选分别写清触发条件、失效条件和止损规则。第一笔验证错了，不加码摊平；第一笔验证对了，也要等第二个确认点再行动。"
             )
 
         return (
@@ -269,6 +282,97 @@ class AIChat:
 
     def get_history(self): return self.history
 
+    @staticmethod
+    def _extract_stock_code(text: str) -> str:
+        m = re.search(r"\b(\d{6})\b", text or "")
+        return m.group(1) if m else ""
+
+    def _get_memory(self):
+        if self._memory is not None:
+            return self._memory
+        try:
+            from src.memory.conversation_memory import ConversationMemory
+
+            self._memory = ConversationMemory()
+        except Exception as exc:
+            logger.warning(f"ConversationMemory unavailable: {exc}")
+            self._memory = False
+        return self._memory or None
+
+    def _save_user_message(self, user_message: str, scene: str, stock_code: str = "") -> int | None:
+        memory = self._get_memory()
+        if not memory:
+            return None
+        try:
+            session_id = memory.get_or_create_session(scene)
+            if user_message and len(user_message) > 8:
+                memory.update_title(session_id, user_message[:60])
+            memory.save_message(session_id, "user", user_message, stock_code=stock_code or None)
+            return session_id
+        except Exception as exc:
+            logger.warning(f"save user message failed: {exc}")
+            return None
+
+    def _save_ai_message(self, session_id: int | None, user_message: str,
+                         answer: str, stock_code: str, scene: str) -> None:
+        memory = self._get_memory()
+        if not memory or not session_id:
+            return
+        try:
+            from src.ai.structured_output import parse_structured_output
+            from src.memory.analysis_memory import AnalysisMemory
+
+            structured = parse_structured_output(answer)
+            message_id = memory.save_message(
+                session_id,
+                "assistant",
+                answer,
+                stock_code=stock_code or None,
+                structured_output=structured,
+                tools_used=self._tools_used.copy(),
+            )
+            if stock_code:
+                data = dict(structured or {})
+                data.setdefault("timeframe", scene)
+                with AnalysisMemory() as analysis:
+                    analysis.save_analysis(
+                        stock_code=stock_code,
+                        analysis_type=scene,
+                        data=data,
+                        message_id=message_id,
+                    )
+        except Exception as exc:
+            logger.warning(f"save ai message failed: {exc}")
+
+    @staticmethod
+    def _start_audit(user_message: str, scene: str):
+        try:
+            from src.agent.scratchpad import Scratchpad
+
+            scratchpad = Scratchpad()
+            return scratchpad.start_run(user_message, scene=scene), scratchpad
+        except Exception as exc:
+            logger.warning(f"scratchpad start failed: {exc}")
+            return None, None
+
+    @staticmethod
+    def _log_audit_tool(scratchpad, run_id: str | None, name: str, args: dict, result) -> None:
+        if not scratchpad or not run_id:
+            return
+        try:
+            scratchpad.log_tool_result(run_id, name, args, result)
+        except Exception as exc:
+            logger.warning(f"scratchpad tool log failed: {exc}")
+
+    @staticmethod
+    def _finish_audit(scratchpad, run_id: str | None, answer: str) -> None:
+        if not scratchpad or not run_id:
+            return
+        try:
+            scratchpad.finish_run(run_id, answer_summary=(answer or "")[:800])
+        except Exception as exc:
+            logger.warning(f"scratchpad finish failed: {exc}")
+
     # ═══════════════════════════════════════
     # 智能追问 & 场景检测 & 动态角色提示
     # ═══════════════════════════════════════
@@ -289,6 +393,11 @@ class AIChat:
 
         return "\n\n".join([
             SYSTEM_PROMPT,
+            "## AlphaEye 安全闸门\n"
+            "- 你是金融研究助手，不是自动荐股机器。\n"
+            "- 默认输出“观察/模拟/验证/放弃”四类动作，不输出实盘买入指令。\n"
+            "- 用户处于谨慎或冷静期时，只能给观察、模拟和复盘计划。\n"
+            "- 每个候选都必须写清失效条件和止损纪律；没有条件就不能给参与结论。",
             "## 本次启用的内置技能/角色\n" + "\n".join(role_lines),
             STYLE_CONTRACT,
             scene_prompt(scene),

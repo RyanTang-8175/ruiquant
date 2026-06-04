@@ -7,7 +7,6 @@ from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import desc
-from src.utils.database import SessionLocal
 from src.data.models_v6 import AISession, AIMessage
 
 logger = logging.getLogger(__name__)
@@ -17,6 +16,8 @@ class ConversationMemory:
     """AI 会话记忆管理器"""
 
     def __init__(self):
+        from src.utils.database import SessionLocal
+
         self.db = SessionLocal()
         self._current_session_id = None
 

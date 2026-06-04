@@ -17,6 +17,13 @@ from src.scoring.models import ScoreRecord
 from src.prediction.models import Prediction
 from src.trading.models import PaperAccount, Position, Trade
 from src.news.models import NewsItem
+from src.data.models_v6 import (
+    Stock, StockSnapshot, IntradayBar, DailyBar,
+    ScoreRecordV6, AntiQuantRecord, StrategySignal,
+    AISession, AIMessage, AIAnalysisRecord,
+    StockMemoryEntry, VerificationRecord, VerificationBackfill,
+    UserFeedback, UserPreference, DataQualityLog,
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
