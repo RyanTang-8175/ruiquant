@@ -18,6 +18,7 @@ def render_market_page():
     code = render_search_bar(key="market")
     if code:
         st.session_state["selected_stock"] = code
+        st.session_state["previous_page"] = "market"
         st.session_state["current_page"] = "stock_detail"
         st.rerun()
 
@@ -68,6 +69,7 @@ def render_market_page():
             )
             if st.button("查看", key=f"{prefix}{cd}_{i}"):
                 st.session_state["selected_stock"] = cd
+                st.session_state["previous_page"] = "market"
                 st.session_state["current_page"] = "stock_detail"
                 st.rerun()
 

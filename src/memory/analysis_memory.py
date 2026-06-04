@@ -175,31 +175,43 @@ class AnalysisMemory:
         return out
 
     def save_backfill(self, verification_id: int, data: dict):
-        bf = VerificationBackfill(
-            verification_id=verification_id,
-            trade_date=data.get("trade_date"),
-            day_offset=data.get("day_offset", 1),
-            open_change_pct=data.get("open_change_pct"),
-            high_change_pct=data.get("high_change_pct"),
-            low_change_pct=data.get("low_change_pct"),
-            close_change_pct=data.get("close_change_pct"),
-            hit_plus_2pct=data.get("hit_plus_2pct", False),
-            first_hit_2pct_time=data.get("first_hit_2pct_time"),
-            broke_avg_line=data.get("broke_avg_line", False),
-            open_low_2pct=data.get("open_low_2pct", False),
-            open_high_3pct=data.get("open_high_3pct", False),
-            hold_1d_return=data.get("hold_1d_return"),
-            hold_2d_return=data.get("hold_2d_return"),
-            hold_3d_return=data.get("hold_3d_return"),
-            rule_based_return=data.get("rule_based_return"),
-            max_drawdown=data.get("max_drawdown"),
-        )
-        self.db.add(bf)
+        day_offset = data.get("day_offset", 1)
+        bf = (self.db.query(VerificationBackfill)
+              .filter(VerificationBackfill.verification_id == verification_id)
+              .filter(VerificationBackfill.day_offset == day_offset)
+              .first())
+        if not bf:
+            bf = VerificationBackfill(verification_id=verification_id, day_offset=day_offset)
+            self.db.add(bf)
+        for key in [
+            "trade_date", "open_change_pct", "high_change_pct", "low_change_pct",
+            "close_change_pct", "hit_plus_2pct", "first_hit_2pct_time",
+            "broke_avg_line", "open_low_2pct", "open_high_3pct",
+            "hold_1d_return", "hold_2d_return", "hold_3d_return",
+            "rule_based_return", "max_drawdown",
+        ]:
+            if key in data:
+                setattr(bf, key, data.get(key))
         v = self.db.query(VerificationRecord).filter(
             VerificationRecord.id == verification_id).first()
         if v:
-            v.backfill_status = "complete"
+            max_offset = max(1, int(day_offset or 1))
+            required = self._required_backfill_days(v.suggested_period)
+            v.backfill_status = "complete" if max_offset >= required else "partial"
         self.db.commit()
+
+    @staticmethod
+    def _required_backfill_days(period: str | None) -> int:
+        p = str(period or "")
+        if "隔夜" in p:
+            return 1
+        if "1-2" in p:
+            return 2
+        if "2-3" in p:
+            return 3
+        if "5" in p:
+            return 5
+        return 3
 
     def get_verification_results(self, stock_code: str = None) -> list:
         q = self.db.query(VerificationRecord)

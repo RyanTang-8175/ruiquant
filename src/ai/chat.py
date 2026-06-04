@@ -36,6 +36,7 @@ class AIChat:
         self.tool_executor = ToolExecutor()
         self._tools_used = []
         self._memory = None
+        self._active_session_key = None
 
     def chat(self, user_message: str, context: dict = None) -> str:
         if not self.client:
@@ -66,7 +67,15 @@ class AIChat:
                     err_msg = str(api_err)[:200]
                     # Fallback: if we already have partial answer, return it
                     if answer:
-                        return answer + f"\n\n*(部分工具调用失败: {err_msg})*"
+                        return self._finalize_response(
+                            user_message,
+                            answer + f"\n\n*(部分工具调用失败: {err_msg})*",
+                            session_id,
+                            stock_code,
+                            scene,
+                            scratchpad,
+                            run_id,
+                        )
                     # Fallback: try without tools
                     try:
                         fallback = self.client.chat.completions.create(
@@ -75,11 +84,26 @@ class AIChat:
                             temperature=0.7, max_tokens=MAX_TOKENS//2, timeout=15)
                         fb = fallback.choices[0].message.content or ""
                         if fb:
-                            self.history.append({"question":user_message,"answer":fb,"timestamp":datetime.now().isoformat(),"tools_used":[]})
-                            return fb + "\n\n*(部分工具不可用，基于存量知识回答)*"
+                            return self._finalize_response(
+                                user_message,
+                                fb + "\n\n*(部分工具不可用，基于存量知识回答)*",
+                                session_id,
+                                stock_code,
+                                scene,
+                                scratchpad,
+                                run_id,
+                            )
                     except:
                         pass
-                    return f"AI 服务暂时不可用，请稍后重试。\n\n*(错误详情: {err_msg})*"
+                    return self._finalize_response(
+                        user_message,
+                        f"AI 服务暂时不可用，请稍后重试。\n\n*(错误详情: {err_msg})*",
+                        session_id,
+                        stock_code,
+                        scene,
+                        scratchpad,
+                        run_id,
+                    )
 
                 choice = resp.choices[0]
 
@@ -110,22 +134,9 @@ class AIChat:
             if not answer:
                 answer = self._fallback_answer(user_message)
 
-            self.history.append({
-                "question": user_message,
-                "answer": answer,
-                "timestamp": datetime.now().isoformat(),
-                "tools_used": self._tools_used.copy(),
-            })
-            self.save_to_disk()
-            self._save_ai_message(
-                session_id=session_id,
-                user_message=user_message,
-                answer=answer,
-                stock_code=stock_code,
-                scene=scene,
+            return self._finalize_response(
+                user_message, answer, session_id, stock_code, scene, scratchpad, run_id
             )
-            self._finish_audit(scratchpad, run_id, answer)
-            return answer
 
         except Exception as e:
             tb = traceback.format_exc()
@@ -304,7 +315,12 @@ class AIChat:
         if not memory:
             return None
         try:
-            session_id = memory.get_or_create_session(scene)
+            session_key = f"{scene}:{stock_code or 'general'}"
+            if self._active_session_key != session_key:
+                session_id = memory.create_session(scene, title=user_message[:60] if user_message else scene)
+                self._active_session_key = session_key
+            else:
+                session_id = memory.get_or_create_session(scene)
             if user_message and len(user_message) > 8:
                 memory.update_title(session_id, user_message[:60])
             memory.save_message(session_id, "user", user_message, stock_code=stock_code or None)
@@ -343,6 +359,26 @@ class AIChat:
                     )
         except Exception as exc:
             logger.warning(f"save ai message failed: {exc}")
+
+    def _finalize_response(self, user_message: str, answer: str,
+                           session_id: int | None, stock_code: str, scene: str,
+                           scratchpad, run_id: str | None) -> str:
+        self.history.append({
+            "question": user_message,
+            "answer": answer,
+            "timestamp": datetime.now().isoformat(),
+            "tools_used": self._tools_used.copy(),
+        })
+        self.save_to_disk()
+        self._save_ai_message(
+            session_id=session_id,
+            user_message=user_message,
+            answer=answer,
+            stock_code=stock_code,
+            scene=scene,
+        )
+        self._finish_audit(scratchpad, run_id, answer)
+        return answer
 
     @staticmethod
     def _start_audit(user_message: str, scene: str):

@@ -36,6 +36,7 @@ ENV/
 # Data
 data/*.db
 data/*.sqlite
+data/settings.json
 data/conversations/
 data/scratchpad/
 *.db

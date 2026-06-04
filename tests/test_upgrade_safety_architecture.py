@@ -158,6 +158,78 @@ def test_conversation_memory_indexes_threads_and_search(tmp_path, monkeypatch):
     assert len(search_rows) >= 2
 
 
+def test_verification_backfill_stays_partial_until_required_days(tmp_path, monkeypatch):
+    db_path = tmp_path / "backfill.db"
+    monkeypatch.setenv("DATABASE_PATH", str(db_path))
+
+    import importlib
+    import src.config as config
+    import src.utils.database as database
+    import src.data.models_v6 as models_v6
+
+    importlib.reload(config)
+    importlib.reload(database)
+    importlib.reload(models_v6)
+    models_v6.Base.metadata.create_all(database.engine)
+
+    from src.memory.analysis_memory import AnalysisMemory
+
+    with AnalysisMemory() as memory:
+        vid = memory.create_verification(
+            "manual", "600900", "长江电力", datetime(2026, 6, 5),
+            suggested_period="2-3天",
+        )
+        memory.save_backfill(vid, {
+            "trade_date": datetime(2026, 6, 6).date(),
+            "day_offset": 1,
+            "high_change_pct": 1.0,
+        })
+        first = memory.get_verification_results()[0]
+        memory.save_backfill(vid, {
+            "trade_date": datetime(2026, 6, 9).date(),
+            "day_offset": 3,
+            "high_change_pct": 2.5,
+        })
+        final = memory.get_verification_results()[0]
+
+    assert first["backfill_status"] == "partial"
+    assert final["backfill_status"] == "complete"
+
+
+def test_ai_chat_api_failure_is_persisted(tmp_path, monkeypatch):
+    db_path = tmp_path / "failure.db"
+    scratch_dir = tmp_path / "scratch_failure"
+    monkeypatch.setenv("DATABASE_PATH", str(db_path))
+    monkeypatch.setenv("ALPHAEYE_SCRATCHPAD_DIR", str(scratch_dir))
+
+    import importlib
+    import src.config as config
+    import src.utils.database as database
+    import src.data.models_v6 as models_v6
+
+    importlib.reload(config)
+    importlib.reload(database)
+    importlib.reload(models_v6)
+    models_v6.Base.metadata.create_all(database.engine)
+
+    from src.ai.chat import AIChat
+
+    ai = AIChat()
+    ai.client = _FailingOpenAIClient()
+    answer = ai.chat("分析 600900")
+
+    db = database.SessionLocal()
+    try:
+        messages = db.query(models_v6.AIMessage).all()
+    finally:
+        db.close()
+
+    assert "AI 服务暂时不可用" in answer
+    assert len(messages) == 2
+    assert messages[-1].role == "assistant"
+    assert list(scratch_dir.glob("*.jsonl"))
+
+
 class _FakeOpenAIClient:
     def __init__(self, answer: str):
         self.answer = answer
@@ -166,3 +238,11 @@ class _FakeOpenAIClient:
     def create(self, **kwargs):
         message = SimpleNamespace(content=self.answer, tool_calls=None)
         return SimpleNamespace(choices=[SimpleNamespace(message=message)])
+
+
+class _FailingOpenAIClient:
+    def __init__(self):
+        self.chat = SimpleNamespace(completions=self)
+
+    def create(self, **kwargs):
+        raise RuntimeError("api down")

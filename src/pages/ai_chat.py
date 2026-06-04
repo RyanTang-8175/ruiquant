@@ -41,6 +41,7 @@ def render_ai_chat_page():
     code = render_search_bar(key="ai")
     if code:
         st.session_state["selected_stock"] = code
+        st.session_state["previous_page"] = "ai_chat"
         st.session_state["current_page"] = "stock_detail"; st.rerun()
 
     # 状态条

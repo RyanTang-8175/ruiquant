@@ -28,7 +28,7 @@ def render_stock_detail_page(code: str | None = None):
     _kline_chart(code)
     if result:
         _summary_card(code, quote, result)
-    _ai_bar(code, quote)
+    _ai_bar(code, quote, result)
     _back()
 
 
@@ -175,7 +175,7 @@ def _kline_chart(code):
         st.code("\n".join(lines), language=None)
 
 
-def _ai_bar(code, quote):
+def _ai_bar(code, quote, result=None):
     st.markdown('<div style="font-size:13px;font-weight:700;color:#5D6B7C;margin:14px 0 6px;border-bottom:1px solid #D8E1EA;padding-bottom:4px">操作</div>', unsafe_allow_html=True)
     c1, c2, c3 = st.columns(3)
     with c1:
@@ -245,7 +245,7 @@ def _summary_card(code, quote, result):
     )
 
     if result.status_label == "可执行":
-        summary += "信号较明确，可在满足参与条件后考虑轻仓参与。"
+        summary += "信号较明确，可加入观察或模拟验证，等待触发条件确认。"
     elif result.status_label == "等待确认":
         summary += "建议等待更明确的承接信号或板块确认后再考虑。"
     elif result.status_label in ("风险偏高", "不建议参与"):

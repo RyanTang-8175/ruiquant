@@ -16,6 +16,7 @@ def render_radar_page():
     code = render_search_bar(key="radar")
     if code:
         st.session_state["selected_stock"] = code
+        st.session_state["previous_page"] = "radar"
         st.session_state["current_page"] = "stock_detail"
         st.rerun()
 
