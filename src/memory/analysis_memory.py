@@ -77,13 +77,32 @@ class AnalysisMemory:
                             signal_date: datetime,
                             strategy_name: str = None,
                             suggested_period: str = None,
-                            source_id: int = None) -> int:
+                            source_id: int = None,
+                            hypothesis: str = None,
+                            entry_conditions: list[str] = None,
+                            invalidation_conditions: list[str] = None,
+                            stop_loss_rule: str = None,
+                            risk_level: str = None,
+                            confidence_level: str = None,
+                            allow_real_trade: bool = False,
+                            max_loss_pct: float = None) -> int:
+        plan = self._pack_plan_metadata(
+            hypothesis=hypothesis,
+            entry_conditions=entry_conditions,
+            invalidation_conditions=invalidation_conditions,
+            stop_loss_rule=stop_loss_rule,
+            risk_level=risk_level,
+            confidence_level=confidence_level,
+            allow_real_trade=allow_real_trade,
+            max_loss_pct=max_loss_pct,
+        )
         v = VerificationRecord(
             source_type=source_type, source_id=source_id,
             stock_code=stock_code, stock_name=stock_name,
             strategy_name=strategy_name,
             suggested_period=suggested_period,
             signal_date=signal_date,
+            user_note=json.dumps(plan, ensure_ascii=False) if plan else None,
         )
         self.db.add(v)
         self.db.commit()
@@ -95,21 +114,64 @@ class AnalysisMemory:
                 self.db.commit()
         return v.id
 
+    @staticmethod
+    def _pack_plan_metadata(**kwargs) -> dict:
+        cleaned = {}
+        for key, value in kwargs.items():
+            if value is None:
+                continue
+            if isinstance(value, list):
+                cleaned[key] = [str(v).strip() for v in value if str(v).strip()]
+            else:
+                cleaned[key] = value
+        if "allow_real_trade" not in cleaned:
+            cleaned["allow_real_trade"] = False
+        return cleaned
+
+    @staticmethod
+    def _plan_from_note(note: str | None) -> dict:
+        defaults = {
+            "hypothesis": "",
+            "entry_conditions": [],
+            "invalidation_conditions": [],
+            "stop_loss_rule": "",
+            "risk_level": "",
+            "confidence_level": "",
+            "allow_real_trade": False,
+            "max_loss_pct": None,
+        }
+        if not note:
+            return defaults
+        try:
+            data = json.loads(note)
+            if isinstance(data, dict):
+                defaults.update(data)
+                defaults["entry_conditions"] = defaults.get("entry_conditions") or []
+                defaults["invalidation_conditions"] = defaults.get("invalidation_conditions") or []
+                defaults["allow_real_trade"] = bool(defaults.get("allow_real_trade", False))
+        except Exception:
+            defaults["hypothesis"] = note
+        return defaults
+
     def get_pending_verifications(self) -> list:
         rows = (self.db.query(VerificationRecord)
                 .filter(VerificationRecord.backfill_status != "complete")
                 .order_by(desc(VerificationRecord.signal_date))
                 .limit(50).all())
-        return [
-            {"id": r.id, "source_type": r.source_type,
-             "stock_code": r.stock_code, "stock_name": r.stock_name,
-             "strategy_name": r.strategy_name,
-             "suggested_period": r.suggested_period,
-             "signal_date": r.signal_date.isoformat(),
-             "backfill_status": r.backfill_status,
-             "user_action": r.user_action}
-            for r in rows
-        ]
+        out = []
+        for r in rows:
+            plan = self._plan_from_note(r.user_note)
+            out.append({
+                "id": r.id, "source_type": r.source_type,
+                "stock_code": r.stock_code, "stock_name": r.stock_name,
+                "strategy_name": r.strategy_name,
+                "suggested_period": r.suggested_period,
+                "signal_date": r.signal_date.isoformat(),
+                "backfill_status": r.backfill_status,
+                "user_action": r.user_action,
+                **plan,
+            })
+        return out
 
     def save_backfill(self, verification_id: int, data: dict):
         bf = VerificationBackfill(
@@ -148,15 +210,20 @@ class AnalysisMemory:
             backfills = (self.db.query(VerificationBackfill)
                          .filter(VerificationBackfill.verification_id == r.id)
                          .order_by(VerificationBackfill.day_offset).all())
+            plan = self._plan_from_note(r.user_note)
             results.append({
                 "id": r.id, "stock_code": r.stock_code,
                 "stock_name": r.stock_name,
                 "source_type": r.source_type,
+                "source_id": r.source_id,
                 "strategy": r.strategy_name,
+                "strategy_name": r.strategy_name,
                 "period": r.suggested_period,
+                "suggested_period": r.suggested_period,
                 "signal_date": r.signal_date.isoformat(),
                 "backfill_status": r.backfill_status,
                 "user_action": r.user_action,
+                **plan,
                 "backfills": [
                     {"day": b.day_offset, "high": b.high_change_pct,
                      "hit_2pct": b.hit_plus_2pct,
@@ -188,6 +255,11 @@ class AnalysisMemory:
         backfills = self.db.query(VerificationBackfill).all()
         hit_2pct = sum(1 for b in backfills if b.hit_plus_2pct)
         total_bf = len(backfills) or 1
+        feedback_rows = self.db.query(UserFeedback).all()
+        bad_feedback = sum(1 for f in feedback_rows if f.feedback_type in {
+            "no_stop_loss", "没止损", "user_chasing", "追高", "strategy_error",
+            "反向操作",
+        })
         return {
             "total_verifications": total,
             "pending_backfills": pending,
@@ -196,4 +268,6 @@ class AnalysisMemory:
             "avg_hold_1d_return": round(
                 sum(b.hold_1d_return or 0 for b in backfills) / total_bf, 2
             ),
+            "feedback_count": len(feedback_rows),
+            "bad_feedback_count": bad_feedback,
         }
