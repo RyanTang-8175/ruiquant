@@ -64,6 +64,9 @@ def _backfill_job():
         engine.backfill_predictions()
         engine.close()
         logger.info("预测回填完成")
+        from src.lab.backfill import backfill_pending_verifications
+        result = backfill_pending_verifications()
+        logger.info(f"实验室验证回填完成: {result}")
     except Exception as e:
         logger.error(f"预测回填失败: {e}")
 

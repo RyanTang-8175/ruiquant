@@ -217,6 +217,7 @@ def _render_card(stock: dict, result, scope: str = "all", index: int = 0):
         with c1:
             if st.button("查看", key=f"rc_v_{button_suffix}", use_container_width=True):
                 st.session_state["selected_stock"] = code
+                st.session_state["previous_page"] = "radar"
                 st.session_state["current_page"] = "stock_detail"; st.rerun()
         with c2:
             if st.button("AI分析", key=f"rc_a_{button_suffix}", use_container_width=True):
@@ -228,9 +229,30 @@ def _render_card(stock: dict, result, scope: str = "all", index: int = 0):
             if st.button("验证", key=f"rc_l_{button_suffix}", use_container_width=True):
                 try:
                     from src.memory.analysis_memory import AnalysisMemory
-                    am = AnalysisMemory()
-                    am.create_verification("strategy", code, name, datetime.now(), suggested_period="1-2天")
-                    am.close()
+                    with AnalysisMemory() as am:
+                        am.create_verification(
+                            "strategy",
+                            code,
+                            name,
+                            datetime.now(),
+                            strategy_name=strategies,
+                            suggested_period="1-2天",
+                            hypothesis=f"{name} 当前六维评分 {result.total_score:.0f}，状态 {result.status_label}，用于验证雷达候选是否有后续延续。",
+                            entry_conditions=[
+                                "分时回踩不破均价线",
+                                "板块内至少 2-3 只股票同步走强",
+                                "反量化风险不升至高/极高",
+                            ],
+                            invalidation_conditions=[
+                                "放量滞涨或冲高回落",
+                                "跌破昨日低点或分时均价线 10 分钟不收回",
+                                "板块明显背离",
+                            ],
+                            stop_loss_rule="模拟验证中若 T+1 最大回撤超过 3% 记为高风险样本",
+                            risk_level=result.anti_quant.risk_level,
+                            confidence_level="中" if result.total_score < 72 else "高",
+                            allow_real_trade=False,
+                        )
                     st.success("已加入")
                 except Exception as e:
                     st.warning(f"失败: {e}")

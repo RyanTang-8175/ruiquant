@@ -73,32 +73,30 @@ section[data-testid="stSidebar"] { display: none; }
 .tn { color: var(--muted); font-family: var(--sans); }
 .tv { font-family: var(--mono); font-weight: 600; }
 
-.bottom-nav {
+.nav-wrap {
   position: fixed; bottom: 0; left: 50%; transform: translateX(-50%);
   width: 100%; max-width: 480px;
-  display: flex; justify-content: space-around; align-items: center;
   background: rgba(255,255,255,0.94); border-top: 1px solid var(--border);
   box-shadow: 0 -10px 28px rgba(23,33,47,0.10);
   backdrop-filter: blur(18px);
-  padding: 6px 0 max(6px, env(safe-area-inset-bottom));
-  z-index: 100; height: 64px;
+  padding: 6px 8px max(6px, env(safe-area-inset-bottom));
+  z-index: 100; min-height: 66px;
 }
-.nav-item {
-  display: flex; flex-direction: column; align-items: center;
-  justify-content: center;
-  min-width: 56px; min-height: 44px;
-  color: var(--muted); font-size: 11px;
-  font-family: var(--sans); cursor: pointer;
-  transition: color 0.15s;
+.nav-wrap [data-testid="stHorizontalBlock"] { gap: 4px !important; }
+.nav-wrap .stButton > button {
+  min-height: 50px !important;
+  padding: 5px 3px !important;
+  border: none !important;
+  border-radius: 12px !important;
+  box-shadow: none !important;
+  font-size: 11px !important;
+  line-height: 1.15 !important;
+  white-space: pre-line !important;
 }
-.nav-item.active { color: var(--ai); }
-.nav-item.ai-center { color: var(--ai); }
-.nav-item.ai-center.active {
-  color: var(--ai);
-  background: rgba(36,107,254,0.10); border-radius: 12px;
-  padding: 2px 8px;
+.nav-wrap .stButton > button[kind="primary"] {
+  background: rgba(36,107,254,0.10) !important;
+  color: var(--ai) !important;
 }
-.nav-icon { font-size: 20px; margin-bottom: 2px; }
 
 .card {
   background: rgba(255,255,255,0.96); border: 1px solid var(--border);
@@ -133,6 +131,17 @@ section[data-testid="stSidebar"] { display: none; }
   display: flex; align-items: center; padding: 10px 0;
   border-bottom: 1px solid var(--border); cursor: pointer;
 }
+.search-results-grid [data-testid="stHorizontalBlock"] {
+  display: grid !important;
+  grid-template-columns: 1fr !important;
+  gap: 6px !important;
+}
+.ni {
+  background:#fff; border:1px solid var(--border); border-radius:14px;
+  padding:10px 12px; margin-bottom:8px;
+}
+.nt { color:var(--text); font-size:13px; font-weight:700; line-height:1.45; }
+.ni .nm { color:var(--muted); font-size:11px; margin-top:5px; }
 .sr:active { background: var(--float); }
 .sr .inf { flex: 1; margin-left: 8px; }
 .sr .nm { color: var(--text); font-weight: 600; font-size: 15px; }
@@ -488,12 +497,13 @@ TABS = [
 cur = st.session_state["current_page"]
 st.session_state.setdefault("_last_page", cur)
 
+st.markdown('<div class="nav-wrap">', unsafe_allow_html=True)
 cols = st.columns(len(TABS))
 for i, (pid, label, icon) in enumerate(TABS):
     with cols[i]:
         is_cur = pid == cur
         if st.button(
-            f"{icon} {label}", key=f"n_{pid}",
+            f"{icon}\n{label}", key=f"n_{pid}",
             use_container_width=True,
             type="primary" if is_cur else "secondary",
         ):
@@ -503,6 +513,7 @@ for i, (pid, label, icon) in enumerate(TABS):
             st.session_state["current_page"] = pid
             st.session_state["_last_page"] = pid
             st.rerun()
+st.markdown('</div>', unsafe_allow_html=True)
 
 # ═══════════════════════════════════════════
 # Page routing

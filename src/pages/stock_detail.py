@@ -194,7 +194,21 @@ def _ai_bar(code, quote):
                 from src.memory.analysis_memory import AnalysisMemory
                 from datetime import datetime
                 with AnalysisMemory() as am:
-                    am.create_verification("manual", code, quote.get("name", code), datetime.now(), suggested_period="1-2天")
+                    am.create_verification(
+                        "manual",
+                        code,
+                        quote.get("name", code),
+                        datetime.now(),
+                        strategy_name="详情页手动验证",
+                        suggested_period="1-2天",
+                        hypothesis=f"{quote.get('name', code)} 被手动加入观察，验证当前短线结构是否有延续。",
+                        entry_conditions=["回踩不破关键均线/分时均价线", "板块不退潮", "成交不出现放量滞涨"],
+                        invalidation_conditions=["跌破昨日低点", "冲高回落且放量", "反量化风险升高"],
+                        stop_loss_rule="模拟验证中若 T+1 最大回撤超过 3% 记为高风险样本",
+                        risk_level=getattr(result.anti_quant, "risk_level", "中") if result else "中",
+                        confidence_level="中",
+                        allow_real_trade=False,
+                    )
                 st.success("已加入")
             except Exception as ex:
                 st.warning(f"失败: {ex}")
@@ -251,5 +265,5 @@ def _summary_card(code, quote, result):
 
 def _back():
     if st.button("← 返回", key="sd_back", use_container_width=True):
-        st.session_state["current_page"] = "radar"
+        st.session_state["current_page"] = st.session_state.get("previous_page", "radar")
         st.rerun()

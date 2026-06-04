@@ -77,17 +77,24 @@ def render_search_bar(placeholder: str = "搜索代码或名称 如 茅台 / 600
             results = fuzzy_search(query.strip(), limit=6)
             if results:
                 st.caption(f"{len(results)} 只匹配")
-                cols = st.columns(min(len(results), 4))
                 for i, s in enumerate(results):
                     chg = s.get("change_pct", 0) or 0
                     clr = "#F04438" if chg > 0 else "#12B76A" if chg < 0 else "#9AA4B2"
-                    with cols[i % 4]:
-                        if st.button(
-                            f"{s['name']}\n{s['code']} {chg:+.2f}%",
-                            key=f"hit_{key}_{s['code']}",
-                            use_container_width=True,
-                        ):
-                            return s["code"]
+                    st.markdown(
+                        f'<div class="sr" style="padding:7px 0">'
+                        f'<div class="inf" style="margin-left:0">'
+                        f'<div class="nm">{s["name"]}</div>'
+                        f'<div class="cd">{s["code"]}</div></div>'
+                        f'<div class="ch" style="color:{clr}">{chg:+.2f}%</div>'
+                        f'</div>',
+                        unsafe_allow_html=True,
+                    )
+                    if st.button(
+                        f"打开 {s['name']}({s['code']})",
+                        key=f"hit_{key}_{s['code']}_{i}",
+                        use_container_width=True,
+                    ):
+                        return s["code"]
         except Exception:
             pass
 
