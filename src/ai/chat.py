@@ -40,7 +40,20 @@ class AIChat:
 
     def chat(self, user_message: str, context: dict = None) -> str:
         if not self.client:
-            return "AI 未配置。请在「我的」页面填写 API Key、API 地址和模型名称后使用。\n\n支持 DeepSeek / OpenAI / 智谱 / 月之暗面等 OpenAI 兼容接口。"
+            scene = self.detect_scene(user_message)
+            stock_code = self._extract_stock_code(user_message)
+            run_id, scratchpad = self._start_audit(user_message, scene)
+            session_id = self._save_user_message(user_message, scene, stock_code)
+            local_answer = self._fallback_answer(user_message)
+            return self._finalize_response(
+                user_message,
+                self._api_down_fallback_message(local_answer, "API Key 未配置"),
+                session_id,
+                stock_code,
+                scene,
+                scratchpad,
+                run_id,
+            )
 
         try:
             scene = self.detect_scene(user_message)
@@ -228,6 +241,227 @@ class AIChat:
             f"| 错误详情 | {detail or '未返回具体错误'} | 这是技术状态，不代表股票没有机会或没有风险 |\n\n"
             "下面是本地兜底研究结果。它比完整 AI 报告保守，置信度默认较低，适合先观察/模拟，不适合直接行动。\n\n"
             f"{local_answer}"
+        )
+
+    @staticmethod
+    def _metric_glossary() -> str:
+        return (
+            "| 指标 | 白话解释 | 怎么用 |\n"
+            "|---|---|---|\n"
+            "| 机会分 | 上涨条件、热度、承接、题材共振的综合程度 | 高不等于可以买，还要看风险分 |\n"
+            "| 风险分 | 追高、诱多、冲高回落、数据缺失导致误判的概率 | 越高越要等回踩或直接放弃 |\n"
+            "| 置信度 | 当前数据是否足够支撑结论 | 低置信度只能观察或模拟验证 |"
+        )
+
+    @staticmethod
+    def _short_error(error_detail: str = "") -> str:
+        return (error_detail or "未返回具体错误").strip()[:160]
+
+    @classmethod
+    def _model_down_intro(cls, task_name: str, error_detail: str = "") -> str:
+        return (
+            f"## 模型服务暂时不可用，本地{task_name}已启用\n"
+            "| 项目 | 状态 | 白话解释 |\n"
+            "|---|---|---|\n"
+            "| DeepSeek / 模型 API | 暂不可用 | 当前无法调用大模型，所以不会硬编深度判断 |\n"
+            f"| 本地{task_name} | 已启用 | 用公开数据、规则框架和风险纪律先生成保守底稿 |\n"
+            f"| 错误详情 | {cls._short_error(error_detail)} | 这是技术状态，不代表股票本身没有机会或风险 |\n\n"
+        )
+
+    @staticmethod
+    def _safe_market_overview() -> dict:
+        try:
+            from src.data.realtime import get_market_overview
+
+            return get_market_overview() or {}
+        except Exception:
+            return {}
+
+    @staticmethod
+    def _safe_top_stocks(sort_field: str = "changepercent", asc: bool = False, limit: int = 8) -> list:
+        try:
+            from src.data.realtime import get_top_stocks
+
+            return get_top_stocks(sort_field, asc, limit) or []
+        except Exception:
+            return []
+
+    @staticmethod
+    def _safe_quote_line(code: str) -> dict:
+        try:
+            from src.data.realtime import get_realtime_quote
+            from src.data.stock_list import resolve_stock_name
+
+            quote = get_realtime_quote(code) or {}
+            return {
+                "code": code,
+                "name": resolve_stock_name(code, quote.get("name", "")),
+                "price": quote.get("price", 0) or 0,
+                "change_pct": quote.get("change_pct", 0) or 0,
+                "turnover": quote.get("turnover", 0) or 0,
+                "amount": quote.get("amount", 0) or 0,
+            }
+        except Exception:
+            try:
+                from src.data.stock_list import resolve_stock_name
+
+                name = resolve_stock_name(code, code)
+            except Exception:
+                name = code
+            return {"code": code, "name": name, "price": 0, "change_pct": 0, "turnover": 0, "amount": 0}
+
+    @staticmethod
+    def _format_stock_row(item: dict) -> str:
+        amount = (item.get("amount", 0) or 0) / 1e8
+        return (
+            f"| {item.get('name', item.get('code', ''))}({item.get('code', '')}) "
+            f"| {item.get('price', 0):.2f} | {item.get('change_pct', 0):+.2f}% "
+            f"| {item.get('turnover', 0):.1f}% | {amount:.1f}亿 |"
+        )
+
+    def _local_morning_briefing(self, error_detail: str = "") -> str:
+        overview = self._safe_market_overview()
+        indices = overview.get("indices") or []
+        hot = self._safe_top_stocks("changepercent", False, 6)
+        idx_rows = [
+            f"| {i.get('name', '指数')} | {i.get('price', 0):.2f} | {i.get('change_pct', 0):+.2f}% |"
+            for i in indices[:4]
+        ] or ["| 暂无 | 0.00 | 0.00% |"]
+        hot_rows = [self._format_stock_row(s) for s in hot[:6]] or ["| 暂无 | 0.00 | 0.00% | 0.0% | 0.0亿 |"]
+        return (
+            self._model_down_intro("盘前/盘中简报", error_detail)
+            +
+            "## 结论摘要\n"
+            "机会分 50（机会分=今天值得出手的市场条件），风险分 60（风险分=追高或误判概率），置信度 低到中（置信度=当前公开数据完整度）。模型不可用时，今天默认只做观察和模拟，不做激进追涨。\n\n"
+            "## 指标说明\n"
+            f"{self._metric_glossary()}\n\n"
+            "## 大盘快照\n"
+            "| 指数 | 点位 | 涨跌幅 |\n"
+            "|---|---:|---:|\n"
+            + "\n".join(idx_rows)
+            + "\n\n## 热度样本\n"
+            "| 股票 | 价格 | 涨跌幅 | 换手 | 成交额 |\n"
+            "|---|---:|---:|---:|---:|\n"
+            + "\n".join(hot_rows)
+            + "\n\n## 今日纪律\n"
+            "1. 第一波急拉不追，至少等一次回踩承接。\n"
+            "2. 板块不联动的单票硬拉，只记录，不验证。\n"
+            "3. 数据低置信度时，只能加入研究审计，不能当成买入理由。"
+        )
+
+    def _local_compare_stocks(self, code_a: str, code_b: str, error_detail: str = "") -> str:
+        a = self._safe_quote_line(code_a)
+        b = self._safe_quote_line(code_b)
+        def rough_score(item: dict) -> tuple[int, int, str]:
+            chg = item.get("change_pct", 0) or 0
+            turnover = item.get("turnover", 0) or 0
+            opportunity = max(30, min(78, int(50 + chg * 3 + min(turnover, 8))))
+            risk = max(35, min(82, int(55 + max(chg - 3, 0) * 5 + max(turnover - 5, 0) * 2)))
+            confidence = "中" if item.get("price", 0) else "低"
+            return opportunity, risk, confidence
+        ao, ar, ac = rough_score(a)
+        bo, br, bc = rough_score(b)
+        winner = a if (ao - ar * 0.35) >= (bo - br * 0.35) else b
+        return (
+            self._model_down_intro("个股对比", error_detail)
+            +
+            "## 结论摘要\n"
+            f"{a['name']}({code_a}) 与 {b['name']}({code_b}) 只能做保守对比。当前更适合优先观察 {winner['name']}({winner['code']})，但必须等回踩承接，不能看到上涨就追。\n\n"
+            "## 指标说明\n"
+            f"{self._metric_glossary()}\n\n"
+            "## 对比表\n"
+            "| 股票 | 价格 | 涨跌幅 | 换手 | 机会分 | 风险分 | 置信度 | 白话结论 |\n"
+            "|---|---:|---:|---:|---:|---:|---|---|\n"
+            f"| {a['name']}({code_a}) | {a['price']:.2f} | {a['change_pct']:+.2f}% | {a['turnover']:.1f}% | {ao} | {ar} | {ac} | {'可观察' if ao >= 60 and ar < 70 else '等待确认'} |\n"
+            f"| {b['name']}({code_b}) | {b['price']:.2f} | {b['change_pct']:+.2f}% | {b['turnover']:.1f}% | {bo} | {br} | {bc} | {'可观察' if bo >= 60 and br < 70 else '等待确认'} |\n\n"
+            "## 反证与失效条件\n"
+            "1. 高开急冲后跌回分时均价线下方。\n"
+            "2. 放量但价格推不动，说明资金承接不足。\n"
+            "3. 所在板块不联动，只有单票脉冲。\n"
+            "4. 风险分高于机会分时，不做实盘动作，只保留观察。"
+        )
+
+    def _local_closing_summary(self, error_detail: str = "") -> str:
+        overview = self._safe_market_overview()
+        indices = overview.get("indices") or []
+        up = self._safe_top_stocks("changepercent", False, 6)
+        dn = self._safe_top_stocks("changepercent", True, 4)
+        amt = self._safe_top_stocks("amount", False, 6)
+        idx_rows = [
+            f"| {i.get('name', '指数')} | {i.get('price', 0):.2f} | {i.get('change_pct', 0):+.2f}% |"
+            for i in indices[:4]
+        ] or ["| 暂无 | 0.00 | 0.00% |"]
+        up_rows = [self._format_stock_row(s) for s in up[:6]] or ["| 暂无 | 0.00 | 0.00% | 0.0% | 0.0亿 |"]
+        dn_rows = [self._format_stock_row(s) for s in dn[:4]] or ["| 暂无 | 0.00 | 0.00% | 0.0% | 0.0亿 |"]
+        amt_rows = [self._format_stock_row(s) for s in amt[:6]] or ["| 暂无 | 0.00 | 0.00% | 0.0% | 0.0亿 |"]
+        return (
+            self._model_down_intro("收盘复盘", error_detail)
+            +
+            "## 今日盘面\n"
+            "| 指数 | 点位 | 涨跌幅 |\n"
+            "|---|---:|---:|\n"
+            + "\n".join(idx_rows)
+            + "\n\n## 领涨样本\n"
+            "| 股票 | 价格 | 涨跌幅 | 换手 | 成交额 |\n"
+            "|---|---:|---:|---:|---:|\n"
+            + "\n".join(up_rows)
+            + "\n\n## 领跌样本\n"
+            "| 股票 | 价格 | 涨跌幅 | 换手 | 成交额 |\n"
+            "|---|---:|---:|---:|---:|\n"
+            + "\n".join(dn_rows)
+            + "\n\n## 成交额样本\n"
+            "| 股票 | 价格 | 涨跌幅 | 换手 | 成交额 |\n"
+            "|---|---:|---:|---:|---:|\n"
+            + "\n".join(amt_rows)
+            + "\n\n## AI判断印证\n"
+            "模型不可用时无法逐句重读完整推理，但系统仍保留了今日对话和研究审计记录。你明天应该重点看：今天高成交额股票是否延续、领涨方向是否有板块联动、领跌方向是否继续拖累情绪。\n\n"
+            "## 明日计划\n"
+            "1. 只从成交额和领涨样本里挑观察对象，低流动性票不碰。\n"
+            "2. 机会分必须高于风险分，且风险分不能超过 65，才允许进入观察。\n"
+            "3. 如果开盘 30 分钟没有承接，直接放弃，不做补仓摊平。"
+        )
+
+    def _local_account_diagnosis(self, error_detail: str = "") -> str:
+        try:
+            from src.trading.engine import TradingEngine
+
+            with TradingEngine() as eng:
+                acct = eng.get_account()
+                if not acct:
+                    account_text = "模拟盘账户未初始化。"
+                    stats = {}
+                    trades = []
+                    positions = []
+                else:
+                    stats = eng.get_stats()
+                    trades = eng.get_trades(50)
+                    positions = eng.get_positions()
+                    account_text = f"现金 {acct.cash:.0f}，持仓 {len(positions)} 只，连续亏损 {acct.consecutive_losses} 次。"
+        except Exception as exc:
+            account_text = f"账户数据读取失败：{str(exc)[:80]}"
+            stats, trades, positions = {}, [], []
+
+        sell_trades = [t for t in trades if getattr(t, "direction", "") == "sell"]
+        wins = sum(1 for t in sell_trades if (getattr(t, "pnl", 0) or 0) > 0)
+        losses = sum(1 for t in sell_trades if (getattr(t, "pnl", 0) or 0) < 0)
+        win_rate = wins / max(len(sell_trades), 1) * 100
+        return (
+            self._model_down_intro("账户诊断", error_detail)
+            +
+            "## 本地账户诊断\n"
+            f"{account_text}\n\n"
+            "## 交易画像\n"
+            "| 指标 | 当前值 | 白话解释 |\n"
+            "|---|---:|---|\n"
+            f"| 已平仓笔数 | {len(sell_trades)} | 样本太少时不要急着评价自己 |\n"
+            f"| 胜率 | {win_rate:.1f}% | 胜率低不一定致命，关键是亏损单有没有被控制 |\n"
+            f"| 当前持仓数 | {len(positions)} | 小资金持仓太多会分散注意力 |\n\n"
+            "## 最大问题\n"
+            "如果你最近亏损，优先检查三件事：有没有追第一波急拉、有没有跌破计划还不止损、有没有在高风险分时继续加仓。\n\n"
+            "## 3个改进建议\n"
+            "1. 每次 AI 给出“可观察”时，必须写入研究审计，记录触发条件和失效条件。\n"
+            "2. 亏损单只允许复盘，不允许立刻用下一笔交易把亏损赚回来。\n"
+            "3. 连续两次判断失败后，系统进入冷静模式，只允许观察/模拟/复盘。"
         )
 
     @staticmethod
@@ -801,7 +1035,7 @@ class AIChat:
     def morning_briefing(self) -> str:
         """生成盘前早报"""
         if not self.client:
-            return "AI 未配置"
+            return self._local_morning_briefing("API Key 未配置")
         try:
             from src.ai.prompts import V6_MORNING_PROMPT
             resp = self.client.chat.completions.create(
@@ -811,22 +1045,27 @@ class AIChat:
                 temperature=0.7, max_tokens=800, timeout=30)
             return resp.choices[0].message.content or "生成失败"
         except Exception as e:
-            return f"早报服务暂不可用: {e}"
+            return self._local_morning_briefing(str(e))
 
     def compare_stocks(self, code_a: str, code_b: str) -> str:
         """对比两只股票"""
         if not self.client:
-            return "AI 未配置"
+            return self._local_compare_stocks(code_a, code_b, "API Key 未配置")
         try:
             from src.ai.prompts import V6_COMPARE_PROMPT
-            # 注入评分上下文
-            ctx_a, ctx_b = "", ""
-            try:
-                from src.scoring.engine import V6ScoringEngine
-                with V6ScoringEngine() as e:
-                    ctx_a = e.build_ai_context(code_a)
-                    ctx_b = e.build_ai_context(code_b)
-            except: pass
+            # 对比入口保持轻量，避免模型/数据源异常时被完整评分链拖住。
+            qa = self._safe_quote_line(code_a)
+            qb = self._safe_quote_line(code_b)
+            ctx_a = (
+                f"{qa['name']}({code_a}) 现价={qa['price']:.2f} "
+                f"涨跌幅={qa['change_pct']:+.2f}% 换手={qa['turnover']:.1f}% "
+                f"成交额={(qa['amount'] or 0)/1e8:.1f}亿"
+            )
+            ctx_b = (
+                f"{qb['name']}({code_b}) 现价={qb['price']:.2f} "
+                f"涨跌幅={qb['change_pct']:+.2f}% 换手={qb['turnover']:.1f}% "
+                f"成交额={(qb['amount'] or 0)/1e8:.1f}亿"
+            )
             msg = (
                 f"请对比 {code_a} 和 {code_b}。\n\n"
                 f"[{code_a} 数据]\n{ctx_a}\n\n"
@@ -839,7 +1078,7 @@ class AIChat:
                 temperature=0.7, max_tokens=600, timeout=25)
             return resp.choices[0].message.content or "对比失败"
         except Exception as e:
-            return f"对比服务暂不可用: {e}"
+            return self._local_compare_stocks(code_a, code_b, str(e))
 
     # ═══════════════════════════════════════
     # 收盘总结
@@ -848,7 +1087,7 @@ class AIChat:
     def closing_summary(self) -> str:
         """收盘总结 — 印证AI判断 + 真实数据驱动的明日规划"""
         if not self.client:
-            return "AI 未配置"
+            return self._local_closing_summary("API Key 未配置")
         try:
             from src.data.realtime import get_market_overview, get_top_stocks
 
@@ -949,7 +1188,7 @@ class AIChat:
                 temperature=0.4, max_tokens=900, timeout=30)
             return resp.choices[0].message.content or "生成失败"
         except Exception as e:
-            return f"收盘总结暂不可用: {e}"
+            return self._local_closing_summary(str(e))
 
     # ═══════════════════════════════════════
     # 账户诊断
@@ -958,7 +1197,7 @@ class AIChat:
     def account_diagnosis(self) -> str:
         """分析用户的交易行为和账户表现"""
         if not self.client:
-            return "AI 未配置"
+            return self._local_account_diagnosis("API Key 未配置")
         try:
             from src.trading.engine import TradingEngine
             with TradingEngine() as eng:
@@ -1003,7 +1242,7 @@ class AIChat:
                 temperature=0.5, max_tokens=500, timeout=30)
             return resp.choices[0].message.content or "生成失败"
         except Exception as e:
-            return f"账户诊断暂不可用: {e}"
+            return self._local_account_diagnosis(str(e))
 
     # ═══════════════════════════════════════
     # 尾盘扫描

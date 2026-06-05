@@ -362,3 +362,52 @@ class _FailingOpenAIClient:
 
     def create(self, **kwargs):
         raise RuntimeError("api down")
+
+
+def test_specialized_ai_methods_use_local_fallback_when_model_down(monkeypatch):
+    from src.data import realtime
+    from src.ai.chat import AIChat
+
+    monkeypatch.setattr(realtime, "get_market_overview", lambda: {
+        "indices": [
+            {"name": "上证指数", "price": 3050.12, "change_pct": 0.72},
+            {"name": "创业板指", "price": 1888.32, "change_pct": -0.21},
+        ]
+    })
+    monkeypatch.setattr(realtime, "get_top_stocks", lambda sort_field="changepercent", asc=False, limit=15: [
+        {"code": "600900", "name": "长江电力", "price": 25.6, "change_pct": 2.1, "turnover": 1.8, "amount": 3200000000},
+        {"code": "688981", "name": "中芯国际", "price": 58.2, "change_pct": 1.2, "turnover": 3.2, "amount": 4100000000},
+    ][:limit])
+    monkeypatch.setattr(realtime, "get_realtime_quote", lambda code: {
+        "600900": {"code": "600900", "name": "长江电力", "price": 25.6, "change_pct": 2.1, "turnover": 1.8, "amount": 3200000000},
+        "688981": {"code": "688981", "name": "中芯国际", "price": 58.2, "change_pct": 1.2, "turnover": 3.2, "amount": 4100000000},
+    }.get(code, {"code": code, "name": code, "price": 0, "change_pct": 0, "turnover": 0, "amount": 0}))
+
+    ai = AIChat()
+    ai.client = _FailingOpenAIClient()
+
+    morning = ai.morning_briefing()
+    compare = ai.compare_stocks("600900", "688981")
+    closing = ai.closing_summary()
+
+    for answer in (morning, compare, closing):
+        assert "模型服务暂时不可用" in answer
+        assert "本地" in answer
+        assert "AI 未配置" not in answer
+        assert "暂不可用:" not in answer
+
+    assert "盘前" in morning or "盘中" in morning
+    assert "600900" in compare and "688981" in compare
+    assert "上证指数" in closing
+
+
+def test_account_diagnosis_uses_local_fallback_when_ai_not_configured():
+    from src.ai.chat import AIChat
+
+    ai = AIChat()
+    ai.client = None
+    answer = ai.account_diagnosis()
+
+    assert "模型服务暂时不可用" in answer
+    assert "本地账户诊断" in answer
+    assert "AI 未配置" not in answer

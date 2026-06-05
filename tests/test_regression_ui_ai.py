@@ -90,6 +90,16 @@ def test_watchlist_uses_light_readable_card_styles():
     assert "研究审计" in text or "加入审计" in text
 
 
+def test_login_brand_is_readable_on_white_background():
+    from pathlib import Path
+
+    text = Path("src/pages/login.py").read_text(encoding="utf-8")
+
+    assert "#E8E8E5" not in text
+    assert "color:#17212F" in text
+    assert "color:#5D6B7C" in text
+
+
 def test_ai_fallback_handles_sector_questions_without_single_stock_demand():
     ai = AIChat()
     answer = ai._fallback_answer("我有1w块，想买电力行业或半导体行业，该买什么股票")

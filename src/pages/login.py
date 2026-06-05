@@ -6,7 +6,7 @@ from src.config import save_settings, get_setting
 def render_login_page():
     _,c,_=st.columns([1,1.2,1])
     with c:
-        st.markdown('<div style="text-align:center;padding:3rem 0 1rem;"><div style="font-family:JetBrains Mono,monospace;font-size:3rem;font-weight:700;color:#FF3B30;letter-spacing:-1px;">A<span style="color:#E8E8E5;font-weight:500;">lphaEye</span></div><p style="color:#6B6C68;font-size:.85rem;font-family:JetBrains Mono,monospace;text-transform:uppercase;letter-spacing:1px;">A 股反量化 AI 助手</p></div>',unsafe_allow_html=True)
+        st.markdown('<div style="text-align:center;padding:3rem 0 1rem;"><div style="font-family:JetBrains Mono,monospace;font-size:3rem;font-weight:800;color:#246BFE;letter-spacing:-1px;">A<span style="color:#17212F;font-weight:750;">lphaEye</span></div><p style="color:#5D6B7C;font-size:.85rem;font-family:JetBrains Mono,monospace;text-transform:uppercase;letter-spacing:1px;">A 股反量化 AI 助手</p></div>',unsafe_allow_html=True)
         with st.form("f"):
             ph=st.text_input("手机号",placeholder="手机号")
             pw=st.text_input("密码",type="password",placeholder="密码")
