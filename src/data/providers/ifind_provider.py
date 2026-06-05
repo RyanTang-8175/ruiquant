@@ -294,7 +294,11 @@ class IFindProvider(MarketDataProvider):
 
     def get_daily_bars(self, code: str, start: str, end: str) -> list:
         key = ("daily", code, start, end)
-        cached = self._ttl_get(key, 6 * 3600)
+        # 历史区间（end不是今天）：6小时缓存；含今日数据：5分钟缓存（盘中K线需要更新）
+        from datetime import date
+        today = date.today().strftime("%Y-%m-%d")
+        ttl = 5 * 60 if end >= today else 6 * 3600
+        cached = self._ttl_get(key, ttl)
         if cached is not None:
             return cached
         payload = {

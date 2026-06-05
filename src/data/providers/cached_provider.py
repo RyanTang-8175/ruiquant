@@ -96,7 +96,11 @@ class CachedDataProvider(MarketDataProvider):
 
     def get_daily_bars(self, code: str, start: str, end: str) -> list:
         key = self._cache_key("db", code, start, end)
-        cached = self._read_cache(key, self._ttl["daily"])
+        # 含今日数据：5分钟缓存；纯历史区间：1小时缓存
+        from datetime import date
+        today = date.today().strftime("%Y-%m-%d")
+        ttl = 5 * 60 if end >= today else self._ttl["daily"]
+        cached = self._read_cache(key, ttl)
         if cached:
             return cached
         result = self._provider.get_daily_bars(code, start, end)
