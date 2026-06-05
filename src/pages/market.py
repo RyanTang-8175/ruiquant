@@ -74,9 +74,9 @@ def render_market_page():
                 st.rerun()
 
     with t1:
-        _stock_list(get_top_stocks("changepercent", True, 20), "up_")
+        _stock_list(get_top_stocks("changepercent", False, 20), "up_")
     with t2:
-        _stock_list(get_top_stocks("changepercent", False, 20), "dn_")
+        _stock_list(get_top_stocks("changepercent", True, 20), "dn_")
     with t3:
         _stock_list(get_top_stocks("amount", False, 20), "am_")
     with t4:

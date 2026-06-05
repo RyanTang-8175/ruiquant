@@ -154,7 +154,7 @@ def _open_top_stocks(sort_field: str = "changepercent", asc: bool = False, limit
     from src.data.stock_list import resolve_stock_name
     try:
         url = "http://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/Market_Center.getHQNodeData"
-        params = {"page":1, "num":min(limit+10, 100), "sort":sort_field, "asc":0 if asc else 1, "node":"hs_a"}
+        params = {"page":1, "num":min(limit+10, 100), "sort":sort_field, "asc":1 if asc else 0, "node":"hs_a"}
         r = requests.get(url, params=params, headers={**H,'Referer':'https://finance.sina.com.cn'}, timeout=10)
         items = r.json()
         stocks = []
