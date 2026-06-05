@@ -205,9 +205,11 @@ class IFindProvider(MarketDataProvider):
         change_pct = self._table_value(table, "changeRatio", "change_pct", "涨跌幅")
         if change_pct is None and price and prev_close:
             change_pct = price / prev_close * 100 - 100
+        raw_name = self._table_value(table, "secName", "stockname", "股票简称")
+        name = str(raw_name).strip() if raw_name else ""
         quote = {
             "code": code,
-            "name": str(self._table_value(table, "secName", "stockname", "股票简称", default=code) or code),
+            "name": name if name and name != code else "",  # 留空，后续从 stock_list 或候选池补
             "price": price,
             "prev_close": prev_close,
             "open": self._num(self._table_value(table, "open")),
@@ -231,8 +233,22 @@ class IFindProvider(MarketDataProvider):
         if not quote["name"] or quote["name"] == code:
             try:
                 from src.data.stock_list import resolve_stock_name
-
                 quote["name"] = resolve_stock_name(code, code)
+            except Exception:
+                pass
+        # 本地DB无此股时用东财API免费补名
+        if not quote["name"] or quote["name"] == code:
+            try:
+                import requests as _req
+                mkt = 1 if code.startswith("6") else 0
+                r = _req.get(
+                    f"http://push2.eastmoney.com/api/qt/stock/get?secid={mkt}.{code}&fields=f57,f58",
+                    headers={"User-Agent": "Mozilla/5.0"}, timeout=3,
+                )
+                d = r.json().get("data", {})
+                ext_name = d.get("f58") or d.get("f57")
+                if ext_name and ext_name != code:
+                    quote["name"] = str(ext_name)
             except Exception:
                 pass
         return quote
@@ -460,14 +476,19 @@ class IFindProvider(MarketDataProvider):
             except Exception as e:
                 logger.warning(f"批量行情 batch{i} 失败: {e}")
 
-        # 合并 + 本地排序（不信任问财的排序）
+        # 合并 + 本地排序，保留候选池里的好名称不被空行情名覆盖
         merged = []
         for c in filtered:
             q = qmap.get(c.get("code"))
             if q and q.get("price", 0) > 0:
-                merged.append({**c, **q})  # q 覆盖 c，实时行情优先
+                merged_row = {**c, **q}
+                q_name = q.get("name", "")
+                c_name = c.get("name", "")
+                if (not q_name or q_name == c.get("code")) and c_name and c_name != c.get("code"):
+                    merged_row["name"] = c_name
+                merged.append(merged_row)
             elif c.get("price", 0) > 0:
-                merged.append(c)  # 保留有价格的原始数据
+                merged.append(c)
 
         sort_key = {
             "changepercent": "change_pct", "change_pct": "change_pct",
