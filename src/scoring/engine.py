@@ -363,6 +363,13 @@ class V6ScoringEngine:
 
     def build_ai_context(self, code: str, quote: dict = None) -> str:
         """给 AI 注入完整的评分细节、K线数据和反量化触发项"""
+        # quote 未传时主动获取实时行情，确保 AI 看到的价格与页面一致
+        if not quote or not quote.get("price"):
+            try:
+                from src.data.realtime import get_realtime_quote
+                quote = get_realtime_quote(code) or {}
+            except Exception:
+                quote = {}
         result = self.score_stock(code, quote=quote)
         if not result: return f"无法获取 {code} 的评分数据"
 

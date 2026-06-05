@@ -404,9 +404,13 @@ def _with_context(text: str) -> str:
         except Exception: pass
         try:
             from src.scoring.engine import V6ScoringEngine
+            from src.data.realtime import get_realtime_quote
+            # 必须先拿实时行情再传给评分引擎，否则 AI 看到的价格是历史缓存
+            live_quote = get_realtime_quote(stock_code) or {}
             with V6ScoringEngine() as e:
-                ctx = e.build_ai_context(stock_code)
+                ctx = e.build_ai_context(stock_code, quote=live_quote if live_quote.get("price") else None)
             parts.append(f"\n\n[系统: {stock_code} 六维评分+K线]\n{ctx}")
+        except Exception: pass
         except Exception: pass
         try:
             from src.news.fetcher import fetch_stock_news

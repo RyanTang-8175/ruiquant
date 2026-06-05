@@ -188,8 +188,8 @@ def _kline_chart(code):
 
     import pandas as pd
     df = pd.DataFrame(kls)
-    df["date"] = pd.to_datetime(df["date"])
-    df = df.sort_values("date").reset_index(drop=True)
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    df = df.dropna(subset=["date"]).sort_values("date").reset_index(drop=True)
 
     # MA 均线
     df["ma5"] = df["close"].rolling(5).mean()
