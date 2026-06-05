@@ -190,6 +190,8 @@ def _kline_chart(code):
     df = pd.DataFrame(kls)
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
     df = df.dropna(subset=["date"]).sort_values("date").reset_index(drop=True)
+    if df.empty:
+        st.info("K线数据暂不可用"); return
 
     # MA 均线
     df["ma5"] = df["close"].rolling(5).mean()
