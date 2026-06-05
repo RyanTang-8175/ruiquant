@@ -124,15 +124,17 @@ def get_market_overview() -> Dict:
 
 
 def _open_market_overview() -> Dict:
-    """公开大盘指数 — 腾讯"""
+    """公开大盘指数 — 腾讯（用标准解析器，避免字段错位）"""
     indices = []
-    for cc,nm in [("sh000001","上证"),("sz399001","深证"),("sz399006","创业板")]:
+    for cc, nm in [("sh000001", "上证"), ("sz399001", "深证"), ("sz399006", "创业板")]:
         try:
-            r = requests.get(f'http://qt.gtimg.cn/q={cc}', headers=H, timeout=5)
-            p = r.text.split('~')
-            if len(p)>32: indices.append({"name":nm,"price":float(p[3]),"change_pct":float(p[32])})
-        except: pass
-    return {"indices":indices}
+            r = requests.get(f"http://qt.gtimg.cn/q={cc}", headers=H, timeout=5)
+            q = _parse_gtimg(r.text)
+            if q and q.get("price", 0) > 0:
+                indices.append({"name": nm, "price": q["price"], "change_pct": q.get("change_pct", 0)})
+        except Exception:
+            pass
+    return {"indices": indices}
 
 def get_top_stocks(sort_field: str = "changepercent", asc: bool = False, limit: int = 15) -> List[Dict]:
     """排行榜 — iFinD智能选股优先；失败时新浪API兜底"""
@@ -157,18 +159,24 @@ def _open_top_stocks(sort_field: str = "changepercent", asc: bool = False, limit
         items = r.json()
         stocks = []
         for item in items:
-            code = str(item.get("code",""))
+            code = str(item.get("code", item.get("symbol", "")))
+            if not code:
+                continue
+            # 新浪返回的字段名偶尔会变，做多重兜底
+            price = float(item.get("trade") or item.get("price") or item.get("close") or 0)
+            if price <= 0:
+                price = float(item.get("settle", 0) or 0)
             stocks.append({
                 "code": code,
                 "name": resolve_stock_name(code, item.get("name","")),
-                "price": float(item.get("trade",0) or 0),
-                "change_pct": float(item.get("changepercent",0) or 0),
-                "volume": int(item.get("volume",0) or 0),
-                "amount": float(item.get("amount",0) or 0),
-                "turnover": float(item.get("turnoverratio",0) or 0),
-                "open": float(item.get("open",0) or 0),
-                "high": float(item.get("high",0) or 0),
-                "low": float(item.get("low",0) or 0),
+                "price": price,
+                "change_pct": float(item.get("changepercent") or item.get("涨跌幅") or 0),
+                "volume": int(item.get("volume") or 0),
+                "amount": float(item.get("amount") or 0),
+                "turnover": float(item.get("turnoverratio") or item.get("换手率") or 0),
+                "open": float(item.get("open") or 0),
+                "high": float(item.get("high") or 0),
+                "low": float(item.get("low") or 0),
             })
         return stocks[:limit]
     except Exception as e:
