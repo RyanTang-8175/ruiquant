@@ -28,7 +28,8 @@ class AIChat:
         base_url = get_setting("base_url","DEEPSEEK_BASE_URL","https://api.deepseek.com")
         self.model = get_setting("model","DEEPSEEK_MODEL","deepseek-chat")
         self.client = None
-        if api_key:
+        status = self.provider_status(api_key=api_key, base_url=base_url, model=self.model)
+        if status.get("ready"):
             try:
                 from openai import OpenAI
                 self.client = OpenAI(api_key=api_key, base_url=base_url, timeout=30)
@@ -39,6 +40,48 @@ class AIChat:
         self._tools_used = []
         self._memory = None
         self._active_session_key = None
+
+    @classmethod
+    def provider_status(cls, api_key: str | None = None, base_url: str | None = None, model: str | None = None) -> dict:
+        """DeepSeek/OpenAI-compatible API 配置状态。
+
+        只检查本地配置是否足以发起 API 调用，不做网络探测，避免打开页面就消耗额度。
+        """
+        api_key = api_key if api_key is not None else get_setting("api_key", "DEEPSEEK_API_KEY", "")
+        base_url = base_url if base_url is not None else get_setting("base_url", "DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+        model = model if model is not None else get_setting("model", "DEEPSEEK_MODEL", "deepseek-chat")
+
+        clean_key = str(api_key or "").strip()
+        clean_url = str(base_url or "").strip()
+        clean_model = str(model or "").strip()
+        lowered = clean_key.lower()
+        placeholder_tokens = ("placeholder", "test", "example", "your_key", "sk-xxx", "sk-...")
+
+        if not clean_key:
+            ready = False
+            message = "未配置 DeepSeek API Key，AI 会进入本地兜底。"
+        elif any(token in lowered for token in placeholder_tokens):
+            ready = False
+            message = "API Key 看起来是测试/占位值，请在“我的”页面保存真实 DeepSeek Key。"
+        elif not clean_url.startswith(("http://", "https://")):
+            ready = False
+            message = "Base URL 格式不正确，必须以 http:// 或 https:// 开头。"
+        elif not clean_model:
+            ready = False
+            message = "模型名为空，请配置 deepseek-chat 或兼容模型。"
+        else:
+            ready = True
+            message = "DeepSeek API 已配置，AI 会优先调用云端模型；本地兜底只在 API 失败时启用。"
+
+        return {
+            "provider": "deepseek",
+            "ready": ready,
+            "base_url": clean_url,
+            "model": clean_model,
+            "has_api_key": bool(clean_key),
+            "key_tail": clean_key[-4:] if clean_key and ready else "",
+            "message": message,
+        }
 
     def chat(self, user_message: str, context: dict = None) -> str:
         if not self.client:

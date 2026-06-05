@@ -334,6 +334,192 @@ def test_system_prompt_mentions_ifind_research_tools_and_quota():
     assert "Research Harness" in prompt or "研究 Harness" in prompt
 
 
+def test_research_evaluator_compares_legacy_and_ifind_scores():
+    from src.research.evaluator import ResearchEvaluator
+
+    rows = [
+        {
+            "strategy_name": "iFinD研究底稿 · quick",
+            "hypothesis": "新评分 72 旧评分 58",
+            "backfills": [{"day": 1, "hit_2pct": True, "hold_1d": 2.4}],
+        },
+        {
+            "strategy_name": "旧六维评分",
+            "hypothesis": "旧评分 75",
+            "backfills": [{"day": 1, "hit_2pct": False, "hold_1d": -1.2}],
+        },
+    ]
+
+    report = ResearchEvaluator().compare_score_systems(rows)
+
+    assert report["ifind"]["total"] == 1
+    assert report["ifind"]["hit_rate"] == 100.0
+    assert report["legacy"]["total"] == 1
+    assert report["legacy"]["hit_rate"] == 0.0
+    assert report["winner"] == "ifind"
+
+
+def test_strategy_governor_returns_four档_decision():
+    from src.research.strategy import StrategyGovernor
+
+    decision = StrategyGovernor().decide({
+        "opportunity_score": 72,
+        "risk_score": 48,
+        "confidence": "高",
+        "hit_rate": 66,
+        "drawdown": 3,
+        "environment_match": True,
+    })
+
+    assert decision["tier"] == "继续持有"
+    assert "加仓" in decision["allowed_actions"]
+
+    stop = StrategyGovernor().decide({
+        "opportunity_score": 40,
+        "risk_score": 82,
+        "confidence": "低",
+        "hit_rate": 20,
+        "drawdown": 12,
+        "environment_match": False,
+    })
+
+    assert stop["tier"] == "正式下线"
+    assert stop["allow_real_trade"] is False
+
+
+def test_strategy_explorer_sweeps_without_repeating_fingerprints(tmp_path):
+    from src.research.strategy import StrategyExplorer
+
+    explorer = StrategyExplorer(store_path=tmp_path / "explore.json")
+    first = explorer.sweep_filter_values(
+        base_config={"universe": "A股", "holding": "1-2天"},
+        dimension="risk_limit",
+        values=[55, 65, 65],
+    )
+    second = explorer.sweep_filter_values(
+        base_config={"universe": "A股", "holding": "1-2天"},
+        dimension="risk_limit",
+        values=[55],
+    )
+
+    assert first["executed"] == 2
+    assert first["skipped_duplicates"] == 1
+    assert second["executed"] == 0
+    assert second["skipped_duplicates"] == 1
+    assert first["coverage"]["risk_limit"] == 2
+
+
+def test_ai_tools_expose_research_loop_capabilities():
+    from src.ai.tools import TOOLS
+
+    names = {tool["function"]["name"] for tool in TOOLS}
+
+    assert "get_research_score_comparison" in names
+    assert "govern_strategy_tier" in names
+    assert "sweep_strategy_values" in names
+
+
+def test_radar_candidate_pool_keeps_recommended_stocks_with_ifind_scores():
+    from src.pages.radar import _build_candidate_pool_rows
+
+    legacy_result = SimpleNamespace(
+        code="600900",
+        name="长江电力",
+        total_score=68,
+        status_label="等待确认",
+        anti_quant=SimpleNamespace(total_risk=28, risk_level="中", triggers=["承接尚可"]),
+        heat=SimpleNamespace(score=70),
+        support=SimpleNamespace(score=66),
+        theme=SimpleNamespace(score=58),
+        continuation=SimpleNamespace(score=62),
+        strategy_match=SimpleNamespace(score=60),
+    )
+    rows = _build_candidate_pool_rows(
+        scored_results=[
+            (
+                {
+                    "code": "600900",
+                    "name": "长江电力",
+                    "price": 25.0,
+                    "change_pct": 1.2,
+                    "turnover": 3.1,
+                    "amount": 3200000000,
+                },
+                legacy_result,
+            )
+        ],
+        ifind_rows=[
+            {
+                "code": "600900",
+                "name": "长江电力",
+                "price": 25.0,
+                "change_pct": 1.2,
+                "turnover": 3.1,
+                "amount": 3200000000,
+                "source": "ifind_wencai",
+            },
+            {
+                "code": "688981",
+                "name": "中芯国际",
+                "price": 102.5,
+                "change_pct": 2.4,
+                "turnover": 4.5,
+                "amount": 5300000000,
+                "source": "ifind_wencai",
+            },
+        ],
+        market_scope="中国A股",
+    )
+
+    by_code = {row["code"]: row for row in rows}
+
+    assert by_code["600900"]["market_scope"] == "中国A股"
+    assert by_code["600900"]["legacy_score"] == 68
+    assert by_code["600900"]["ifind_score"] > 0
+    assert by_code["600900"]["score_source"] == "旧六维+iFinD证据"
+    assert by_code["600900"]["action"] in {"研究候选", "可模拟验证", "可观察", "只观察"}
+    assert by_code["688981"]["score_source"] == "iFinD证据"
+    assert by_code["600900"]["rank_score"] >= by_code["688981"]["rank_score"]
+
+
+def test_ai_chat_marks_placeholder_key_as_not_ready(monkeypatch):
+    from src.ai.chat import AIChat
+
+    monkeypatch.setattr(
+        "src.ai.chat.get_setting",
+        lambda key, env_key=None, default="": {
+            "api_key": "sk-test-placeholder",
+            "base_url": "https://api.deepseek.com",
+            "model": "deepseek-chat",
+        }.get(key, default),
+    )
+
+    status = AIChat.provider_status()
+
+    assert status["ready"] is False
+    assert status["provider"] == "deepseek"
+    assert "占位" in status["message"]
+
+
+def test_ai_chat_uses_api_when_valid_key_is_configured(monkeypatch):
+    from src.ai.chat import AIChat
+
+    monkeypatch.setattr(
+        "src.ai.chat.get_setting",
+        lambda key, env_key=None, default="": {
+            "api_key": "sk-valid-realistic-key",
+            "base_url": "https://api.deepseek.com",
+            "model": "deepseek-chat",
+        }.get(key, default),
+    )
+
+    status = AIChat.provider_status()
+
+    assert status["ready"] is True
+    assert status["base_url"] == "https://api.deepseek.com"
+    assert status["model"] == "deepseek-chat"
+
+
 def test_user_risk_state_enters_cooldown_after_recent_bad_feedback():
     from src.risk.user_state import evaluate_user_risk_state
 

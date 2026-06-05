@@ -98,7 +98,7 @@ def _render_research(code: str):
     _summary_cards(summary_cards, research)
     _action_bar(code, research, score)
 
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["证据", "评分", "情景", "记忆", "审计", "原始"])
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(["证据", "评分", "情景", "管理", "记忆", "审计", "原始"])
     with tab1:
         _evidence_panel(evidence)
     with tab2:
@@ -106,10 +106,12 @@ def _render_research(code: str):
     with tab3:
         _scenario_panel(research.get("scenario_report") or [])
     with tab4:
-        _memory_panel()
+        _strategy_management_panel(score, research)
     with tab5:
-        _audit_panel(research, score)
+        _memory_panel()
     with tab6:
+        _audit_panel(research, score)
+    with tab7:
         _raw_panel(research)
 
 
@@ -321,6 +323,40 @@ def _scenario_panel(scenarios: list):
             f'</div>',
             unsafe_allow_html=True,
         )
+
+
+def _strategy_management_panel(score: dict, research: dict):
+    try:
+        from src.research.strategy import StrategyGovernor
+
+        metrics = {
+            "opportunity_score": score.get("opportunity_score", 0),
+            "risk_score": score.get("risk_score", 100),
+            "confidence": score.get("confidence", "低"),
+            "hit_rate": 0,
+            "drawdown": max(0, score.get("risk_score", 100) - 60) / 2,
+            "environment_match": research.get("quality") in {"medium", "high"},
+        }
+        decision = StrategyGovernor().decide(metrics)
+    except Exception as exc:
+        st.warning(f"四档管理暂不可用: {exc}")
+        return
+
+    color = {
+        "继续持有": "var(--green)",
+        "进入观察": "var(--ai)",
+        "主动降权": "var(--amber)",
+        "正式下线": "var(--red)",
+    }.get(decision.get("tier"), "var(--muted)")
+    st.markdown(
+        f'<div class="card" style="border-left:3px solid {color}">'
+        f'<div style="font-size:18px;font-weight:850;color:{color}">{html.escape(str(decision.get("tier", "")))}</div>'
+        f'<div style="font-size:13px;color:var(--text);line-height:1.6;margin-top:6px">{html.escape(str(decision.get("reason", "")))}</div>'
+        f'<div style="font-size:12px;color:var(--muted);line-height:1.6;margin-top:6px">动作：{html.escape(" / ".join(decision.get("allowed_actions") or []))}</div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+    st.caption("四档管理只用于研究和模拟验证，不会触发自动交易。")
 
 
 def _raw_panel(research: dict):

@@ -53,7 +53,10 @@ def render_radar_page():
         phase = ("确认阶段·不追高" if m >= 50 else "观察阶段" if m >= 45 else "初筛阶段" if m >= 30 else "等待尾盘")
         st.info(f"尾盘 · {phase} · {now.strftime('%H:%M')}")
 
-    # ── 信息雷达是主入口，不再藏进 Tab ──
+    # ── 中国 A 股候选池：保留“推荐股票”，并用 iFinD 证据评分增强 ──
+    _show_recommendation_candidate_pool()
+
+    # ── 信息雷达：解释候选背后的催化与噪音 ──
     _show_info_radar()
 
     # ── iFinD 智能选股（配置了专业数据源时才展示）──
@@ -68,6 +71,276 @@ def render_radar_page():
         _show_risk_scan()
     with tab2:
         _show_strategy_scan()
+
+
+# ═══════════════════════════════════════════
+# 中国 A 股候选股池
+# ═══════════════════════════════════════════
+
+def _show_recommendation_candidate_pool():
+    """雷达页高可见推荐入口。
+
+    默认只用本地/公开源旧六维评分，iFinD 智能选股必须由用户点击触发，
+    避免页面刷新反复消耗月度额度。
+    """
+    st.markdown(
+        '<div class="ai-hero" style="margin-top:10px">'
+        '<div class="ai-hero-title">中国 A 股候选股池</div>'
+        '<div class="ai-hero-sub">保留推荐股票入口，但不直接给买卖结论。候选按旧六维评分、iFinD 证据分、风险分和数据置信度综合排序。</div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+    st.session_state.setdefault("radar_candidate_scope", "中国A股")
+
+    c1, c2, c3 = st.columns([1, 1, 2])
+    with c1:
+        refresh_public = st.button("刷新公开候选", key="candidate_refresh_public", use_container_width=True)
+    with c2:
+        enhance_ifind = st.button("iFinD增强候选", key="candidate_ifind_enhance", use_container_width=True)
+    with c3:
+        st.caption("iFinD 增强采用单次智能选股查询并缓存到当前页面，会标注来源与置信度。")
+
+    if refresh_public or "radar_candidate_scored" not in st.session_state:
+        with st.spinner("生成 A 股公开源候选…"):
+            try:
+                st.session_state["radar_candidate_scored"] = _fetch_and_score("all", "")
+            except Exception as exc:
+                st.session_state["radar_candidate_scored"] = []
+                st.warning(f"公开候选生成失败: {exc}")
+
+    if enhance_ifind:
+        with st.spinner("调用 iFinD 智能选股增强候选池…"):
+            st.session_state["radar_candidate_ifind"] = _fetch_ifind_candidate_rows()
+
+    scored = st.session_state.get("radar_candidate_scored") or []
+    ifind_rows = st.session_state.get("radar_candidate_ifind") or []
+    rows = _build_candidate_pool_rows(scored, ifind_rows, market_scope="中国A股")
+
+    if not rows:
+        st.info("暂时没有生成候选。你可以点击“刷新公开候选”，或配置 iFinD 后点击“iFinD增强候选”。")
+        return
+
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("候选数量", len(rows))
+    with col2:
+        enhanced = sum(1 for row in rows if row.get("ifind_score"))
+        st.metric("iFinD增强", enhanced)
+    with col3:
+        avg_opp = sum(float(row.get("opportunity_score") or 0) for row in rows[:10]) / min(len(rows), 10)
+        st.metric("前10机会均分", f"{avg_opp:.0f}")
+    with col4:
+        avg_risk = sum(float(row.get("risk_score") or 0) for row in rows[:10]) / min(len(rows), 10)
+        st.metric("前10风险均分", f"{avg_risk:.0f}")
+
+    for idx, row in enumerate(rows[:10]):
+        _render_candidate_pool_card(row, index=idx)
+
+
+def _fetch_ifind_candidate_rows() -> list[dict]:
+    try:
+        from src.data.providers.registry import get_provider, provider_status
+
+        provider = get_provider()
+        status = provider_status()
+        if provider.source_name != "ifind" or not status.get("ready"):
+            st.warning("iFinD 未就绪，候选池保持公开源评分。")
+            return []
+        query = "中国A股 主力资金流入 换手活跃 非ST 非退市 业绩增长"
+        return provider.smart_stock_picking(query, limit=12) or []
+    except Exception as exc:
+        st.warning(f"iFinD 候选增强失败: {str(exc)[:100]}")
+        return []
+
+
+def _build_candidate_pool_rows(scored_results: list, ifind_rows: list, market_scope: str = "中国A股") -> list[dict]:
+    """合并旧六维评分与 iFinD Evidence Score，生成研究候选池。
+
+    这是纯数据函数，供页面和测试共同使用。
+    """
+    from src.scoring.evidence import IFindEvidenceScorer
+
+    merged: dict[str, dict] = {}
+    scorer = IFindEvidenceScorer()
+
+    for stock, result in scored_results or []:
+        code = str(stock.get("code") or getattr(result, "code", "") or "")[:6]
+        if not code:
+            continue
+        risk = getattr(getattr(result, "anti_quant", None), "total_risk", 50) or 50
+        risk_level = getattr(getattr(result, "anti_quant", None), "risk_level", "中") or "中"
+        legacy_score = float(getattr(result, "total_score", 0) or 0)
+        name = _resolve_stock_name(code, stock.get("name") or getattr(result, "name", code))
+        merged[code] = {
+            "code": code,
+            "name": name,
+            "market_scope": market_scope,
+            "price": float(stock.get("price") or 0),
+            "change_pct": float(stock.get("change_pct") or 0),
+            "legacy_score": round(legacy_score, 1),
+            "ifind_score": 0.0,
+            "opportunity_score": round(legacy_score, 1),
+            "risk_score": round(float(risk), 1),
+            "risk_level": risk_level,
+            "confidence": "中",
+            "action": "研究候选",
+            "score_source": "旧六维评分",
+            "source_chain": ["公开行情", "旧六维评分"],
+            "status": getattr(result, "status_label", "研究候选"),
+            "reason": _plain(result),
+        }
+
+    for raw in ifind_rows or []:
+        code = str(raw.get("code") or "")[:6]
+        if not code:
+            continue
+        name = _resolve_stock_name(code, raw.get("name", code))
+        research = {
+            "code": code,
+            "source": "ifind",
+            "quality": "medium",
+            "evidence": {
+                "行情": {
+                    "code": code,
+                    "name": name,
+                    "price": raw.get("price", 0),
+                    "change_pct": raw.get("change_pct", 0),
+                    "turnover": raw.get("turnover", 0),
+                    "amount": raw.get("amount", 0),
+                    "source": raw.get("source", "ifind"),
+                },
+                "K线": [],
+                "公告": [],
+                "基础数据": {},
+                "智能选股": [raw],
+            },
+        }
+        score = scorer.score(research)
+        row = merged.setdefault(code, {
+            "code": code,
+            "name": name,
+            "market_scope": market_scope,
+            "price": float(raw.get("price") or 0),
+            "change_pct": float(raw.get("change_pct") or 0),
+            "legacy_score": 0.0,
+            "ifind_score": 0.0,
+            "opportunity_score": 0.0,
+            "risk_score": 50.0,
+            "risk_level": "中",
+            "confidence": "低",
+            "action": "研究候选",
+            "score_source": "",
+            "source_chain": [],
+            "status": "研究候选",
+            "reason": "",
+        })
+        ifind_score = float(score.get("opportunity_score") or 0)
+        row["ifind_score"] = round(ifind_score, 1)
+        row["opportunity_score"] = round(max(float(row.get("opportunity_score") or 0), ifind_score), 1)
+        row["risk_score"] = round(max(float(score.get("risk_score") or 0), float(row.get("risk_score") or 0)), 1)
+        row["confidence"] = score.get("confidence", row.get("confidence", "中"))
+        row["action"] = score.get("action") or row.get("action") or "研究候选"
+        row["score_source"] = "旧六维+iFinD证据" if row.get("legacy_score") else "iFinD证据"
+        row["source_chain"] = list(dict.fromkeys((row.get("source_chain") or []) + ["iFinD智能选股", "iFinD Evidence Score"]))
+        row["reason"] = "；".join(score.get("evidence_summary") or []) or row.get("reason", "")
+
+    for row in merged.values():
+        if not row.get("score_source"):
+            row["score_source"] = "公开候选"
+        opportunity = float(row.get("opportunity_score") or 0)
+        legacy = float(row.get("legacy_score") or 0)
+        ifind = float(row.get("ifind_score") or 0)
+        risk = float(row.get("risk_score") or 0)
+        source_bonus = 8 if legacy and ifind else 3 if ifind else 0
+        row["rank_score"] = round(opportunity * 0.72 + legacy * 0.22 + ifind * 0.18 - risk * 0.22 + source_bonus, 2)
+
+    return sorted(merged.values(), key=lambda item: item.get("rank_score", 0), reverse=True)
+
+
+def _render_candidate_pool_card(row: dict, index: int = 0):
+    code = str(row.get("code", ""))
+    name = html.escape(str(row.get("name") or code))
+    safe_code = html.escape(code)
+    chg = float(row.get("change_pct") or 0)
+    chg_c = "var(--red)" if chg > 0 else "var(--green)" if chg < 0 else "var(--muted)"
+    confidence = row.get("confidence", "中")
+    risk = row.get("risk_level") or ("高" if float(row.get("risk_score") or 0) >= 70 else "中")
+    risk_badge = "badge-high" if risk in ("高", "极高") else "badge-mid" if risk == "中" else "badge-low"
+    source = html.escape(str(row.get("score_source", "")))
+    chain = " · ".join(row.get("source_chain") or [])
+    reason = html.escape(str(row.get("reason", ""))[:180])
+    border = "var(--green)" if row.get("rank_score", 0) >= 65 and float(row.get("risk_score") or 0) < 65 else "var(--amber)"
+
+    st.markdown(
+        f'<div class="recommend-card" style="border-left:3px solid {border}">'
+        f'<div style="display:flex;justify-content:space-between;gap:12px">'
+        f'<div style="flex:1;min-width:0">'
+        f'<div style="font-size:15px;font-weight:800;color:var(--text)">{name}'
+        f'<span style="font-family:var(--mono);font-size:11px;color:var(--muted);margin-left:8px">{safe_code}</span></div>'
+        f'<div style="font-size:12px;color:var(--muted);margin-top:3px">中国A股 · {source} · 置信度{html.escape(confidence)}</div>'
+        f'</div>'
+        f'<div style="text-align:right;min-width:106px">'
+        f'<div style="font-family:var(--mono);font-size:18px;font-weight:850;color:var(--ai)">机会{float(row.get("opportunity_score") or 0):.0f}</div>'
+        f'<div style="font-family:var(--mono);font-size:12px;color:{chg_c}">{chg:+.2f}%</div>'
+        f'</div></div>'
+        f'<div class="score-row">'
+        f'<span class="score-pill">旧{float(row.get("legacy_score") or 0):.0f}</span>'
+        f'<span class="score-pill">iFinD{float(row.get("ifind_score") or 0):.0f}</span>'
+        f'<span class="score-pill">风险{float(row.get("risk_score") or 0):.0f}</span>'
+        f'<span class="score-pill">排序{float(row.get("rank_score") or 0):.0f}</span>'
+        f'</div>'
+        f'<div style="font-size:12px;color:var(--text);line-height:1.55;margin-top:7px">{reason}</div>'
+        f'<div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px">'
+        f'<div style="font-size:12px;color:var(--muted)">{html.escape(chain)}</div>'
+        f'<span class="badge {risk_badge}">{html.escape(str(risk))}风险</span>'
+        f'</div></div>',
+        unsafe_allow_html=True,
+    )
+
+    c1, c2, c3, c4 = st.columns(4)
+    key = f"candidate_{index}_{code}"
+    with c1:
+        if st.button("查看", key=f"{key}_view", use_container_width=True):
+            st.session_state["selected_stock"] = code
+            st.session_state["previous_page"] = "radar"
+            st.session_state["current_page"] = "stock_detail"
+            st.rerun()
+    with c2:
+        if st.button("研究", key=f"{key}_research", use_container_width=True):
+            st.session_state["selected_stock"] = code
+            st.session_state["research_code"] = code
+            st.session_state["current_page"] = "research"
+            st.rerun()
+    with c3:
+        if st.button("AI分析", key=f"{key}_ai", use_container_width=True):
+            st.session_state["selected_stock"] = code
+            st.session_state["current_page"] = "ai_chat"
+            st.session_state["qq"] = f"请对 {code} 做 iFinD 证据化研究，先调用 ifind_company_research 和 ifind_evidence_score，再给机会分、风险分、置信度、证据来源、失效条件。"
+            st.rerun()
+    with c4:
+        if st.button("入审计", key=f"{key}_audit", use_container_width=True):
+            try:
+                from src.memory.analysis_memory import AnalysisMemory
+                with AnalysisMemory() as am:
+                    am.create_verification(
+                        "radar",
+                        code,
+                        row.get("name") or code,
+                        datetime.now(),
+                        strategy_name=f"雷达候选池 · {row.get('score_source', '')}",
+                        suggested_period="1-3天",
+                        hypothesis=f"{row.get('name') or code} 进入中国A股候选股池，机会分 {row.get('opportunity_score')}，风险分 {row.get('risk_score')}，置信度 {row.get('confidence')}。",
+                        entry_conditions=["回踩不破分时均价线", "板块联动不低于 2-3 只", "风险分未继续升高"],
+                        invalidation_conditions=["放量滞涨", "冲高回落", "板块不联动", "iFinD 证据失效或数据冲突"],
+                        stop_loss_rule="仅研究审计与模拟验证，不作为实盘交易指令。",
+                        risk_level=str(row.get("risk_level") or "中"),
+                        confidence_level=str(row.get("confidence") or "中"),
+                        allow_real_trade=False,
+                    )
+                st.success("已加入审计")
+            except Exception as exc:
+                st.warning(f"加入失败: {exc}")
 
 
 # ═══════════════════════════════════════════

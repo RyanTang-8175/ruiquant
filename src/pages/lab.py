@@ -19,13 +19,17 @@ def render_lab_page():
     _risk_banner()
     _stats_bar()
 
-    tab2, tab3, tab5, tab4, tab1 = st.tabs(["待审计", "审计结果", "归因画像", "一键反馈", "手动补录"])
+    tab2, tab3, tab5, tab6, tab7, tab4, tab1 = st.tabs(["待审计", "审计结果", "归因画像", "评分对比", "策略探索", "一键反馈", "手动补录"])
     with tab2:
         _pending_panel()
     with tab3:
         _results_panel()
     with tab5:
         _attribution_panel()
+    with tab6:
+        _score_comparison_panel()
+    with tab7:
+        _strategy_explorer_panel()
     with tab4:
         _feedback_panel()
     with tab1:
@@ -294,3 +298,65 @@ def _attribution_panel():
         top_bad = user.get("top_bad_behaviors", [])
         if top_bad:
             st.markdown("**最常犯的错误**:  " + " · ".join(f"{b}({c}次)" for b, c in top_bad))
+
+
+def _score_comparison_panel():
+    st.markdown('<div class="page-kicker">用真实审计回放比较 iFinD 新评分与旧六维评分，不靠感觉决定谁更可信。</div>', unsafe_allow_html=True)
+    try:
+        from src.memory.analysis_memory import AnalysisMemory
+        from src.research.evaluator import ResearchEvaluator
+
+        with AnalysisMemory() as memory:
+            rows = memory.get_verification_results()
+        report = ResearchEvaluator().compare_score_systems(rows)
+    except Exception as exc:
+        st.warning(f"评分对比暂不可用: {exc}")
+        return
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("iFinD 新评分", f"{report.get('ifind', {}).get('hit_rate', 0)}%", f"{report.get('ifind', {}).get('total', 0)} 条")
+    c2.metric("旧六维评分", f"{report.get('legacy', {}).get('hit_rate', 0)}%", f"{report.get('legacy', {}).get('total', 0)} 条")
+    c3.metric("当前胜出", report.get("winner", "tie"))
+    st.caption(report.get("summary", "暂无结论"))
+
+
+def _strategy_explorer_panel():
+    st.markdown('<div class="page-kicker">轻量探索只记录参数覆盖、去重和风险预算，不做复杂回测，不触发实盘交易。</div>', unsafe_allow_html=True)
+    with st.form("strategy_explorer_form"):
+        c1, c2, c3 = st.columns(3)
+        universe = c1.selectbox("股票池", ["A股", "沪深300", "中证500", "中证1000"])
+        holding = c2.selectbox("观察周期", ["隔夜", "1-2天", "2-3天", "5天观察"], index=1)
+        dimension = c3.text_input("扫描参数", value="risk_limit")
+        raw_values = st.text_input("参数值", value="55,65,75")
+        submitted = st.form_submit_button("开始探索", use_container_width=True)
+
+    if not submitted:
+        return
+    try:
+        from src.research.strategy import StrategyExplorer
+
+        values = [_parse_value(v) for v in raw_values.split(",") if v.strip()]
+        result = StrategyExplorer().sweep_filter_values(
+            base_config={"universe": universe, "holding": holding},
+            dimension=dimension.strip() or "risk_limit",
+            values=values,
+        )
+        c1, c2, c3 = st.columns(3)
+        c1.metric("新增探索", result.get("executed", 0))
+        c2.metric("重复跳过", result.get("skipped_duplicates", 0))
+        c3.metric("覆盖维度", len(result.get("coverage", {})))
+        for item in result.get("top", [])[:8]:
+            st.caption(f"{item.get('config')} · score={item.get('score')} risk={item.get('risk')}")
+    except Exception as exc:
+        st.warning(f"策略探索失败: {exc}")
+
+
+def _parse_value(value: str):
+    value = value.strip()
+    try:
+        return int(value)
+    except Exception:
+        try:
+            return float(value)
+        except Exception:
+            return value

@@ -70,6 +70,17 @@ def render_profile_page():
 
 def _system_status():
     try:
+        from src.ai.chat import AIChat
+
+        ai_status = AIChat.provider_status()
+        c0, c00 = st.columns(2)
+        c0.metric("AI模型", "DeepSeek" if ai_status.get("ready") else "本地兜底")
+        c00.metric("模型名", ai_status.get("model") or "-")
+        st.caption(f"AI状态：{ai_status.get('base_url', '-')} · {ai_status.get('message', '')}")
+    except Exception as exc:
+        st.caption(f"AI状态不可用: {exc}")
+
+    try:
         from src.data.providers.registry import provider_status
 
         status = provider_status()

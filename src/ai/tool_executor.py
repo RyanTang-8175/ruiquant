@@ -2,6 +2,8 @@
 
 import json, logging
 from src.research.harness import ResearchHarness
+from src.research.evaluator import ResearchEvaluator
+from src.research.strategy import StrategyExplorer, StrategyGovernor
 from src.scoring.evidence import IFindEvidenceScorer
 
 logger = logging.getLogger(__name__)
@@ -35,6 +37,9 @@ class ToolExecutor:
             "ifind_market_radar": self._ifind_market_radar,
             "get_research_memory": self._get_research_memory,
             "ifind_evidence_score": self._ifind_evidence_score,
+            "get_research_score_comparison": self._get_research_score_comparison,
+            "govern_strategy_tier": self._govern_strategy_tier,
+            "sweep_strategy_values": self._sweep_strategy_values,
         }
         handler = handlers.get(tool_name)
         if not handler:
@@ -360,3 +365,26 @@ class ToolExecutor:
                 "dimensions": {},
                 "evidence_summary": [],
             }
+
+    def _get_research_score_comparison(self) -> dict:
+        try:
+            from src.memory.analysis_memory import AnalysisMemory
+
+            with AnalysisMemory() as memory:
+                rows = memory.get_verification_results()
+            return ResearchEvaluator().compare_score_systems(rows)
+        except Exception as e:
+            return {"error": f"新旧评分对比失败: {str(e)[:100]}", "ifind": {}, "legacy": {}}
+
+    def _govern_strategy_tier(self, metrics: dict = None) -> dict:
+        try:
+            return StrategyGovernor().decide(metrics or {})
+        except Exception as e:
+            return {"tier": "进入观察", "error": f"四档策略判断失败: {str(e)[:100]}", "allow_real_trade": False}
+
+    def _sweep_strategy_values(self, base_config: dict = None, dimension: str = "risk_limit", values: list = None) -> dict:
+        try:
+            values = values or [55, 65, 75]
+            return StrategyExplorer().sweep_filter_values(base_config or {"universe": "A股", "holding": "1-2天"}, dimension, values)
+        except Exception as e:
+            return {"executed": 0, "skipped_duplicates": 0, "error": f"策略探索失败: {str(e)[:100]}"}

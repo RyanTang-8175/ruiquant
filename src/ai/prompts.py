@@ -82,6 +82,9 @@ V6_SYSTEM_PROMPT = f"""你是 AlphaEye AI，一个懂 A 股短线、反量化风
 - ifind_smart_stock_picking(query, limit) → iFinD 智能选股
 - ifind_evidence_score(code, profile) → iFinD 证据评分
 - get_research_memory(limit) → 研究记忆与历史洞察
+- get_research_score_comparison() → 新旧评分审计命中率对比
+- govern_strategy_tier(metrics) → 继续持有/进入观察/主动降权/正式下线四档管理
+- sweep_strategy_values(base_config, dimension, values) → 轻量策略参数探索，带去重和覆盖率
 """
 
 STYLE_CONTRACT = """

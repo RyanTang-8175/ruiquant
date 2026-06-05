@@ -20,12 +20,12 @@ def _quick_tasks(code: str) -> list:
              f"对 {code} 做完整反量化扫描：尾盘诱多/高位接盘/分时脉冲/放量滞涨/板块背离。必须给风险表：当前判断、触发证据、散户容易怎么亏、应对动作、实验室验证字段。每条用大白话解释。"),
         ]
     return [
+        ("周一计划", "周一盘前怎么筛候选",
+         "现在是周五收盘后，请为下周一盘前生成中国A股短线候选计划。必须先强调不能无证据直接买入，然后按：1) 周末要等待的政策/公告/新闻 2) 周一9:15竞价筛选 3) 9:30-10:30承接确认 4) 雷达候选股池使用方式 5) iFinD Evidence Score 阈值 6) 禁止买入条件 7) 入实验室审计字段 输出。不要给无来源的确定买入指令。"),
         ("今日选股", "今天有哪些短线机会",
          "基于市场环境和六维评分框架，给今天值得研究的 3-5 个短线方向或板块。必须输出候选表、证据表、风险表、时间表、资金纪律、实验室入库字段。越详细越好。"),
         ("大盘解读", "今天适合做短线吗",
          "分析今天大盘和板块环境。适不适合做短线？什么板块强？什么在退潮？请输出市场状态表、主线/退潮表、操作时间表、禁止动作和复盘字段。"),
-        ("交易复盘", "我的交易表现如何",
-         "复盘我最近的模拟交易。区分策略胜率、AI 准确度、我的执行偏差。必须输出问题归因表、下次执行清单、冷静期/观察期建议。数据不足时告诉我缺哪些字段。"),
         ("学习模式", "教我理解一个概念",
          "用新手能听懂的方式解释：1)反量化风险是什么，散户怎么识别 2)尾盘隔夜策略的核心逻辑。请用表格、例子、错误示范和检查清单讲清楚。"),
     ]
@@ -56,15 +56,19 @@ def render_ai_chat_page():
     env = _market_label()
     stock = selected_code or "未选择"
     mem_count = _memory_count()
+    ai_status = AIChat.provider_status()
+    ai_label = "DeepSeek在线" if ai_status.get("ready") else "本地兜底"
     st.markdown(
         '<div class="ai-statusbar">'
         f'<div class="ai-stat"><div class="ai-stat-label">市场温度</div><div class="ai-stat-value">{env}</div></div>'
         f'<div class="ai-stat"><div class="ai-stat-label">当前标的</div><div class="ai-stat-value">{stock}</div></div>'
         f'<div class="ai-stat"><div class="ai-stat-label">本页对话</div><div class="ai-stat-value">{len(history)}</div></div>'
         f'<div class="ai-stat"><div class="ai-stat-label">研究记忆</div><div class="ai-stat-value">{mem_count}</div></div>'
+        f'<div class="ai-stat"><div class="ai-stat-label">AI模型</div><div class="ai-stat-value">{ai_label}</div></div>'
         '</div>',
         unsafe_allow_html=True,
     )
+    st.caption(f"AI状态：{ai_status.get('model', '-')} · {ai_status.get('base_url', '-')} · {ai_status.get('message', '')}")
 
     if selected_code:
         st.markdown(

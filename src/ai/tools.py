@@ -224,4 +224,43 @@ TOOLS = [
             }
         }
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_research_score_comparison",
+            "description": "读取研究审计回放，比较 iFinD 新评分与旧六维评分的样本命中率。",
+            "parameters": {"type": "object", "properties": {}}
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "govern_strategy_tier",
+            "description": "根据机会分、风险分、置信度、命中率、回撤和环境匹配给出继续持有/进入观察/主动降权/正式下线四档管理建议。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "metrics": {
+                        "type": "object",
+                        "description": "包含 opportunity_score、risk_score、confidence、hit_rate、drawdown、environment_match"
+                    }
+                }
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "sweep_strategy_values",
+            "description": "轻量策略探索：对一组参数值做指纹去重和覆盖率记录，不做复杂回测或实盘交易。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "base_config": {"type": "object", "description": "基础策略配置"},
+                    "dimension": {"type": "string", "description": "要扫描的参数名，如 risk_limit"},
+                    "values": {"type": "array", "items": {}, "description": "参数值列表"}
+                }
+            }
+        }
+    },
 ]
