@@ -388,6 +388,19 @@ def _show_ifind_smart_picks():
                     try:
                         rows = provider.smart_stock_picking(query, limit=10)
                         if rows:
+                            # 批量补实时行情（智能选股price/change_pct经常为0）
+                            codes = [r.get("code") for r in rows if r.get("code")]
+                            try:
+                                qmap = {}
+                                for q in provider.get_realtime_quotes(codes):
+                                    qmap[q["code"]] = q
+                                for row in rows:
+                                    q = qmap.get(row.get("code"))
+                                    if q and q.get("price", 0) > 0:
+                                        row["price"] = q["price"]
+                                        row["change_pct"] = q.get("change_pct", row.get("change_pct", 0))
+                            except Exception:
+                                pass
                             st.session_state["ifind_picks"] = {"label": label, "rows": rows}
                         else:
                             st.info(f"「{label}」暂无候选")
@@ -402,8 +415,7 @@ def _show_ifind_smart_picks():
         for row in rows[:8]:
             code = row.get("code", "")
             name = row.get("name", code)
-            chg = row.get("change_pct", 0)
-            price = row.get("price", 0)
+            chg = row.get("change_pct", 0) or 0
             chg_c = "var(--red)" if chg > 0 else "var(--green)" if chg < 0 else "var(--muted)"
             sign = "+" if chg > 0 else ""
             st.markdown(
@@ -418,19 +430,19 @@ def _show_ifind_smart_picks():
             )
             c1, c2, _ = st.columns([1, 1, 2])
             with c1:
-                if st.button("查看", key=f"ifind_v_{code}", use_container_width=True):
+                if st.button("查看", key=f"ifind_v_{code}"):
                     st.session_state["selected_stock"] = code
                     st.session_state["previous_page"] = "radar"
                     st.session_state["current_page"] = "stock_detail"
                     st.rerun()
             with c2:
-                if st.button("研究", key=f"ifind_r_{code}", use_container_width=True):
+                if st.button("研究", key=f"ifind_r_{code}"):
                     st.session_state["selected_stock"] = code
                     st.session_state["research_code"] = code
                     st.session_state["current_page"] = "research"
                     st.rerun()
             with _:
-                if st.button("AI分析", key=f"ifind_a_{code}", use_container_width=True):
+                if st.button("AI分析", key=f"ifind_a_{code}"):
                     st.session_state["selected_stock"] = code
                     st.session_state["current_page"] = "ai_chat"
                     st.session_state["qq"] = f"请对 {code} {name} 做完整深度分析。先调行情/评分/技术三个工具，按风险→机会→条件→周期输出。"
