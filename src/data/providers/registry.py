@@ -5,6 +5,8 @@ AlphaEye 的页面、策略和 AI 工具都应通过这里拿数据源。这样 
 到位后只需要完成 ifind_provider 的接口映射，不需要重写业务层。
 """
 
+from __future__ import annotations
+
 import os
 from functools import lru_cache
 

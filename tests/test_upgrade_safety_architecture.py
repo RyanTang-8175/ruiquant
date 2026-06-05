@@ -106,8 +106,8 @@ def test_ifind_smart_stock_picking_uses_low_limit_and_normalizes_rows(monkeypatc
     rows = IFindProvider().smart_stock_picking("主力资金流入", limit=2)
 
     assert rows == [
-        {"code": "600900", "name": "长江电力", "change_pct": 1.2, "source": "ifind_wencai"},
-        {"code": "688981", "name": "中芯国际", "change_pct": -0.8, "source": "ifind_wencai"},
+        {"code": "600900", "name": "长江电力", "price": 0.0, "change_pct": 1.2, "volume": 0, "amount": 0, "turnover": 0, "pe_ratio": 0, "market_cap": 0, "source": "ifind_wencai"},
+        {"code": "688981", "name": "中芯国际", "price": 0.0, "change_pct": -0.8, "volume": 0, "amount": 0, "turnover": 0, "pe_ratio": 0, "market_cap": 0, "source": "ifind_wencai"},
     ]
 
 

@@ -56,6 +56,9 @@ def render_radar_page():
     # ── 信息雷达是主入口，不再藏进 Tab ──
     _show_info_radar()
 
+    # ── iFinD 智能选股（配置了专业数据源时才展示）──
+    _show_ifind_smart_picks()
+
     # ── Tab ──
     tab0, tab1, tab2 = st.tabs(["推荐选股", "风险排除", "策略扫描"])
     with tab0:
@@ -65,6 +68,87 @@ def render_radar_page():
         _show_risk_scan()
     with tab2:
         _show_strategy_scan()
+
+
+# ═══════════════════════════════════════════
+# iFinD 智能选股卡片
+# ═══════════════════════════════════════════
+
+def _show_ifind_smart_picks():
+    """iFinD 智能选股入口卡片 — 仅当 iFinD 已配置且可用时展示。"""
+    try:
+        from src.data.providers.registry import get_provider, provider_status
+
+        provider = get_provider()
+        if provider.source_name != "ifind":
+            return
+        status = provider_status()
+        if not status.get("ready"):
+            return
+    except Exception:
+        return
+
+    st.markdown(
+        '<div class="sec-h">iFinD 智能选股</div>'
+        '<div style="font-size:11px;color:var(--muted);margin-bottom:8px">主力资金流入、涨幅居前、换手率活跃 — 低频缓存，按月度额度控制调用</div>',
+        unsafe_allow_html=True,
+    )
+
+    queries = [
+        ("主力资金流入 涨幅居前", "主力资金"),
+        ("换手率 活跃 成交额居前", "换手活跃"),
+        ("连续上涨", "强势延续"),
+    ]
+
+    cols = st.columns(len(queries))
+    for idx, (query, label) in enumerate(queries):
+        with cols[idx]:
+            if st.button(label, key=f"ifind_sp_{idx}", use_container_width=True):
+                with st.spinner(f"iFinD 智能选股：{label}…"):
+                    try:
+                        rows = provider.smart_stock_picking(query, limit=10)
+                        if rows:
+                            st.session_state["ifind_picks"] = {"label": label, "rows": rows}
+                        else:
+                            st.info(f"「{label}」暂无候选")
+                    except Exception as exc:
+                        st.warning(f"iFinD 查询失败: {str(exc)[:80]}")
+
+    picks = st.session_state.get("ifind_picks")
+    if picks:
+        rows = picks.get("rows", [])
+        label = picks.get("label", "")
+        st.caption(f"「{label}」返回 {len(rows)} 只")
+        for row in rows[:8]:
+            code = row.get("code", "")
+            name = row.get("name", code)
+            chg = row.get("change_pct", 0)
+            price = row.get("price", 0)
+            chg_c = "var(--red)" if chg > 0 else "var(--green)" if chg < 0 else "var(--muted)"
+            sign = "+" if chg > 0 else ""
+            st.markdown(
+                f'<div class="card" style="margin-bottom:6px;padding:10px 14px">'
+                f'<div style="display:flex;justify-content:space-between;align-items:center">'
+                f'<div><span style="font-weight:600;font-size:14px">{html.escape(str(name))}</span>'
+                f'<span style="font-family:var(--mono);font-size:11px;color:var(--muted);margin-left:8px">{html.escape(code)}</span></div>'
+                f'<div style="text-align:right">'
+                f'<span style="font-family:var(--mono);font-weight:700;font-size:15px;color:{chg_c}">{sign}{chg:.2f}%</span>'
+                f'</div></div></div>',
+                unsafe_allow_html=True,
+            )
+            c1, c2, _ = st.columns([1, 1, 2])
+            with c1:
+                if st.button("查看", key=f"ifind_v_{code}", use_container_width=True):
+                    st.session_state["selected_stock"] = code
+                    st.session_state["previous_page"] = "radar"
+                    st.session_state["current_page"] = "stock_detail"
+                    st.rerun()
+            with c2:
+                if st.button("AI分析", key=f"ifind_a_{code}", use_container_width=True):
+                    st.session_state["selected_stock"] = code
+                    st.session_state["current_page"] = "ai_chat"
+                    st.session_state["qq"] = f"请对 {code} {name} 做完整深度分析。先调行情/评分/技术三个工具，按风险→机会→条件→周期输出。"
+                    st.rerun()
 
 
 # ═══════════════════════════════════════════

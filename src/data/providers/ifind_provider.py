@@ -320,10 +320,22 @@ class IFindProvider(MarketDataProvider):
     def _normalize_wencai_row(self, item: dict) -> dict:
         ths_code = item.get("股票代码") or item.get("thscode") or item.get("code") or ""
         code = self._plain_code(ths_code)
+        name = (item.get("股票简称") or item.get("secName") or item.get("name") or code)
+        try:
+            from src.data.stock_list import resolve_stock_name
+            name = resolve_stock_name(code, str(name))
+        except Exception:
+            pass
         return {
             "code": code,
-            "name": item.get("股票简称") or item.get("secName") or item.get("name") or code,
+            "name": name,
+            "price": self._num(item.get("最新价") or item.get("latest") or item.get("close")),
             "change_pct": self._num(item.get("涨跌幅") or item.get("changeRatio") or item.get("change_pct")),
+            "volume": int(self._num(item.get("成交量") or item.get("volume"), 0)),
+            "amount": self._num(item.get("成交额") or item.get("amount") or item.get("amt"), 0),
+            "turnover": self._num(item.get("换手率") or item.get("turnoverRatio") or item.get("turnover"), 0),
+            "pe_ratio": self._num(item.get("市盈率") or item.get("pe") or item.get("peRatio"), 0),
+            "market_cap": self._num(item.get("总市值") or item.get("totalMarketCap") or item.get("marketCap"), 0),
             "source": "ifind_wencai",
         }
 
