@@ -375,3 +375,126 @@ def _categorize_radar(items: list) -> list:
         if codes:
             item['related_codes'] = codes
     return items
+
+
+# ═══════════════════════════════════════════════════════════
+# Phase 2.1: 分层抓取函数 — 免费源高频 + iFinD 精准低频
+# ═══════════════════════════════════════════════════════════
+
+_logger = logging.getLogger("radar")
+_FREE_CACHE: dict = {}
+_FREE_CACHE_TS: float = 0
+_FREE_CACHE_TTL: int = 180
+
+
+def fetch_free_hotspots(limit: int = 30) -> list:
+    """Phase 2.1 免费层：东财人气榜 + 政策 + 互动易热门（零 iFinD 消耗）"""
+    global _FREE_CACHE, _FREE_CACHE_TS
+    import time
+    now = time.time()
+    if _FREE_CACHE and (now - _FREE_CACHE_TS) < _FREE_CACHE_TTL:
+        return _FREE_CACHE[:limit]
+
+    items = []
+    # 1. 东财人气榜
+    try:
+        r = requests.get(
+            "https://push2.eastmoney.com/api/qt/clist/get",
+            params={"pn": "1", "pz": str(min(limit, 30)), "po": "1", "np": "1", "fltt": "2", "invt": "2",
+                    "fid": "f3", "fs": "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23",
+                    "fields": "f2,f3,f12,f14"},
+            headers=H, timeout=8,
+        )
+        data = r.json()
+        for item in (data.get("data", {}).get("diff", []) or [])[:limit]:
+            code = item.get("f12", "")
+            name = item.get("f14", "")
+            pct = item.get("f3", 0)
+            if code:
+                items.append({
+                    "title": f"东财人气: {name}({code}) 涨跌幅{pct:+.2f}%",
+                    "content": f"{name} 进入东财热股榜",
+                    "source": "东财人气榜", "type": "hot_stock",
+                    "published_at": datetime.now().strftime("%m-%d %H:%M"),
+                    "related_codes": [code], "sentiment": "neutral",
+                })
+    except Exception as e:
+        _logger.debug(f"东财人气榜: {e}")
+
+    # 2. 政策
+    try:
+        items.extend(fetch_policy_updates(limit=min(limit // 3, 10)))
+    except Exception as e:
+        _logger.debug(f"政策: {e}")
+
+    # 3. 互动易热门
+    try:
+        items.extend(fetch_irm_hot(limit=min(limit // 3, 10)))
+    except Exception as e:
+        _logger.debug(f"互动易: {e}")
+
+    items = _dedup_by_title(items)
+    _FREE_CACHE = items
+    _FREE_CACHE_TS = now
+    return items[:limit]
+
+
+def fetch_radar_precision_layer(top_n: int = 30) -> int:
+    """Phase 2.1 iFinD 精准层：热门票的公告（消耗额度，盘前盘后各一次）"""
+    total = 0
+    try:
+        hot = fetch_free_hotspots(limit=top_n) if _FREE_CACHE else []
+    except Exception:
+        hot = []
+
+    hot_codes = []
+    for item in hot:
+        codes = item.get("related_codes") or []
+        hot_codes.extend(codes)
+    hot_codes = list(dict.fromkeys(hot_codes))[:top_n]
+
+    if not hot_codes:
+        try:
+            from src.data.realtime import get_top_stocks
+            for s in (get_top_stocks("amount", False, 15) or []):
+                hot_codes.append(s.get("code", ""))
+            hot_codes = [c for c in hot_codes if c][:20]
+        except Exception:
+            pass
+
+    for code in hot_codes[:20]:
+        try:
+            total += len(fetch_announcements(code, limit=5))
+        except Exception as e:
+            _logger.debug(f"精准公告 {code}: {e}")
+
+    return total
+
+
+def filter_fake_hotspots(items: list) -> list:
+    """Phase 2.1: AI 过滤伪热点（数值规则驱动）。
+
+    标记: clickbait(标题党) / speculation(纯炒作) / stale(旧闻)
+    """
+    now = datetime.now()
+    for item in items:
+        title = item.get("title", "")
+        content = item.get("content", "") or ""
+        if any(k in title for k in ("震惊", "突发", "紧急", "必看")) and len(content) < 20:
+            item["fake_risk"] = "clickbait"
+            item["quality"] = "low"
+        if item.get("type") == "hot_stock":
+            pct_m = re.search(r"涨跌幅([+-]?\d+\.?\d*)%", title)
+            if pct_m and abs(float(pct_m.group(1))) > 5:
+                item["fake_risk"] = "speculation"
+                item["quality"] = "medium"
+        pub_str = item.get("published_at", "") or ""
+        try:
+            pub = datetime.strptime(pub_str, "%m-%d %H:%M")
+            pub = pub.replace(year=now.year)
+            if (now - pub).total_seconds() > 86400:
+                item["fake_risk"] = "stale"
+                item["quality"] = "low"
+        except (ValueError, TypeError):
+            pass
+    return items

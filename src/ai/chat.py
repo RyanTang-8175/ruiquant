@@ -1041,6 +1041,117 @@ class AIChat:
             logger.warning(f"scratchpad finish failed: {exc}")
 
     # ═══════════════════════════════════════
+    # Phase 2.2: 研究审计自动回填
+    # ═══════════════════════════════════════
+
+    @staticmethod
+    def auto_backfill() -> dict:
+        """每交易日收盘后自动回填待验证记录。
+
+        对每条 status='pending' 的记录，用 iFinD/公开源 K线回填
+        T+1/T+2/T+3 实际涨跌幅，达到 T+3 后自动判定准确/偏差。
+        返回 {'processed': N, 'verified': N, 'errors': N}
+        """
+        result = {"processed": 0, "verified": 0, "errors": 0}
+        try:
+            from datetime import date, timedelta
+            from src.memory.analysis_memory import AnalysisMemory
+            from src.data.realtime import get_kline
+
+            with AnalysisMemory() as analysis:
+                pending = analysis.get_pending_verifications(limit=200)
+                if not pending:
+                    return result
+
+                today = date.today()
+                for rec in pending:
+                    try:
+                        predict_date = rec.get("predicted_at") or rec.get("created_at")
+                        if isinstance(predict_date, str):
+                            predict_date = datetime.fromisoformat(predict_date).date()
+                        if isinstance(predict_date, datetime):
+                            predict_date = predict_date.date()
+                        if not predict_date:
+                            continue
+
+                        code = rec.get("code") or rec.get("stock_code")
+                        if not code:
+                            continue
+
+                        # 获取 K线数据用于回填
+                        from datetime import timedelta
+                        start = (predict_date - timedelta(days=1)).strftime("%Y-%m-%d")
+                        end = today.strftime("%Y-%m-%d")
+                        try:
+                            klines = get_kline(code, period="101", count=60)
+                        except Exception:
+                            klines = []
+
+                        # 按日期索引
+                        kline_map = {}
+                        for k in klines:
+                            kdate = (k.get("date") or "")[:10]
+                            kline_map[kdate] = k
+
+                        # 获取预测日的收盘价作为基准
+                        pred_date_str = predict_date.strftime("%Y-%m-%d")
+                        base_k = kline_map.get(pred_date_str)
+                        base_close = base_k.get("close", 0) if base_k else 0
+
+                        updated = False
+                        for n in (1, 2, 3):
+                            target_date = predict_date + timedelta(days=n)
+                            # 跳过周末
+                            while target_date.weekday() >= 5:
+                                target_date += timedelta(days=1)
+                            if target_date > today:
+                                continue
+
+                            target_k = kline_map.get(target_date.strftime("%Y-%m-%d"))
+                            if not target_k:
+                                continue
+
+                            target_close = target_k.get("close", 0)
+                            if base_close and target_close:
+                                ret = (target_close - base_close) / base_close * 100
+                                # 回填 T+N 收益率
+                                analysis.update_verification_field(
+                                    rec["id"], f"t{n}_return", round(ret, 2)
+                                )
+                                updated = True
+
+                        if updated:
+                            result["processed"] += 1
+
+                        # T+3 到了就自动判定
+                        t3_date = predict_date + timedelta(days=3)
+                        while t3_date.weekday() >= 5:
+                            t3_date += timedelta(days=1)
+                        if today >= t3_date:
+                            opp = rec.get("opportunity_score") or 0
+                            risk = rec.get("risk_score") or 0
+                            t3_ret = rec.get("t3_return") or 0
+                            # 数值规则判定（AI 不参与）
+                            if opp >= 70 and t3_ret > 5:
+                                verdict = "机会判断准确"
+                            elif risk >= 70 and t3_ret < -3:
+                                verdict = "风险预警准确"
+                            else:
+                                verdict = "判断偏差"
+                            analysis.update_verification_field(rec["id"], "result", verdict)
+                            analysis.update_verification_field(rec["id"], "status", "verified")
+                            result["verified"] += 1
+
+                    except Exception:
+                        result["errors"] += 1
+
+        except Exception as e:
+            logger.error(f"auto_backfill 失败: {e}")
+            result["errors"] += 1
+
+        return result
+
+    # ═══════════════════════════════════════
     # 智能追问 & 场景检测 & 动态角色提示
     # ═══════════════════════════════════════
 
