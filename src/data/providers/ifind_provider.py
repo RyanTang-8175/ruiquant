@@ -372,34 +372,28 @@ class IFindProvider(MarketDataProvider):
             "turnoverratio": "A股换手率排名",
         }
         rows = self.smart_stock_picking(query_map.get(sort_field, "A股涨幅榜"), limit=limit)
-        # 用批量行情补齐 price/volume/amount（wencai 返回的 price 一般为 0）
+        # 用批量行情补齐 price/volume/amount（wencai 返回的数据可能不完整）
         if rows:
             codes = [r.get("code") for r in rows if r.get("code")]
             if codes:
                 try:
-                    quotes = self.get_realtime_quotes(codes[:30])
+                    # 分批获取行情，避免单次请求过多
+                    quotes = self.get_realtime_quotes(codes[:50])
                     qmap = {q.get("code"): q for q in quotes}
                     for row in rows:
                         q = qmap.get(row.get("code"))
                         if q:
-                            if not row.get("price"):
-                                row["price"] = q.get("price", 0)
-                            if not row.get("volume"):
-                                row["volume"] = q.get("volume", 0)
-                            if not row.get("amount"):
-                                row["amount"] = q.get("amount", 0)
-                            if not row.get("turnover"):
-                                row["turnover"] = q.get("turnover", 0)
-                            if not row.get("open"):
-                                row["open"] = q.get("open", 0)
-                            if not row.get("high"):
-                                row["high"] = q.get("high", 0)
-                            if not row.get("low"):
-                                row["low"] = q.get("low", 0)
-                            if not row.get("change_pct"):
-                                row["change_pct"] = q.get("change_pct", 0)
-                except Exception:
-                    pass
+                            # 直接覆盖而非 if not，确保使用最新实时数据
+                            row["price"] = q.get("price", row.get("price", 0))
+                            row["volume"] = q.get("volume", row.get("volume", 0))
+                            row["amount"] = q.get("amount", row.get("amount", 0))
+                            row["turnover"] = q.get("turnover", row.get("turnover", 0))
+                            row["open"] = q.get("open", row.get("open", 0))
+                            row["high"] = q.get("high", row.get("high", 0))
+                            row["low"] = q.get("low", row.get("low", 0))
+                            row["change_pct"] = q.get("change_pct", row.get("change_pct", 0))
+                except Exception as e:
+                    logger.warning(f"榜单数据补齐失败: {e}")
         return rows
 
     def smart_stock_picking(self, query: str, limit: int = 20) -> list:
@@ -438,14 +432,25 @@ class IFindProvider(MarketDataProvider):
             name = resolve_stock_name(code, str(name))
         except Exception:
             pass
+
+        # 智能选股返回的数据字段可能不全，先提取有的字段
+        price = self._num(item.get("最新价") or item.get("latest") or item.get("close") or item.get("现价"))
+        change_pct = self._num(item.get("涨跌幅") or item.get("changeRatio") or item.get("change_pct"))
+        volume = int(self._num(item.get("成交量") or item.get("volume"), 0))
+        amount = self._num(item.get("成交额") or item.get("amount") or item.get("amt"), 0)
+        turnover = self._num(item.get("换手率") or item.get("turnoverRatio") or item.get("turnover"), 0)
+
         return {
             "code": code,
             "name": name,
-            "price": self._num(item.get("最新价") or item.get("latest") or item.get("close")),
-            "change_pct": self._num(item.get("涨跌幅") or item.get("changeRatio") or item.get("change_pct")),
-            "volume": int(self._num(item.get("成交量") or item.get("volume"), 0)),
-            "amount": self._num(item.get("成交额") or item.get("amount") or item.get("amt"), 0),
-            "turnover": self._num(item.get("换手率") or item.get("turnoverRatio") or item.get("turnover"), 0),
+            "price": price,
+            "change_pct": change_pct,
+            "volume": volume,
+            "amount": amount,
+            "turnover": turnover,
+            "open": self._num(item.get("今开") or item.get("open"), 0),
+            "high": self._num(item.get("最高") or item.get("high"), 0),
+            "low": self._num(item.get("最低") or item.get("low"), 0),
             "pe_ratio": self._num(item.get("市盈率") or item.get("pe") or item.get("peRatio"), 0),
             "market_cap": self._num(item.get("总市值") or item.get("totalMarketCap") or item.get("marketCap"), 0),
             "source": "ifind_wencai",
