@@ -58,15 +58,21 @@ def _provider_or_none():
 
 def get_realtime_quote(code: str) -> Optional[Dict]:
     """单股行情 — iFinD优先；失败时腾讯→新浪兜底，30秒内存缓存，自动标记质量"""
+    import time as _time
     provider = _provider_or_none()
     if provider and provider.source_name != "open":
         try:
             quote = provider.get_realtime_quote(code)
             if quote and quote.get("price", 0) > 0:
+                quote["_ts"] = _time.time()
                 return quote
         except Exception as exc:
             logger.warning(f"iFinD行情 {code} 失败，回退公开源: {exc}")
-    return _open_realtime_quote(code)
+    result = _open_realtime_quote(code)
+    if result:
+        result["_fallback"] = True  # Phase 1.3: 回退公开源时标注
+        result["_ts"] = _time.time()
+    return result
 
 
 def _open_realtime_quote(code: str) -> Optional[Dict]:
@@ -112,15 +118,20 @@ def _open_realtime_quote(code: str) -> Optional[Dict]:
 
 def get_market_overview() -> Dict:
     """大盘指数 — iFinD优先；失败时腾讯兜底"""
+    import time as _time
     provider = _provider_or_none()
     if provider and provider.source_name != "open":
         try:
             snapshot = provider.get_market_snapshot()
             if snapshot.get("indices"):
+                snapshot["_ts"] = _time.time()
                 return snapshot
         except Exception as exc:
             logger.warning(f"iFinD指数失败，回退公开源: {exc}")
-    return _open_market_overview()
+    result = _open_market_overview()
+    result["_fallback"] = True  # Phase 1.3
+    result["_ts"] = _time.time()
+    return result
 
 
 def _open_market_overview() -> Dict:
@@ -138,15 +149,24 @@ def _open_market_overview() -> Dict:
 
 def get_top_stocks(sort_field: str = "changepercent", asc: bool = False, limit: int = 15) -> List[Dict]:
     """排行榜 — iFinD智能选股优先；失败时新浪API兜底"""
+    import time as _time
     provider = _provider_or_none()
     if provider and provider.source_name != "open":
         try:
             rows = provider.get_top_stocks(sort_field=sort_field, asc=asc, limit=limit)
             if rows:
+                ts = _time.time()
+                for r in rows:
+                    r.setdefault("_ts", ts)
                 return rows[:limit]
         except Exception as exc:
             logger.warning(f"iFinD榜单失败，回退公开源: {exc}")
-    return _open_top_stocks(sort_field, asc, limit)
+    result = _open_top_stocks(sort_field, asc, limit)
+    ts = _time.time()
+    for r in result:
+        r["_fallback"] = True  # Phase 1.3
+        r.setdefault("_ts", ts)
+    return result
 
 
 def _open_top_stocks(sort_field: str = "changepercent", asc: bool = False, limit: int = 15) -> List[Dict]:

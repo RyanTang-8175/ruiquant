@@ -4,10 +4,58 @@
 """
 
 import logging
+import time as _time
 from datetime import datetime
 from typing import Optional
 
 logger = logging.getLogger(__name__)
+
+# ═══════════════════════════════════════════════════════════
+# Phase 1.3: 统一数据质量标签体系
+# ═══════════════════════════════════════════════════════════
+
+QUALITY_BADGES = {
+    "ifind":        {"label": "iFinD 实时",   "color": "#52C41A", "level": "优"},
+    "ifind_wencai": {"label": "iFinD 选股",   "color": "#1890FF", "level": "良"},
+    "ifind_pool":   {"label": "iFinD 股池",   "color": "#1890FF", "level": "良"},
+    "tencent":      {"label": "腾讯(兜底)",    "color": "#FAAD14", "level": "一般"},
+    "sina":         {"label": "新浪(兜底)",    "color": "#FAAD14", "level": "一般"},
+    "eastmoney":    {"label": "东财(兜底)",    "color": "#FAAD14", "level": "一般"},
+}
+
+FALLBACK_WARNING = "⚠️ iFinD 暂时不可用，当前为公开源兜底数据，仅供参考"
+
+
+def fmt_freshness(ts_epoch: float) -> str:
+    """返回人类可读的新鲜度：'X秒前/X分钟前/X小时前'"""
+    delta = int(_time.time() - ts_epoch)
+    if delta < 60:
+        return f"{delta}秒前"
+    if delta < 3600:
+        return f"{delta // 60}分钟前"
+    return f"{delta // 3600}小时前"
+
+
+def get_quality_badge(source: str) -> dict:
+    """获取数据源对应的质量标签"""
+    return QUALITY_BADGES.get(source, {"label": source, "color": "#999", "level": "未知"})
+
+
+def render_quality_html(quote: dict) -> str:
+    """生成数据质量标签的 HTML 片段（供 Streamlit 页面使用）"""
+    src = quote.get("source", "unknown")
+    badge = get_quality_badge(src)
+    freshness = ""
+    ts = quote.get("_ts")
+    if ts:
+        freshness = f" · {fmt_freshness(ts)}"
+    delayed = " · 延迟" if quote.get("is_delayed") else ""
+    fallback = " · ⚠️兜底" if quote.get("_fallback") else ""
+    return (
+        f'<span style="display:inline-block;padding:1px 8px;border-radius:3px;'
+        f'font-size:10px;color:{badge["color"]};border:1px solid {badge["color"]};'
+        f'margin-right:4px;">📡 {badge["label"]} · {badge["level"]}{freshness}{delayed}{fallback}</span>'
+    )
 
 
 def assess_quote_quality(quote: dict, source: str) -> dict:

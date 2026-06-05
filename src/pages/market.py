@@ -3,6 +3,7 @@
 import streamlit as st
 from datetime import datetime
 from src.data.realtime import get_top_stocks, get_market_overview
+from src.data.quality import get_quality_badge, fmt_freshness, render_quality_html, FALLBACK_WARNING
 
 
 def _c(v):
@@ -25,6 +26,16 @@ def render_market_page():
     # ── 指数条 ──
     ov = get_market_overview()
     indices = ov.get("indices", [])
+
+    # Phase 1.3: 数据源质量标签
+    if ov.get("_fallback"):
+        st.warning(FALLBACK_WARNING, icon="⚠️")
+    elif ov.get("source"):
+        badge = get_quality_badge(ov["source"])
+        ts = ov.get("_ts")
+        freshness = f" · {fmt_freshness(ts)}" if ts else ""
+        st.caption(f"📡 {badge['label']} · 质量{badge['level']}{freshness}")
+
     if indices:
         h = '<div class="idx-strip">'
         for idx in indices:
@@ -45,23 +56,26 @@ def render_market_page():
 
     # ── 四大榜单 ──
     t1, t2, t3, t4 = st.tabs(["涨幅榜", "跌幅榜", "成交额", "换手率"])
-    titles = ["涨幅榜", "跌幅榜", "成交额", "换手率"]
 
     def _stock_list(stocks, prefix):
         if not stocks:
             st.info("暂无数据")
             return
+        # Phase 1.3: 检查是否兜底
+        if stocks and stocks[0].get("_fallback"):
+            st.warning(FALLBACK_WARNING, icon="⚠️")
         for i, s in enumerate(stocks):
             p = s.get("change_pct", 0) or 0
             cl = _c(p)
             nm = s.get("name") or s.get("code", "")
             cd = s.get("code", "")
             pr = s.get("price", 0) or 0
+            q_html = render_quality_html(s)
             st.markdown(
                 f'<div class="sr">'
                 f'<div style="color:var(--muted);font-family:var(--mono);font-size:12px;width:24px;text-align:center">{i+1}</div>'
                 f'<div class="inf"><span class="nm">{nm}</span>'
-                f'<span class="cd">{cd}</span></div>'
+                f'<span class="cd">{cd}</span> {q_html}</div>'
                 f'<div class="pr" style="color:{cl}">{pr:.2f}</div>'
                 f'<div class="ch" style="color:{cl}">{p:+.2f}%</div>'
                 f'</div>',

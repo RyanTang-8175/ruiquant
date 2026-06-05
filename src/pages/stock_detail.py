@@ -5,6 +5,7 @@ from __future__ import annotations
 import streamlit as st
 from src.data.realtime import get_kline, get_realtime_quote
 from src.scoring.engine import V6ScoringEngine
+from src.data.quality import render_quality_html, FALLBACK_WARNING
 
 
 def render_stock_detail_page(code: str | None = None):
@@ -49,14 +50,19 @@ def _header(code, quote, result):
     status = result.status_label if result else "待评分"
     risk = result.anti_quant.risk_level if result else ""
     risk_bg = "var(--red)" if risk in ("高","极高") else "var(--amber)" if risk=="中" else "var(--green)"
+    # Phase 1.3: 数据质量标签
+    q_badge = render_quality_html(quote)
+    fallback_banner = f'<div style="background:#FFF7E6;border:1px solid #FAAD14;padding:6px 10px;border-radius:4px;margin-bottom:8px;font-size:12px;color:#AD6800">{FALLBACK_WARNING}</div>' if quote.get("_fallback") else ""
     st.markdown(
+        f'{fallback_banner}'
         f'<div class="card">'
         f'<div style="display:flex;justify-content:space-between;align-items:flex-start">'
         f'<div style="flex:1"><span style="font-size:18px;font-weight:700;color:var(--text)">{name}</span>'
         f'<span style="font-size:11px;color:var(--muted);margin-left:6px;font-family:var(--mono)">{code}</span>'
         f'<div style="margin-top:6px">'
         f'<span class="badge badge-ai">{status}</span> '
-        f'<span class="badge" style="color:{risk_bg};border-color:{risk_bg}">{risk}风险</span>'
+        f'<span class="badge" style="color:{risk_bg};border-color:{risk_bg}">{risk}风险</span> '
+        f'{q_badge}'
         f'</div></div>'
         f'<div style="text-align:right"><div style="font-size:24px;font-weight:800;color:{c};font-family:var(--mono)">{price:.2f}</div>'
         f'<div style="font-size:14px;font-weight:700;color:{c};font-family:var(--mono)">{pct:+.2f}%</div></div></div></div>',
