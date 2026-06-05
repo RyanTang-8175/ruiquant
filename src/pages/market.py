@@ -24,7 +24,8 @@ def render_market_page():
         st.rerun()
 
     # ── 指数条 ──
-    ov = get_market_overview()
+    with st.spinner("加载行情..."):
+        ov = get_market_overview()
     indices = ov.get("indices", [])
 
     # Phase 1.3: 数据源质量标签

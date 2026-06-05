@@ -121,6 +121,32 @@ def _radar_auto_backfill_audit():
         logger.error(f"研究审计自动回填失败: {e}")
 
 
+# ═══════════════════════════════════════════════════════════
+# Phase 3.2: 推送通知
+# ═══════════════════════════════════════════════════════════
+
+def _morning_push_job():
+    """盘前推送"""
+    if not _is_trade_day():
+        return
+    try:
+        from src.notify.push import morning_push
+        morning_push()
+    except Exception as e:
+        logger.error(f"盘前推送失败: {e}")
+
+
+def _closing_push_job():
+    """收盘推送"""
+    if not _is_trade_day():
+        return
+    try:
+        from src.notify.push import closing_push
+        closing_push()
+    except Exception as e:
+        logger.error(f"收盘推送失败: {e}")
+
+
 def create_scheduler() -> BackgroundScheduler:
     """创建并启动调度器"""
     scheduler = BackgroundScheduler()
@@ -173,6 +199,22 @@ def create_scheduler() -> BackgroundScheduler:
         replace_existing=True
     )
 
+    # Phase 3.2: 盘前推送（08:27 工作日）
+    scheduler.add_job(
+        _morning_push_job, 'cron',
+        hour=8, minute=27, day_of_week='mon-fri',
+        id='morning_push', name='盘前推送',
+        replace_existing=True
+    )
+
+    # Phase 3.2: 收盘推送（15:07 工作日）
+    scheduler.add_job(
+        _closing_push_job, 'cron',
+        hour=15, minute=7, day_of_week='mon-fri',
+        id='closing_push', name='收盘推送',
+        replace_existing=True
+    )
+
     scheduler.start()
-    logger.info("调度器已启动（含雷达分层+审计自动回填）")
+    logger.info("调度器已启动（含雷达分层+审计自动回填+推送通知）")
     return scheduler

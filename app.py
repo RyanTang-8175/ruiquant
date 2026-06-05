@@ -301,6 +301,24 @@ code {
   padding: 1px 4px; border-radius: 2px; font-size: 12px;
 }
 
+/* Phase 3.1: Skeleton loading animation */
+.skeleton {
+  background: linear-gradient(90deg, #F0F0F0 25%, #E0E0E0 50%, #F0F0F0 75%);
+  background-size: 200% 100%;
+  animation: sk-shimmer 1.5s infinite; border-radius: 4px;
+}
+@keyframes sk-shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+.skeleton-row { height: 52px; margin-bottom: 8px; border-radius: 8px; }
+.skeleton-card { height: 80px; margin-bottom: 12px; border-radius: 8px; }
+
+/* Phase 3.1: Mobile tap improvements */
+@media (max-width: 768px) {
+  .sr { padding: 12px 0; }
+  .stButton > button { min-height: 44px; padding: 10px 16px; }
+  .idx-cell { min-width: 90px; padding: 10px 8px; }
+  .idx-cell .p { font-size: 16px; }
+}
+
 .page-kicker { color: var(--muted); font-size: 12px; margin: -4px 0 14px; line-height: 1.5; }
 
 /* ── Soft card / Hero ── */
