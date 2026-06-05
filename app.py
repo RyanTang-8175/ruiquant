@@ -14,8 +14,8 @@ st.set_page_config(
 # ═══════════════════════════════════════════
 st.markdown("""<style>
 :root {
-  --bg: #F4F7FA; --panel: #EEF3F8; --card: #FFFFFF; --float: #E7EEF6;
-  --border: #D8E1EA; --text: #17212F; --muted: #5D6B7C;
+  --bg: #FFFFFF; --panel: #FFFFFF; --card: #FFFFFF; --float: #FFFFFF;
+  --border: #DDE5EE; --text: #17212F; --muted: #5D6B7C;
   --weak: #8B98A7;
   --red: #E53935; --green: #0A9B66; --amber: #D88312;
   --ai: #246BFE; --cyan: #0EA5B8; --risk: #D88312;
@@ -23,8 +23,11 @@ st.markdown("""<style>
   --sans: 'PingFang SC','HarmonyOS Sans','Noto Sans SC',-apple-system,BlinkMacSystemFont,sans-serif;
 }
 * { font-family: var(--sans); box-sizing: border-box; }
+html, body, [data-testid="stAppViewContainer"], [data-testid="stHeader"], .main {
+  background: #FFFFFF !important;
+}
 .stApp {
-  background: linear-gradient(180deg, rgba(36,107,254,0.06), rgba(244,247,250,0) 200px), var(--bg);
+  background: #FFFFFF !important;
   color: var(--text);
 }
 .price-num, .sr .pr, .sr .ch, .idx-cell .p, .idx-cell .c, .tv, .score-pill {
@@ -46,7 +49,7 @@ section[data-testid="stSidebar"] { display: none; }
   padding: 14px 0 10px;
   margin-bottom: 10px;
   position: sticky; top: 0;
-  background: rgba(244,247,250,0.94);
+  background: rgba(255,255,255,0.98);
   backdrop-filter: blur(16px);
   z-index: 10;
 }
@@ -104,7 +107,7 @@ section[data-testid="stSidebar"] { display: none; }
   border-color: rgba(36,107,254,0.20) !important;
 }
 [data-testid="stSegmentedControl"] {
-  background: rgba(255,255,255,0.90) !important;
+  background: #FFFFFF !important;
   border: 1px solid var(--border) !important;
   border-radius: 16px !important;
   padding: 4px !important;
@@ -277,9 +280,7 @@ code { color: var(--amber); background: var(--float); font-family: var(--mono); 
   box-shadow: 0 10px 24px rgba(23,33,47,0.07);
 }
 .ai-hero {
-  background:
-    radial-gradient(circle at 12% 0%, rgba(36,107,254,0.14), transparent 34%),
-    linear-gradient(135deg, #FFFFFF 0%, #F4F8FF 58%, #FFF7EA 100%);
+  background: #FFFFFF;
   border: 1px solid #D8E1EA; border-radius: 16px;
   padding: 18px; margin-bottom: 14px;
   box-shadow: 0 16px 38px rgba(23,33,47,0.09);
@@ -301,7 +302,7 @@ code { color: var(--amber); background: var(--float); font-family: var(--mono); 
 .score-row { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
 .score-pill {
   color: var(--muted); border: 1px solid var(--border); border-radius: 999px;
-  padding: 3px 8px; font-size: 11px; background: rgba(244,247,250,0.84);
+  padding: 3px 8px; font-size: 11px; background: #FFFFFF;
   font-family: var(--mono);
 }
 
@@ -312,7 +313,7 @@ code { color: var(--amber); background: var(--float); font-family: var(--mono); 
 }
 .ai-statusbar::-webkit-scrollbar { display:none; }
 .ai-stat {
-  min-width:106px; background:rgba(255,255,255,0.90); border:1px solid var(--border);
+  min-width:106px; background:#FFFFFF; border:1px solid var(--border);
   border-radius:14px; padding:9px 10px;
 }
 .ai-stat-label { color:var(--muted); font-size:11px; margin-bottom:2px; }
@@ -406,7 +407,8 @@ code { color: var(--amber); background: var(--float); font-family: var(--mono); 
   margin: 12px 0 8px;
   padding: 9px 10px;
   border-radius: 8px;
-  background: linear-gradient(135deg, rgba(36,107,254,0.08), rgba(14,165,184,0.04));
+  background: #FFFFFF;
+  border: 1px solid var(--border);
   color: var(--text);
   font-size: 15px;
   font-weight: 800;
@@ -419,7 +421,8 @@ code { color: var(--amber); background: var(--float); font-family: var(--mono); 
   margin: 6px 0;
   padding: 8px 10px;
   border-left: 3px solid rgba(36,107,254,0.35);
-  background: rgba(244,247,250,0.84);
+  background: #FFFFFF;
+  border: 1px solid var(--border);
   border-radius: 10px;
 }
 .ai-table-wrap {
@@ -472,7 +475,7 @@ code { color: var(--amber); background: var(--float); font-family: var(--mono); 
 .watch-sub { color:var(--muted); font-size:12px; line-height:1.45; margin-top:4px; }
 .watch-score { font-family:var(--mono); font-size:22px; font-weight:850; color:var(--ai); line-height:1; }
 .audit-hero {
-  background: linear-gradient(135deg,#FFFFFF,#F6FAFF);
+  background: #FFFFFF;
   border:1px solid var(--border); border-radius:16px; padding:14px; margin-bottom:12px;
   box-shadow:0 12px 28px rgba(23,33,47,0.07);
 }

@@ -280,7 +280,9 @@ def test_ai_chat_api_failure_is_persisted(tmp_path, monkeypatch):
     finally:
         db.close()
 
-    assert "AI 服务暂时不可用" in answer
+    assert "模型服务暂时不可用" in answer
+    assert "本地兜底研究" in answer
+    assert "结论摘要" in answer
     assert len(messages) == 2
     assert messages[-1].role == "assistant"
     assert list(scratch_dir.glob("*.jsonl"))

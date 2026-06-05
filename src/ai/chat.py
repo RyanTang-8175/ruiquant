@@ -95,9 +95,10 @@ class AIChat:
                             )
                     except:
                         pass
+                    local_answer = self._fallback_answer(user_message)
                     return self._finalize_response(
                         user_message,
-                        f"AI 服务暂时不可用，请稍后重试。\n\n*(错误详情: {err_msg})*",
+                        self._api_down_fallback_message(local_answer, err_msg),
                         session_id,
                         stock_code,
                         scene,
@@ -212,6 +213,21 @@ class AIChat:
             "- 把这只票加入实验室验证需要写哪些条件\n\n"
             "## 复盘入库\n"
             "下一步请至少给我股票代码、观察周期和你的假设，我会输出：研究假设、触发条件、失效条件、止损规则、T+1/T+2/T+3 观察点。"
+        )
+
+    @staticmethod
+    def _api_down_fallback_message(local_answer: str, error_detail: str = "") -> str:
+        """模型服务异常时仍给本地研究框架，不让用户只看到死错误。"""
+        detail = (error_detail or "").strip()[:160]
+        return (
+            "## 模型服务暂时不可用，本地兜底研究已启用\n"
+            "| 项目 | 状态 | 白话解释 |\n"
+            "|---|---|---|\n"
+            "| DeepSeek / 模型 API | 暂不可用 | 可能是接口临时波动、Key/额度/模型配置问题，当前不能调用大模型生成深度文本 |\n"
+            "| 本地兜底研究 | 已启用 | AlphaEye 会先用本地规则、公开行情框架和风险纪律给你一个可执行的研究底稿 |\n"
+            f"| 错误详情 | {detail or '未返回具体错误'} | 这是技术状态，不代表股票没有机会或没有风险 |\n\n"
+            "下面是本地兜底研究结果。它比完整 AI 报告保守，置信度默认较低，适合先观察/模拟，不适合直接行动。\n\n"
+            f"{local_answer}"
         )
 
     @staticmethod

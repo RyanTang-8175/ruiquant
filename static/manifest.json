@@ -4,7 +4,7 @@
     "description": "个人 A 股 AI 研究助手 · 反量化 · 短线实验室",
     "start_url": "/",
     "display": "standalone",
-    "background_color": "#F4F7FA",
+    "background_color": "#FFFFFF",
     "theme_color": "#246BFE",
     "orientation": "portrait",
     "icons": [
