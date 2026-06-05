@@ -193,6 +193,10 @@ class AIChat:
             if not answer:
                 answer = self._fallback_answer(user_message)
 
+            # Phase 1.1-opt: 结构化输出增强 — 对个股分析尝试格式化渲染
+            if stock_code and answer and scene in ("deep_analysis", "quick_judge", "general"):
+                answer = self._enrich_structured_output(answer, stock_code, scene, messages)
+
             return self._finalize_response(
                 user_message, answer, session_id, stock_code, scene, scratchpad, run_id
             )
@@ -902,6 +906,90 @@ class AIChat:
                 if 6 <= len(clean) <= 160:
                     return clean
         return ""
+
+    def _enrich_structured_output(self, answer: str, stock_code: str, scene: str, messages: list) -> str:
+        """Phase 1.1-opt: 尝试将 AI 回答格式化为结构化表格。
+
+        策略：
+        1. 先从文本中提取 JSON（DeepSeek 可能在回答里嵌了 json 块）
+        2. 如果提取成功，用 format_structured_analysis() 渲染表格
+        3. 如果没提取到且 API 可用，发一次轻量 json_schema 调用做格式化
+        4. 将格式化结果附加到原文后面（不替换原文，保留完整分析）
+        """
+        from src.ai.structured_output import parse_structured_output, format_structured_analysis, STRUCTURED_ANALYSIS_SCHEMA
+
+        # 步骤1：尝试从已有回答中提取结构化数据
+        structured = parse_structured_output(answer)
+        has_full_structure = (
+            structured
+            and structured.get("opportunity_score") is not None
+            and structured.get("risk_score") is not None
+        )
+
+        if not has_full_structure:
+            # 步骤2：尝试用 markdown 表格模式提取分数
+            opp, risk, conf = self._extract_score_triplet(answer)
+            if opp is not None and risk is not None:
+                # 从文本中提取了分数，构建基本结构化数据
+                structured = {
+                    "stock_code": stock_code,
+                    "stock_name": "",
+                    "opportunity_score": opp,
+                    "risk_score": risk,
+                    "confidence": conf or "中",
+                    "conclusion": self._extract_action_label(answer) or "观察",
+                    "conclusion_reason": "",
+                    "next_steps": "",
+                    "core_risk": "",
+                    "evidence": [],
+                    "risks": [],
+                    "trading_plan": [],
+                    "invalidation_conditions": [],
+                }
+
+        # 步骤3：如果结构化数据完整，尝试用 API 做 json_schema 格式化
+        if self.client and has_full_structure:
+            try:
+                from src.data.stock_list import resolve_stock_name
+                name = resolve_stock_name(stock_code, stock_code)
+                format_prompt = (
+                    f"请将以下对 {name}({stock_code}) 的分析整理成标准 JSON 格式。"
+                    f"确保每个数字都有白话解释，每个风险都有散户亏钱场景说明。\n\n"
+                    f"原始分析：\n{answer[:3000]}"
+                )
+                resp = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[
+                        {"role": "system", "content": "你是金融数据格式化助手。输出必须严格符合 JSON Schema。"},
+                        {"role": "user", "content": format_prompt},
+                    ],
+                    response_format={"type": "json_schema", "json_schema": STRUCTURED_ANALYSIS_SCHEMA},
+                    temperature=0.1,
+                    max_tokens=3000,
+                    timeout=25,
+                )
+                formatted_json = json.loads(resp.choices[0].message.content)
+                formatted_md = format_structured_analysis(formatted_json)
+                # 将格式化表格放在最前面，原文附后
+                return formatted_md + "\n\n---\n## 📝 AI 完整分析原文\n\n" + answer
+            except Exception as e:
+                logger.debug(f"结构化格式化失败，使用文本提取: {e}")
+
+        # 步骤4：用 parse_structured_output 的结果做基本表格渲染
+        if structured and structured.get("opportunity_score") is not None:
+            try:
+                # 补充股票名称
+                if not structured.get("stock_name"):
+                    from src.data.stock_list import resolve_stock_name
+                    structured["stock_name"] = resolve_stock_name(stock_code, stock_code)
+                if not structured.get("stock_code"):
+                    structured["stock_code"] = stock_code
+                formatted_md = format_structured_analysis(structured)
+                return formatted_md + "\n\n---\n## 📝 AI 完整分析原文\n\n" + answer
+            except Exception as e:
+                logger.debug(f"表格渲染失败: {e}")
+
+        return answer
 
     def _finalize_response(self, user_message: str, answer: str,
                            session_id: int | None, stock_code: str, scene: str,
