@@ -224,7 +224,7 @@ def fetch_radar_for_stock(code: str, limit: int = 10) -> Dict:
 
 
 def fetch_radar_market_overview(limit: int = 30) -> Dict:
-    """全市场信息雷达概览：政策 + 互动易热门 + 公告动态"""
+    """全市场信息雷达概览：政策 + 互动易 + 机构观点 + 行业异动 + 智能选股"""
     items = []
     sources = {}
 
@@ -234,6 +234,20 @@ def fetch_radar_market_overview(limit: int = 30) -> Dict:
         sources['iFinD智能选股'] = len(smart)
     except Exception as e:
         sources['iFinD智能选股'] = f"error: {str(e)[:40]}"
+
+    try:
+        research = fetch_ifind_research_views(limit=8)
+        items.extend(research)
+        sources['iFinD机构观点'] = len(research)
+    except Exception as e:
+        sources['iFinD机构观点'] = f"error: {str(e)[:40]}"
+
+    try:
+        sectors = fetch_ifind_sector_moves(limit=8)
+        items.extend(sectors)
+        sources['iFinD行业异动'] = len(sectors)
+    except Exception as e:
+        sources['iFinD行业异动'] = f"error: {str(e)[:40]}"
 
     try:
         policy = fetch_policy_updates(limit // 3)
@@ -267,6 +281,45 @@ def fetch_radar_market_overview(limit: int = 30) -> Dict:
 # ═══════════════════════════════════════════
 # 工具
 # ═══════════════════════════════════════════
+
+def fetch_ifind_research_views(limit: int = 10) -> List[Dict]:
+    """iFinD 机构观点/研报关注度。
+
+    使用智能选股自然语言能力做低频入口，不额外铺满研报接口；
+    返回结果只作为研究候选和机构关注度线索。
+    """
+    queries = [
+        "近30日机构研报评级上调 A股",
+        "近30日机构调研次数居前 A股",
+    ]
+    items: list[dict] = []
+    for query in queries:
+        rows = fetch_ifind_smart_picks(query, limit=max(1, limit // len(queries)))
+        for row in rows:
+            row = dict(row)
+            row["source"] = "iFinD机构观点"
+            row["type"] = "research_view"
+            row["content"] = row.get("content") or "机构观点/研报关注度升温，只能作为研究线索，仍需财务、公告和成交承接交叉验证。"
+            items.append(row)
+    return _dedup_by_title(items)[:limit]
+
+
+def fetch_ifind_sector_moves(limit: int = 10) -> List[Dict]:
+    """iFinD 行业/概念异动雷达。"""
+    queries = [
+        "A股行业涨幅居前 成交额放大",
+        "A股概念板块涨幅居前 换手活跃",
+    ]
+    items: list[dict] = []
+    for query in queries:
+        rows = fetch_ifind_smart_picks(query, limit=max(1, limit // len(queries)))
+        for row in rows:
+            row = dict(row)
+            row["source"] = "iFinD行业异动"
+            row["type"] = "sector_move"
+            row["content"] = row.get("content") or "行业/概念出现价量异动，需要看板块联动、核心股承接和是否有公告/政策支撑。"
+            items.append(row)
+    return _dedup_by_title(items)[:limit]
 
 def fetch_ifind_smart_picks(query: str, limit: int = 10) -> List[Dict]:
     """低频 iFinD 智能选股结果，未配置时返回空列表。"""

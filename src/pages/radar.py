@@ -485,7 +485,7 @@ def _show_info_radar():
     st.markdown(
         '<div class="ai-hero">'
         '<div class="ai-hero-title">信息雷达</div>'
-        '<div class="ai-hero-sub">比“推荐股票”更靠前：先看市场正在讨论什么，再判断它是真信号、假热点，还是需要等待验证。</div>'
+        '<div class="ai-hero-sub">政策、公告、互动问答、机构观点、行业异动和智能选股统一汇总；先看市场正在讨论什么，再判断它是真信号、假热点，还是需要等待验证。</div>'
         '</div>',
         unsafe_allow_html=True,
     )
@@ -495,6 +495,8 @@ def _show_info_radar():
         '<div class="score-explainer-copy">政策、互动问答、公告、新闻里突然反复出现的主题。它只表示“值得研究”，不等于可以买。</div></div>'
         '<div class="score-explainer-card"><div class="score-explainer-title">伪热点过滤</div>'
         '<div class="score-explainer-copy">如果只有标题热闹、没有公告验证、没有板块联动、没有成交承接，就先标成噪音。</div></div>'
+        '<div class="score-explainer-card"><div class="score-explainer-title">机构与行业</div>'
+        '<div class="score-explainer-copy">iFinD 机构观点和行业/概念异动只作为研究线索，必须再交叉验证成交承接和风险分。</div></div>'
         '</div>',
         unsafe_allow_html=True,
     )

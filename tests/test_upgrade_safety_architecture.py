@@ -520,6 +520,45 @@ def test_ai_chat_uses_api_when_valid_key_is_configured(monkeypatch):
     assert status["model"] == "deepseek-chat"
 
 
+def test_market_radar_includes_research_views_and_sector_moves(monkeypatch):
+    from src.news import radar
+
+    def fake_smart(query, limit=10):
+        if "机构" in query or "研报" in query:
+            return [
+                {
+                    "title": "中芯国际(688981) 机构观点升温",
+                    "content": "研报/机构关注升温",
+                    "source": "iFinD机构观点",
+                    "type": "research_view",
+                    "related_codes": ["688981"],
+                }
+            ]
+        if "行业" in query or "概念" in query:
+            return [
+                {
+                    "title": "半导体行业异动",
+                    "content": "行业涨幅与成交额升温",
+                    "source": "iFinD行业异动",
+                    "type": "sector_move",
+                    "related_codes": ["688981"],
+                }
+            ]
+        return []
+
+    monkeypatch.setattr(radar, "fetch_ifind_smart_picks", fake_smart)
+    monkeypatch.setattr(radar, "fetch_policy_updates", lambda limit=15: [])
+    monkeypatch.setattr(radar, "fetch_irm_hot", lambda limit=20: [])
+    monkeypatch.setattr("src.news.fetcher.fetch_all_news", lambda limit=30: [])
+
+    result = radar.fetch_radar_market_overview(limit=12)
+
+    assert result["sources"]["iFinD机构观点"] == 1
+    assert result["sources"]["iFinD行业异动"] == 1
+    assert any(item["type"] == "research_view" for item in result["items"])
+    assert any(item["type"] == "sector_move" for item in result["items"])
+
+
 def test_user_risk_state_enters_cooldown_after_recent_bad_feedback():
     from src.risk.user_state import evaluate_user_risk_state
 
