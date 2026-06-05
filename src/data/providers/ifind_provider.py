@@ -367,53 +367,114 @@ class IFindProvider(MarketDataProvider):
         result = {"source": "ifind", "indices": indices}
         return self._ttl_set(key, result)
 
+    def get_stock_universe(self, blockname: str = "001005010", limit: int = 200) -> list:
+        """Phase 1.2: 用专题报表取板块成分股代码（消耗专题报表额度，60万/月，很充裕）。
+
+        blockname: 001005010=全部A股, 001005260=上证50（其他板块代码需在 iFinD 超级命令查证）。
+        返回 ['600519.SH', '000001.SZ', ...]
+        """
+        today = datetime.now().strftime("%Y%m%d")
+        key = ("universe", blockname, today)
+        cached = self._ttl_get(key, 12 * 3600)  # 成分股一天变不了几次，缓存12小时
+        if cached is not None:
+            return cached
+
+        data = self.data_pool(
+            reportname="p03291",
+            functionpara={"date": today, "blockname": blockname, "iv_type": "allcontract"},
+            outputpara="p03291_f001,p03291_f002,p03291_f003,p03291_f004",
+        )
+        codes = []
+        for table in data.get("tables", []) or []:
+            raw = table.get("table", table)
+            if isinstance(raw, dict):
+                f002 = raw.get("p03291_f002")
+                if isinstance(f002, list):
+                    codes.extend(f002)
+                elif isinstance(f002, str) and f002:
+                    codes.append(f002)
+            elif isinstance(raw, list):
+                for item in raw:
+                    if isinstance(item, dict):
+                        code = item.get("p03291_f002") or item.get("f002") or ""
+                        if code:
+                            codes.append(code)
+
+        result = codes[:limit]
+        return self._ttl_set(key, result)
+
     def get_top_stocks(self, sort_field: str = "change_pct", asc: bool = False, limit: int = 50) -> list:
+        """Phase 1.2 双保险榜单：
+        路线A(主): 智能选股取候选(1次) → 实时行情补价(分批) → 本地排序
+        路线B(备): 智能选股行数不足时，用专题报表取全A池补充
+        过滤北交所(92/8/43/83开头 iFinD 支持差) + 0价格
+        """
         query_map = {
             "changepercent": "A股涨幅榜" if not asc else "A股跌幅榜",
-            "change_pct": "A股涨幅榜" if not asc else "A股跌幅榜",
-            "amount": "A股成交额排名",
-            "turnoverratio": "A股换手率排名",
+            "change_pct":   "A股涨幅榜" if not asc else "A股跌幅榜",
+            "amount":       "A股成交额排名",
+            "turnoverratio":"A股换手率排名",
         }
-        rows = self.smart_stock_picking(query_map.get(sort_field, "A股涨幅榜"), limit=limit)
+        query_text = query_map.get(sort_field, "A股涨幅榜")
+        candidates = self.smart_stock_picking(query_text, limit=max(limit, 30))
 
-        # 用批量行情补齐 price/volume/amount（wencai 返回的数据可能不完整）
-        if rows:
-            # 过滤掉北交所股票(920xxx)，iFinD 对北交所支持不完整
-            main_board_codes = [r.get("code") for r in rows if r.get("code") and not str(r.get("code", "")).startswith("92")]
+        # 候选不足时，用专题报表池补充（不额外消耗智能选股额度）
+        valid_candidates = [c for c in candidates if c.get("code")]
+        if len(valid_candidates) < limit:
+            try:
+                pool = self.get_stock_universe(limit=300)  # 全A池，12h缓存
+                existing = {c.get("code") for c in valid_candidates}
+                for ths_code in pool:
+                    plain = self._plain_code(ths_code)
+                    if plain and plain not in existing:
+                        valid_candidates.append({
+                            "code": plain, "name": plain,
+                            "price": 0, "change_pct": 0,
+                            "source": "ifind_pool",
+                        })
+                        existing.add(plain)
+                    if len(valid_candidates) >= limit * 2:
+                        break
+                logger.info(
+                    "榜单双保险: 智能选股 %d 行 + 专题报表补 %d 行 → 共 %d 候选",
+                    len(candidates), len(valid_candidates) - len(candidates), len(valid_candidates)
+                )
+            except Exception as e:
+                logger.warning(f"专题报表补池失败，仅用智能选股结果: {e}")
 
-            if main_board_codes:
-                try:
-                    # 逐个获取行情，避免批量失败影响全部
-                    qmap = {}
-                    for i in range(0, len(main_board_codes), 10):
-                        batch = main_board_codes[i:i+10]
-                        try:
-                            quotes = self.get_realtime_quotes(batch)
-                            for q in quotes:
-                                qmap[q.get("code")] = q
-                        except Exception as e:
-                            logger.warning(f"批量行情获取失败 batch {i}: {e}")
-                            continue
+        # 过滤北交所 + ST + 0价格候补（92/8/43/83 开头 iFinD 支持差）
+        bj_prefixes = ("92", "8", "43", "83")
+        filtered = [
+            c for c in valid_candidates
+            if c.get("code") and not str(c["code"]).startswith(bj_prefixes)
+        ]
 
-                    # 补齐数据
-                    for row in rows:
-                        code = row.get("code")
-                        q = qmap.get(code)
-                        if q:
-                            # 直接覆盖而非条件判断，确保使用最新实时数据
-                            row["price"] = q.get("price", row.get("price", 0))
-                            row["volume"] = q.get("volume", row.get("volume", 0))
-                            row["amount"] = q.get("amount", row.get("amount", 0))
-                            row["turnover"] = q.get("turnover", row.get("turnover", 0))
-                            row["open"] = q.get("open", row.get("open", 0))
-                            row["high"] = q.get("high", row.get("high", 0))
-                            row["low"] = q.get("low", row.get("low", 0))
-                            row["change_pct"] = q.get("change_pct", row.get("change_pct", 0))
-                except Exception as e:
-                    logger.warning(f"榜单数据补齐失败: {e}")
+        # 批量补齐实时行情（30个一批，减少请求次数）
+        codes = [c["code"] for c in filtered]
+        qmap = {}
+        for i in range(0, len(codes), 30):
+            batch = codes[i:i + 30]
+            try:
+                for q in self.get_realtime_quotes(batch):
+                    qmap[q["code"]] = q
+            except Exception as e:
+                logger.warning(f"批量行情 batch{i} 失败: {e}")
 
-        # 过滤掉价格为0的无效数据
-        return [r for r in rows if r.get("price", 0) > 0]
+        # 合并 + 本地排序（不信任问财的排序）
+        merged = []
+        for c in filtered:
+            q = qmap.get(c.get("code"))
+            if q and q.get("price", 0) > 0:
+                merged.append({**c, **q})  # q 覆盖 c，实时行情优先
+            elif c.get("price", 0) > 0:
+                merged.append(c)  # 保留有价格的原始数据
+
+        sort_key = {
+            "changepercent": "change_pct", "change_pct": "change_pct",
+            "amount": "amount", "turnoverratio": "turnover",
+        }.get(sort_field, "change_pct")
+        merged.sort(key=lambda x: x.get(sort_key, 0), reverse=not asc)
+        return merged[:limit]
 
     def smart_stock_picking(self, query: str, limit: int = 20) -> list:
         limit = max(1, min(int(limit or 20), 50))
