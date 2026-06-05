@@ -2,6 +2,8 @@
 结构化 AI 分析记忆 —— 风险审查 · 持股预测 · 验证管理
 """
 
+from __future__ import annotations
+
 import json, logging
 from datetime import datetime
 from typing import Optional

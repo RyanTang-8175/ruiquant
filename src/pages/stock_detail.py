@@ -1,5 +1,7 @@
 """个股作战卡 —— 移动端优先"""
 
+from __future__ import annotations
+
 import streamlit as st
 from src.data.realtime import get_kline, get_realtime_quote
 from src.scoring.engine import V6ScoringEngine
@@ -42,22 +44,21 @@ def _score(code, quote):
 
 def _header(code, quote, result):
     name = quote.get("name", code); price = quote.get("price", 0); pct = quote.get("change_pct", 0)
-    c = "#E53935" if pct > 0 else "#0A9B66" if pct < 0 else "#5D6B7C"
+    c = "var(--red)" if pct > 0 else "var(--green)" if pct < 0 else "var(--muted)"
     status = result.status_label if result else "待评分"
     risk = result.anti_quant.risk_level if result else ""
+    risk_bg = "var(--red)" if risk in ("高","极高") else "var(--amber)" if risk=="中" else "var(--green)"
     st.markdown(
-        f'<div style="background:#fff;border:1px solid #D8E1EA;border-radius:12px;padding:14px;margin-bottom:10px">'
+        f'<div class="card">'
         f'<div style="display:flex;justify-content:space-between;align-items:flex-start">'
-        f'<div style="flex:1"><span style="font-size:18px;font-weight:700;color:#17212F">{name}</span>'
-        f'<span style="font-size:11px;color:#5D6B7C;margin-left:6px;font-family:monospace">{code}</span>'
+        f'<div style="flex:1"><span style="font-size:18px;font-weight:700;color:var(--text)">{name}</span>'
+        f'<span style="font-size:11px;color:var(--muted);margin-left:6px;font-family:var(--mono)">{code}</span>'
         f'<div style="margin-top:6px">'
-        f'<span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;background:rgba(36,107,254,0.10);color:#246BFE">{status}</span> '
-        f'<span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;'
-        f'background:{"rgba(229,57,53,0.10)" if risk in ("高","极高") else "rgba(216,131,18,0.10)" if risk=="中" else "rgba(10,155,102,0.10)"};'
-        f'color:{"#E53935" if risk in ("高","极高") else "#D88312" if risk=="中" else "#0A9B66"}">{risk}风险</span>'
+        f'<span class="badge badge-ai">{status}</span> '
+        f'<span class="badge" style="color:{risk_bg};border-color:{risk_bg}">{risk}风险</span>'
         f'</div></div>'
-        f'<div style="text-align:right"><div style="font-size:24px;font-weight:800;color:{c};font-family:monospace">{price:.2f}</div>'
-        f'<div style="font-size:14px;font-weight:700;color:{c};font-family:monospace">{pct:+.2f}%</div></div></div></div>',
+        f'<div style="text-align:right"><div style="font-size:24px;font-weight:800;color:{c};font-family:var(--mono)">{price:.2f}</div>'
+        f'<div style="font-size:14px;font-weight:700;color:{c};font-family:var(--mono)">{pct:+.2f}%</div></div></div></div>',
         unsafe_allow_html=True)
 
 
@@ -76,19 +77,19 @@ def _quote_grid(quote):
 
 
 def _score_detail(result):
-    st.markdown('<div style="font-size:13px;font-weight:700;color:#5D6B7C;margin:14px 0 6px;border-bottom:1px solid #D8E1EA;padding-bottom:4px">六维评分</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sec-h">六维评分</div>', unsafe_allow_html=True)
 
     risk = result.anti_quant.risk_level
-    sc = "#0A9B66" if result.total_score >= 72 and risk in ("低","中") else "#D88312" if result.total_score >= 60 else "#E53935" if result.total_score < 45 else "#246BFE"
+    sc = "var(--green)" if result.total_score >= 72 and risk in ("低","中") else "var(--amber)" if result.total_score >= 60 else "var(--red)" if result.total_score < 45 else "var(--ai)"
     plain = _plain(result)
     triggers = " · ".join(result.anti_quant.triggers[:3]) if result.anti_quant.triggers else "无显著触发"
 
     st.markdown(
-        f'<div style="background:#fff;border:1px solid #D8E1EA;border-radius:10px;padding:12px;margin-bottom:10px">'
-        f'<div style="display:flex;justify-content:space-between"><span style="font-size:15px;font-weight:700;color:#17212F">机会分</span>'
-        f'<span style="font-size:28px;font-weight:900;color:{sc};font-family:monospace">{result.total_score:.0f}</span></div>'
-        f'<div style="font-size:12px;color:#17212F;margin-top:6px;line-height:1.5">{plain}</div>'
-        f'<div style="font-size:11px;color:#5D6B7C;margin-top:4px">{triggers}</div></div>',
+        f'<div class="card">'
+        f'<div style="display:flex;justify-content:space-between"><span style="font-size:15px;font-weight:700;color:var(--text)">机会分</span>'
+        f'<span style="font-size:28px;font-weight:900;color:{sc};font-family:var(--mono)">{result.total_score:.0f}</span></div>'
+        f'<div style="font-size:12px;color:var(--text);margin-top:6px;line-height:1.5">{plain}</div>'
+        f'<div style="font-size:11px;color:var(--muted);margin-top:4px">{triggers}</div></div>',
         unsafe_allow_html=True)
 
     dims = [
@@ -97,21 +98,21 @@ def _score_detail(result):
         ("策略", "符合哪个模式", result.strategy_match),
     ]
     for title, q, d in dims:
-        clr = "#0A9B66" if d.score >= 65 else "#D88312" if d.score >= 50 else "#E53935"
+        clr = "var(--green)" if d.score >= 65 else "var(--amber)" if d.score >= 50 else "var(--red)"
         sub = ""
         if d.sub_scores:
             parts = []
             for k, v in d.sub_scores.items():
-                if isinstance(v, (int, float)): parts.append(f'<span style="font-size:11px;color:#5D6B7C">{k}</span> <span style="font-family:monospace;color:#17212F">{v:.0f}</span>')
-                elif isinstance(v, bool): parts.append(f'<span style="font-size:11px;color:#5D6B7C">{k}</span> <span style="font-family:monospace;color:{"#0A9B66" if v else "#E53935"}">{"是" if v else "否"}</span>')
+                if isinstance(v, (int, float)): parts.append(f'<span style="font-size:11px;color:var(--muted)">{k}</span> <span style="font-family:var(--mono);color:var(--text)">{v:.0f}</span>')
+                elif isinstance(v, bool): parts.append(f'<span style="font-size:11px;color:var(--muted)">{k}</span> <span style="font-family:var(--mono);color:{"var(--green)" if v else "var(--red)"}">{"是" if v else "否"}</span>')
             sub = " · ".join(parts)
         st.markdown(
-            f'<div style="background:#fff;border:1px solid #D8E1EA;border-radius:8px;padding:10px;margin-bottom:6px">'
-            f'<div style="display:flex;justify-content:space-between"><div><span style="font-size:14px;font-weight:700;color:#17212F">{title}</span>'
-            f'<span style="font-size:11px;color:#5D6B7C;margin-left:6px">{q}</span></div>'
-            f'<span style="font-size:18px;font-weight:800;color:{clr};font-family:monospace">{d.score:.0f}</span></div>'
+            f'<div class="card" style="margin-bottom:6px;padding:10px">'
+            f'<div style="display:flex;justify-content:space-between"><div><span style="font-size:14px;font-weight:700;color:var(--text)">{title}</span>'
+            f'<span style="font-size:11px;color:var(--muted);margin-left:6px">{q}</span></div>'
+            f'<span style="font-size:18px;font-weight:800;color:{clr};font-family:var(--mono)">{d.score:.0f}</span></div>'
             f'<div style="margin-top:4px">{sub}</div>'
-            f'<div style="font-size:11px;color:#8B98A7;margin-top:3px">{d.explanation}</div></div>',
+            f'<div style="font-size:11px;color:var(--hint);margin-top:3px">{d.explanation}</div></div>',
             unsafe_allow_html=True)
 
 
@@ -120,22 +121,22 @@ def _antiquant_detail(result):
     ms = [("尾盘诱多", aq.late_day_lure), ("高位接盘", aq.high_position_trap),
           ("分时脉冲", aq.intraday_pulse), ("放量滞涨", aq.volume_stall),
           ("板块背离", aq.sector_divergence)]
-    st.markdown('<div style="font-size:13px;font-weight:700;color:#5D6B7C;margin:14px 0 6px;border-bottom:1px solid #D8E1EA;padding-bottom:4px">反量化详情</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sec-h">反量化详情</div>', unsafe_allow_html=True)
     for n, d in ms:
         sc = d.get("score", 0) if isinstance(d, dict) else 0
         lv = "高" if sc >= 70 else "中" if sc >= 40 else "低"
         tr = ", ".join(d.get("triggers", [])[:2]) if isinstance(d, dict) else ""
-        clr = "#E53935" if lv == "高" else "#D88312" if lv == "中" else "#0A9B66"
+        clr = "var(--red)" if lv == "高" else "var(--amber)" if lv == "中" else "var(--green)"
         st.markdown(
-            f'<div style="background:#fff;border:1px solid #D8E1EA;border-radius:8px;padding:10px;margin-bottom:6px">'
-            f'<div style="display:flex;justify-content:space-between"><span style="font-size:13px;font-weight:600;color:#17212F">{n}</span>'
-            f'<span style="font-size:12px;font-weight:700;color:{clr};font-family:monospace">{sc:.0f} {lv}</span></div>'
-            f'<div style="font-size:11px;color:#5D6B7C;margin-top:3px">{tr if tr else "未触发"}</div></div>',
+            f'<div class="card" style="margin-bottom:6px;padding:10px">'
+            f'<div style="display:flex;justify-content:space-between"><span style="font-size:13px;font-weight:600;color:var(--text)">{n}</span>'
+            f'<span style="font-size:12px;font-weight:700;color:{clr};font-family:var(--mono)">{sc:.0f} {lv}</span></div>'
+            f'<div style="font-size:11px;color:var(--muted);margin-top:3px">{tr if tr else "未触发"}</div></div>',
             unsafe_allow_html=True)
 
 
 def _kline_chart(code):
-    st.markdown('<div style="font-size:13px;font-weight:700;color:#5D6B7C;margin:14px 0 6px;border-bottom:1px solid #D8E1EA;padding-bottom:4px">K线走势</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sec-h">K线走势</div>', unsafe_allow_html=True)
     try:
         kls = get_kline(code, period="101", count=60)
     except Exception:
@@ -151,10 +152,10 @@ def _kline_chart(code):
 
     # 近5日迷你卡片
     st.markdown('<div style="display:flex;gap:4px;font-size:12px;margin-bottom:8px">' + "".join(
-        f'<div style="flex:1;text-align:center;background:#fff;border:1px solid #D8E1EA;border-radius:6px;padding:5px 2px">'
-        f'<div style="font-size:10px;color:#5D6B7C">{r["date"].strftime("%m/%d")}</div>'
-        f'<div style="font-family:monospace;font-weight:700;font-size:13px;color:{"#E53935" if r.get("close",0)>=r.get("open",0) else "#0A9B66"}">{r["close"]:.2f}</div>'
-        f'<div style="font-family:monospace;font-size:10px;color:{"#E53935" if r.get("change_pct",0)>0 else "#0A9B66"}">{r.get("change_pct",0):+.1f}%</div></div>'
+        f'<div class="card" style="flex:1;text-align:center;padding:5px 2px;margin-bottom:0">'
+        f'<div style="font-size:10px;color:var(--muted)">{r["date"].strftime("%m/%d")}</div>'
+        f'<div style="font-family:var(--mono);font-weight:700;font-size:13px;color:{"var(--red)" if r.get("close",0)>=r.get("open",0) else "var(--green)"}">{r["close"]:.2f}</div>'
+        f'<div style="font-family:var(--mono);font-size:10px;color:{"var(--red)" if r.get("change_pct",0)>0 else "var(--green)"}">{r.get("change_pct",0):+.1f}%</div></div>'
         for _, r in recent.iterrows()) + '</div>', unsafe_allow_html=True)
 
     # Plotly K线图
@@ -176,7 +177,7 @@ def _kline_chart(code):
 
 
 def _ai_bar(code, quote, result=None):
-    st.markdown('<div style="font-size:13px;font-weight:700;color:#5D6B7C;margin:14px 0 6px;border-bottom:1px solid #D8E1EA;padding-bottom:4px">操作</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sec-h">操作</div>', unsafe_allow_html=True)
     c1, c2, c3 = st.columns(3)
     with c1:
         if st.button("审查风险", use_container_width=True, key="sdr"):
@@ -257,9 +258,8 @@ def _summary_card(code, quote, result):
         summary += f"主要风险点：{'；'.join(result.anti_quant.triggers[:2])}。"
 
     st.markdown(
-        f'<div style="background:rgba(36,107,254,0.04);border:1px solid rgba(36,107,254,0.12);'
-        f'border-radius:10px;padding:12px;margin-bottom:10px;font-size:13px;'
-        f'color:#17212F;line-height:1.6">{summary}</div>',
+        f'<div class="soft-card" style="border:1px solid var(--ai);font-size:13px;'
+        f'color:var(--text);line-height:1.6">{summary}</div>',
         unsafe_allow_html=True)
 
 

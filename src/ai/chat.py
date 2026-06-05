@@ -1,5 +1,7 @@
 """AlphaEye AI — 短线风险审查与选股分析引擎"""
 
+from __future__ import annotations
+
 import json, logging, os, re, traceback
 from datetime import datetime, date
 from src.config import get_setting

@@ -165,18 +165,31 @@ def fetch_news_by_source(source: str, limit: int = 15) -> List[Dict]:
 
 def fetch_stock_news(code: str, limit: int = 8) -> List[Dict]:
     news = []
+    # ── iFinD 公告优先 ──
     try:
-        tc = f"sh{code}" if code.startswith('6') else f"sz{code}"
-        r = requests.get(
-            f'http://vip.stock.finance.sina.com.cn/corp/go.php/vCB_AllNewsStock/symbol/{tc}.phtml',
-            headers=H, timeout=10)
-        for url, title in re.findall(r'<a[^>]*href="([^"]*)"[^>]*target="_blank"[^>]*>([^<]+)</a>', r.text)[:limit]:
-            t = re.sub(r'\s+','',title).strip()
-            if t and len(t)>8: news.append({"title":t,"content":"","source":"新浪","url":url,"published_at":""})
-    except: pass
-    for item in fetch_all_news(50):
-        if code in (item.get("title","")+item.get("content","")+item.get("keywords","")):
-            news.append(item)
+        from src.data.providers.registry import get_provider
+        provider = get_provider()
+        if provider.source_name == "ifind":
+            items = provider.report_query(code, days=60, limit=limit)
+            for item in items:
+                item.setdefault("category", "company")
+            news.extend(items)
+    except Exception:
+        pass
+
+    if not news:
+        try:
+            tc = f"sh{code}" if code.startswith('6') else f"sz{code}"
+            r = requests.get(
+                f'http://vip.stock.finance.sina.com.cn/corp/go.php/vCB_AllNewsStock/symbol/{tc}.phtml',
+                headers=H, timeout=10)
+            for url, title in re.findall(r'<a[^>]*href="([^"]*)"[^>]*target="_blank"[^>]*>([^<]+)</a>', r.text)[:limit]:
+                t = re.sub(r'\s+','',title).strip()
+                if t and len(t)>8: news.append({"title":t,"content":"","source":"新浪","url":url,"published_at":""})
+        except: pass
+        for item in fetch_all_news(50):
+            if code in (item.get("title","")+item.get("content","")+item.get("keywords","")):
+                news.append(item)
     return _dedup(news, limit)
 
 
