@@ -411,7 +411,6 @@ def _with_context(text: str) -> str:
                 ctx = e.build_ai_context(stock_code, quote=live_quote if live_quote.get("price") else None)
             parts.append(f"\n\n[系统: {stock_code} 六维评分+K线]\n{ctx}")
         except Exception: pass
-        except Exception: pass
         try:
             from src.news.fetcher import fetch_stock_news
             news = fetch_stock_news(stock_code, limit=3)
