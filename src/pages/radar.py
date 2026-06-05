@@ -207,8 +207,8 @@ def _render_info_item(item: dict):
         f'<div style="font-size:12px;color:var(--muted);margin-top:5px">{source} · {typ} · {published}</div></div>'
         f'<span class="badge" style="background:rgba(216,131,18,0.12);color:{color};white-space:nowrap">{label}</span>'
         f'</div>'
-        f'{"<div class=\"watch-sub\">相关代码：" + html.escape(code_text) + "</div>" if code_text else ""}'
-        f'</div>',
+        + ('<div class="watch-sub">相关代码：' + html.escape(code_text) + '</div>' if code_text else '')
+        + '</div>',
         unsafe_allow_html=True,
     )
 
