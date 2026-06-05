@@ -31,12 +31,18 @@ class IFindProvider(MarketDataProvider):
     """同花顺 iFinD 专业数据源 HTTP 适配器。"""
 
     source_name = "ifind"
-    base_url = "https://quantapi.51ifind.com/api/v1"
+    _base_urls = [
+        "https://quantapi.51ifind.com/api/v1",
+        "https://quantapi.10jqka.com.cn/api/v1",
+    ]
+    base_url = _base_urls[0]
 
     def __init__(self):
         self.refresh_token = get_setting("ifind_refresh_token", "IFIND_REFRESH_TOKEN", "")
         self.access_token = get_setting("ifind_access_token", "IFIND_ACCESS_TOKEN", "")
         self.timeout = float(get_setting("ifind_timeout", "IFIND_TIMEOUT", "8") or 8)
+        self._verify_ssl = os.getenv("IFIND_VERIFY_SSL", "1") != "0"
+        self._last_error: str = ""
         self._access_token_expire_at = 0.0
         self._cache: dict[tuple, tuple[float, object]] = {}
         self._calls: dict[str, int] = {}
@@ -74,36 +80,53 @@ class IFindProvider(MarketDataProvider):
         if not self.refresh_token:
             raise RuntimeError("未配置 IFIND_REFRESH_TOKEN")
 
-        response = requests.post(
-            f"{self.base_url}/get_access_token",
-            headers={"Content-Type": "application/json", "refresh_token": self.refresh_token},
-            timeout=self.timeout,
-        )
-        payload = response.json()
-        token = (payload.get("data") or {}).get("access_token") or payload.get("access_token")
-        if not token:
-            raise RuntimeError(f"iFinD access_token 获取失败: {str(payload)[:160]}")
-        self.access_token = token
-        self._access_token_expire_at = time.time() + 50 * 60
-        return token
+        last_err = ""
+        for base in self._base_urls:
+            try:
+                kwargs: dict = {"headers": {"Content-Type": "application/json", "refresh_token": self.refresh_token}, "timeout": self.timeout}
+                if not self._verify_ssl:
+                    kwargs["verify"] = False
+                response = requests.post(f"{base}/get_access_token", **kwargs)
+                payload = response.json()
+                token = (payload.get("data") or {}).get("access_token") or payload.get("access_token")
+                if token:
+                    self.base_url = base
+                    self.access_token = token
+                    self._access_token_expire_at = time.time() + 50 * 60
+                    logger.info("iFinD access_token 获取成功 via %s", base)
+                    return token
+                last_err = f"{base}: {str(payload)[:120]}"
+            except Exception as exc:
+                last_err = f"{base}: {exc}"
+                logger.debug("iFinD token attempt failed: %s", last_err)
+        self._last_error = last_err
+        raise RuntimeError(f"iFinD access_token 获取失败: {last_err}")
 
     def _post(self, endpoint: str, payload: dict) -> dict:
         if not self.configured:
             raise RuntimeError("未配置 IFIND_REFRESH_TOKEN")
         token = self._get_access_token()
-        response = requests.post(
-            f"{self.base_url}/{endpoint}",
-            json=payload,
-            headers={"Content-Type": "application/json", "access_token": token},
-            timeout=self.timeout,
-        )
-        data = response.json()
-        self._record_call(endpoint)
-        code = data.get("errorcode", data.get("code", 0))
-        if code not in (0, "0", None):
-            msg = data.get("errmsg") or data.get("message") or str(data)[:160]
-            raise RuntimeError(f"iFinD {endpoint} 返回错误 {code}: {msg}")
-        return data
+        last_err = ""
+        for base in self._base_urls:
+            try:
+                kwargs = {"json": payload, "headers": {"Content-Type": "application/json", "access_token": token}, "timeout": self.timeout}
+                if not self._verify_ssl:
+                    kwargs["verify"] = False
+                response = requests.post(f"{base}/{endpoint}", **kwargs)
+                data = response.json()
+                self._record_call(endpoint)
+                code = data.get("errorcode", data.get("code", 0))
+                if code not in (0, "0", None):
+                    msg = data.get("errmsg") or data.get("message") or str(data)[:160]
+                    raise RuntimeError(f"iFinD {endpoint} 返回错误 {code}: {msg}")
+                self._last_error = ""
+                return data
+            except Exception as exc:
+                last_err = str(exc)[:200]
+                logger.debug("iFinD %s attempt via %s failed: %s", endpoint, base, last_err)
+                continue
+        self._last_error = last_err
+        raise RuntimeError(f"iFinD {endpoint} 失败: {last_err}")
 
     def _record_call(self, endpoint: str) -> None:
         self._calls[endpoint] = self._calls.get(endpoint, 0) + 1

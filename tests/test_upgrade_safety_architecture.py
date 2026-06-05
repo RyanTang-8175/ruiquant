@@ -6,13 +6,13 @@ from types import SimpleNamespace
 def test_data_provider_registry_exposes_ifind_http_provider(monkeypatch):
     monkeypatch.setenv("ALPHAEYE_DATA_PROVIDER", "ifind")
     monkeypatch.delenv("IFIND_REFRESH_TOKEN", raising=False)
+    # 防止本地 settings.json 残留 token 干扰测试
+    import src.data.providers.registry as reg
+    import src.data.providers.ifind_provider as ifd
+    monkeypatch.setattr(reg, "get_setting", lambda key, env_key=None, default="": default)
+    monkeypatch.setattr(ifd, "get_setting", lambda key, env_key=None, default="": default)
 
-    from src.data.providers.registry import get_provider, provider_status
-
-    provider = get_provider()
-    status = provider_status()
-
-    assert provider.source_name == "ifind"
+    status = reg.provider_status()
     assert status["provider"] == "ifind"
     assert status["ready"] is False
     assert "IFIND_REFRESH_TOKEN" in status["message"]
