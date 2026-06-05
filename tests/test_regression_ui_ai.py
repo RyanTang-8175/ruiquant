@@ -79,6 +79,17 @@ def test_ai_scene_prompt_uses_old_hand_style_and_builtin_roles():
     assert "不要把任务甩给用户去雷达页自己找" in prompt
 
 
+def test_watchlist_uses_light_readable_card_styles():
+    from pathlib import Path
+
+    text = Path("src/pages/watchlist.py").read_text(encoding="utf-8")
+
+    assert "background:#131510" not in text
+    assert "color:#E8E8E5" not in text
+    assert "VIEW {name}" not in text
+    assert "研究审计" in text or "加入审计" in text
+
+
 def test_ai_fallback_handles_sector_questions_without_single_stock_demand():
     ai = AIChat()
     answer = ai._fallback_answer("我有1w块，想买电力行业或半导体行业，该买什么股票")

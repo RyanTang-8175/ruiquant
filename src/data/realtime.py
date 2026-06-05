@@ -34,21 +34,29 @@ import time as _t
 _QCACHE = {}
 
 def get_realtime_quote(code: str) -> Optional[Dict]:
-    """单股行情 — 腾讯→新浪，30秒内存缓存"""
+    """单股行情 — 腾讯→新浪，30秒内存缓存，自动标记质量"""
     from src.data.stock_list import resolve_stock_name
+    from src.data.quality import assess_quote_quality, log_data_quality
     code = str(code or "")
     n = _t.time()
     if code in _QCACHE and n - _QCACHE[code][1] < 30:
         return _QCACHE[code][0]
+    source = "tencent"
     try:
+        started = _t.time()
         r = requests.get(f'http://qt.gtimg.cn/q={_tc_code(code)}', headers=H, timeout=5)
         q = _parse_gtimg(r.text)
         if q and q.get("price",0)>0:
             q["code"] = code
             q["name"] = resolve_stock_name(code, q.get("name", ""))
+            assess_quote_quality(q, source)
+            log_data_quality(source, f"quote:{code}", "ok", (_t.time() - started) * 1000)
             _QCACHE[code] = (q, n); return q
-    except: pass
+    except Exception as e:
+        log_data_quality(source, f"quote:{code}", "error", error_message=str(e)[:160])
+    source = "sina"
     try:
+        started = _t.time()
         r = requests.get(f'http://hq.sinajs.cn/list={_tc_code(code)}',
             headers={**H,'Referer':'https://finance.sina.com.cn'}, timeout=5)
         m = re.search(r'="(.+)"', r.text)
@@ -58,8 +66,12 @@ def get_realtime_quote(code: str) -> Optional[Dict]:
                  "high":v(4),"low":v(5),"volume":int(v(8)),"amount":v(9),
                  "change_pct":v(3)/v(2)*100-100 if v(2)>0 else 0}
             q["name"] = resolve_stock_name(code, q.get("name", ""))
+            assess_quote_quality(q, source)
+            log_data_quality(source, f"quote:{code}", "ok", (_t.time() - started) * 1000)
             _QCACHE[code] = (q, n); return q
-    except: pass
+    except Exception as e:
+        log_data_quality(source, f"quote:{code}", "error", error_message=str(e)[:160])
+    log_data_quality("quote", f"quote:{code}", "error", error_message="all quote sources failed")
     return None
 
 def get_market_overview() -> Dict:

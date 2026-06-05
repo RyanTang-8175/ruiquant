@@ -126,6 +126,62 @@ def test_ai_chat_persists_db_memory_and_analysis(tmp_path, monkeypatch):
     assert list(scratch_dir.glob("*.jsonl"))
 
 
+def test_ai_chat_auto_creates_research_audit_for_observable_report(tmp_path, monkeypatch):
+    db_path = tmp_path / "audit.db"
+    scratch_dir = tmp_path / "scratch_audit"
+    monkeypatch.setenv("DATABASE_PATH", str(db_path))
+    monkeypatch.setenv("ALPHAEYE_SCRATCHPAD_DIR", str(scratch_dir))
+
+    import importlib
+    import src.config as config
+    import src.utils.database as database
+    import src.data.models_v6 as models_v6
+
+    importlib.reload(config)
+    importlib.reload(database)
+    importlib.reload(models_v6)
+    models_v6.Base.metadata.create_all(database.engine)
+
+    from src.ai.chat import AIChat
+    from src.memory.analysis_memory import AnalysisMemory
+
+    ai = AIChat()
+    ai.client = _FakeOpenAIClient(
+        "## 结论摘要\n"
+        "机会分 72（机会分=上涨条件是否充足），风险分 61（风险分=追高被套概率），置信度 中（置信度=数据是否足够）。\n"
+        "结论：可观察，但不适合追高。\n\n"
+        "## 交易计划表\n"
+        "| 动作 | 触发条件 | 禁止条件 | 仓位/验证方式 | 复盘记录 |\n"
+        "|---|---|---|---|---|\n"
+        "| 加入观察 | 回踩不破均价线 | 高开急冲 | 仅模拟 | T+1/T+2/T+3 |\n\n"
+        "## 反证与失效条件\n"
+        "放量滞涨；跌破均价线；板块不联动。"
+    )
+
+    answer = ai.chat("分析 600900 今天能不能观察")
+
+    with AnalysisMemory() as memory:
+        records = memory.get_verification_results("600900")
+
+    assert "机会分 72" in answer
+    assert len(records) == 1
+    assert records[0]["source_type"] == "ai_prediction"
+    assert "可观察" in records[0]["hypothesis"]
+    assert records[0]["allow_real_trade"] is False
+
+
+def test_prompt_explains_three_scores_for_beginner():
+    from src.ai.chat import AIChat
+
+    prompt = AIChat.build_system_prompt("deep_analysis", "分析 600900")
+
+    assert "机会分" in prompt
+    assert "风险分" in prompt
+    assert "置信度" in prompt
+    assert "括号" in prompt
+    assert "新手也能看懂" in prompt
+
+
 def test_conversation_memory_indexes_threads_and_search(tmp_path, monkeypatch):
     db_path = tmp_path / "memory.db"
     monkeypatch.setenv("DATABASE_PATH", str(db_path))

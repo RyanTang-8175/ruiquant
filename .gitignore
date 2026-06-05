@@ -46,6 +46,11 @@ data/scratchpad/
 logs/
 *.log
 
+# Sensitive local conversation exports
+对话记录/*敏感*
+对话记录/*secret*
+对话记录/*key*
+
 # Backups
 backups/
 

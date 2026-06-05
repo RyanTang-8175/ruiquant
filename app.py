@@ -103,6 +103,26 @@ section[data-testid="stSidebar"] { display: none; }
   color: var(--ai) !important;
   border-color: rgba(36,107,254,0.20) !important;
 }
+[data-testid="stSegmentedControl"] {
+  background: rgba(255,255,255,0.90) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 16px !important;
+  padding: 4px !important;
+  margin: 8px 0 12px !important;
+  box-shadow: 0 8px 22px rgba(23,33,47,0.06);
+}
+[data-testid="stSegmentedControl"] label {
+  min-height: 40px !important;
+  border-radius: 12px !important;
+  font-size: 13px !important;
+  font-weight: 750 !important;
+  color: var(--muted) !important;
+}
+[data-testid="stSegmentedControl"] label[data-checked="true"],
+[data-testid="stSegmentedControl"] label[aria-checked="true"] {
+  background: #EAF1FF !important;
+  color: var(--ai) !important;
+}
 
 .card {
   background: var(--card); border: 1px solid var(--border);
@@ -258,13 +278,14 @@ code { color: var(--amber); background: var(--float); font-family: var(--mono); 
 }
 .ai-hero {
   background:
-    linear-gradient(135deg, rgba(47,125,255,0.96) 0%, rgba(0,166,184,0.88) 58%, rgba(217,148,38,0.82) 100%);
-  border: 1px solid rgba(255,255,255,0.20); border-radius: 12px;
+    radial-gradient(circle at 12% 0%, rgba(36,107,254,0.14), transparent 34%),
+    linear-gradient(135deg, #FFFFFF 0%, #F4F8FF 58%, #FFF7EA 100%);
+  border: 1px solid #D8E1EA; border-radius: 16px;
   padding: 18px; margin-bottom: 14px;
-  box-shadow: 0 20px 44px rgba(0,0,0,0.30);
+  box-shadow: 0 16px 38px rgba(23,33,47,0.09);
 }
-.ai-hero-title { color: #fff; font-size: 20px; font-weight: 800; margin-bottom: 5px; }
-.ai-hero-sub { color: rgba(255,255,255,0.78); font-size: 13px; line-height: 1.55; }
+.ai-hero-title { color: #17212F; font-size: 21px; font-weight: 850; margin-bottom: 6px; letter-spacing: -0.2px; }
+.ai-hero-sub { color: #465568; font-size: 13px; line-height: 1.58; }
 .skill-card {
   min-height: 74px; background: rgba(255,255,255,0.98); border: 1px solid var(--border);
   border-radius: 16px; padding: 11px; margin-bottom: 8px;
@@ -428,6 +449,36 @@ code { color: var(--amber); background: var(--float); font-family: var(--mono); 
   color: var(--text);
 }
 
+.score-explainer {
+  display: grid; grid-template-columns: 1fr; gap: 8px;
+  margin: 10px 0 12px;
+}
+.score-explainer-card {
+  background: #fff; border: 1px solid var(--border); border-radius: 14px;
+  padding: 11px 12px; box-shadow: 0 8px 22px rgba(23,33,47,0.05);
+}
+.score-explainer-title { color: var(--text); font-size: 13px; font-weight: 800; margin-bottom: 3px; }
+.score-explainer-copy { color: var(--muted); font-size: 12px; line-height: 1.5; }
+.watch-card {
+  background:#fff; border:1px solid var(--border); border-radius:16px;
+  padding:12px; margin-bottom:10px; box-shadow:0 10px 24px rgba(23,33,47,0.06);
+}
+.watch-rank {
+  width:28px; height:28px; border-radius:10px; display:flex; align-items:center; justify-content:center;
+  background:#F0F4FF; color:var(--ai); font-family:var(--mono); font-size:12px; font-weight:800;
+}
+.watch-title { color:var(--text); font-size:15px; font-weight:800; line-height:1.25; }
+.watch-code { color:var(--muted); font-family:var(--mono); font-size:11px; margin-left:6px; }
+.watch-sub { color:var(--muted); font-size:12px; line-height:1.45; margin-top:4px; }
+.watch-score { font-family:var(--mono); font-size:22px; font-weight:850; color:var(--ai); line-height:1; }
+.audit-hero {
+  background: linear-gradient(135deg,#FFFFFF,#F6FAFF);
+  border:1px solid var(--border); border-radius:16px; padding:14px; margin-bottom:12px;
+  box-shadow:0 12px 28px rgba(23,33,47,0.07);
+}
+.audit-title { color:var(--text); font-size:18px; font-weight:850; margin-bottom:5px; }
+.audit-copy { color:var(--muted); font-size:13px; line-height:1.55; }
+
 /* Tabs */
 .stTabs [role="tablist"] {
   gap: 2px;
@@ -497,29 +548,31 @@ TABS = [
     ("market", "行情", "📈"),
     ("radar", "雷达", "🛡"),
     ("ai_chat", "AI", "◇"),
-    ("lab", "实验室", "🧪"),
+    ("lab", "审计", "✓"),
     ("profile", "我的", "⚙"),
 ]
 cur = st.session_state["current_page"]
 st.session_state.setdefault("_last_page", cur)
 
-st.markdown('<div class="nav-wrap">', unsafe_allow_html=True)
-cols = st.columns(len(TABS))
-for i, (pid, label, icon) in enumerate(TABS):
-    with cols[i]:
-        is_cur = pid == cur
-        if st.button(
-            f"{icon}\n{label}", key=f"n_{pid}",
-            use_container_width=True,
-            type="primary" if is_cur else "secondary",
-        ):
-            if st.session_state.get("_last_page") == "ai_chat" and pid != "ai_chat":
-                st.session_state.pop("qq", None)
-                st.session_state.pop("ai_pending_prompt", None)
-            st.session_state["current_page"] = pid
-            st.session_state["_last_page"] = pid
-            st.rerun()
-st.markdown('</div>', unsafe_allow_html=True)
+_tab_ids = [pid for pid, _, _ in TABS]
+_labels = {pid: label for pid, label, icon in TABS}
+_nav_current = cur if cur in _tab_ids else st.session_state.get("_last_nav_page", "market")
+selected_nav = st.segmented_control(
+    "主导航",
+    options=_tab_ids,
+    default=_nav_current,
+    format_func=lambda pid: _labels.get(pid, pid),
+    key="main_nav",
+    label_visibility="collapsed",
+)
+if selected_nav and selected_nav != cur:
+    if st.session_state.get("_last_page") == "ai_chat" and selected_nav != "ai_chat":
+        st.session_state.pop("qq", None)
+        st.session_state.pop("ai_pending_prompt", None)
+    st.session_state["current_page"] = selected_nav
+    st.session_state["_last_page"] = selected_nav
+    st.session_state["_last_nav_page"] = selected_nav
+    st.rerun()
 
 # ═══════════════════════════════════════════
 # Page routing

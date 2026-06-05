@@ -1,6 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="100" fill="#0D1117"/>
-  <text x="256" y="200" text-anchor="middle" fill="#FF4444" font-size="120" font-weight="bold" font-family="Arial">RQ</text>
-  <text x="256" y="320" text-anchor="middle" fill="#E6EDF3" font-size="48" font-family="Arial">AI 研究助手</text>
-  <rect x="100" y="380" width="312" height="8" rx="4" fill="#FF4444"/>
+  <rect width="512" height="512" rx="96" fill="#F4F7FA"/>
+  <rect x="52" y="58" width="408" height="396" rx="72" fill="#FFFFFF" stroke="#D8E1EA" stroke-width="10"/>
+  <circle cx="140" cy="158" r="42" fill="#EAF1FF"/>
+  <path d="M122 160l18 18 40-54" fill="none" stroke="#246BFE" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="256" y="238" text-anchor="middle" fill="#17212F" font-size="92" font-weight="800" font-family="-apple-system,BlinkMacSystemFont,PingFang SC,Arial">AE</text>
+  <text x="256" y="316" text-anchor="middle" fill="#5D6B7C" font-size="40" font-weight="600" font-family="-apple-system,BlinkMacSystemFont,PingFang SC,Arial">研究审计</text>
+  <rect x="118" y="368" width="276" height="12" rx="6" fill="#246BFE"/>
 </svg>

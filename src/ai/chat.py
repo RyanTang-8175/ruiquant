@@ -163,7 +163,7 @@ class AIChat:
 
             return (
                 f"### 人话结论\n"
-                f"1 万做短线，我会先偏电力做防守模拟，半导体只做弹性观察。电力看 {primary} 这类承接稳的，半导体看 {chip} 这类主线弹性，但不能追高。\n\n"
+                f"机会分 64（机会分=当前方向值得研究的程度），风险分 58（风险分=追高或冲高回落的概率），置信度 中（置信度=公开数据够初筛但仍需盘中确认）。1 万做短线，我会先偏电力做防守模拟，半导体只做弹性观察。电力看 {primary} 这类承接稳的，半导体看 {chip} 这类主线弹性，但不能追高。\n\n"
                 "### 周一操作建议\n"
                 "你的状态：现金 1 万，适合先小样本模拟验证，不适合一把打满。今天的核心不是“买哪个行业”，而是先找低风险观察点，再决定要不要加入实验室验证。\n\n"
                 "### 周一操作两步走\n"
@@ -193,7 +193,7 @@ class AIChat:
 
         return (
             "## 结论摘要\n"
-            "我可以继续做研究，但现在没有拿到足够实时数据，所以不会编造价格、点位或确定结论。正确做法是先把问题拆成数据状态、风险、计划和复盘字段。\n\n"
+            "机会分 0（机会分=值得研究的上涨条件），风险分 70（风险分=数据缺失时误判的概率），置信度 低（置信度=当前数据不足）。我可以继续做研究，但现在没有拿到足够实时数据，所以不会编造价格、点位或确定结论。正确做法是先把问题拆成数据状态、风险、计划和复盘字段。\n\n"
             "## 数据状态\n"
             "| 数据 | 是否可用 | 你怎么用 | 局限 |\n"
             "|---|---|---|---|\n"
@@ -218,7 +218,7 @@ class AIChat:
     def _fallback_stock_report(code: str, user_message: str) -> str:
         return (
             f"## 结论摘要\n"
-            f"{code} 这次先按“研究/观察”处理，不给实盘买入结论。原因是当前工具或实时数据不足，我不能假装已经验证过价格、量比、板块联动和新闻催化。\n\n"
+            f"机会分 0（机会分=上涨条件是否充足），风险分 70（风险分=追高被套或误判概率），置信度 低（置信度=当前工具/实时数据不足）。{code} 这次先按“研究/观察”处理，不给实盘买入结论。原因是当前工具或实时数据不足，我不能假装已经验证过价格、量比、板块联动和新闻催化。\n\n"
             "## 数据状态\n"
             "| 数据 | 是否可用 | 你怎么用 | 局限 |\n"
             "|---|---|---|---|\n"
@@ -435,14 +435,178 @@ class AIChat:
                 data = dict(structured or {})
                 data.setdefault("timeframe", scene)
                 with AnalysisMemory() as analysis:
-                    analysis.save_analysis(
+                    analysis_id = analysis.save_analysis(
                         stock_code=stock_code,
                         analysis_type=scene,
                         data=data,
                         message_id=message_id,
                     )
+                    self._auto_create_research_audit(
+                        analysis=analysis,
+                        analysis_id=analysis_id,
+                        stock_code=stock_code,
+                        user_message=user_message,
+                        answer=answer,
+                        scene=scene,
+                        structured=data,
+                    )
         except Exception as exc:
             logger.warning(f"save ai message failed: {exc}")
+
+    @staticmethod
+    def _auto_create_research_audit(analysis, analysis_id: int, stock_code: str,
+                                    user_message: str, answer: str, scene: str,
+                                    structured: dict) -> None:
+        """把 AI 的可观察判断自动转成研究审计，不再要求用户手动抄表。"""
+        if not stock_code or not answer:
+            return
+        text = f"{user_message}\n{answer}"
+        action = AIChat._extract_action_label(text)
+        if not action:
+            return
+
+        if action in ("暂停", "放弃", "暂不碰"):
+            return
+
+        try:
+            from src.data.stock_list import resolve_stock_name
+            from src.data.realtime import get_realtime_quote
+
+            quote = get_realtime_quote(stock_code)
+            stock_name = resolve_stock_name(stock_code, quote.get("name", "") if quote else "")
+        except Exception:
+            stock_name = stock_code
+
+        period = structured.get("suggested_holding_period") or AIChat._extract_period(answer)
+        if not period:
+            period = "1-2天" if action in ("可观察", "仅模拟") else "待触发"
+
+        opportunity, risk_score, confidence = AIChat._extract_score_triplet(answer)
+        risk_level = structured.get("risk_level") or AIChat._risk_level_from_score(risk_score)
+        confidence_level = confidence or structured.get("confidence_level") or "中"
+
+        hypothesis = AIChat._build_hypothesis_summary(
+            stock_code=stock_code,
+            stock_name=stock_name,
+            action=action,
+            opportunity=opportunity,
+            risk_score=risk_score,
+            confidence=confidence_level,
+            answer=answer,
+        )
+        entry_conditions = AIChat._extract_section_items(answer, ["参与条件", "触发条件", "交易计划表"])[:5]
+        invalidation = AIChat._extract_section_items(answer, ["反证与失效条件", "放弃条件", "退出", "失效条件"])[:5]
+        if not entry_conditions:
+            entry_conditions = ["回踩不破分时均价线", "板块联动不背离", "反量化风险不升至高/极高"]
+        if not invalidation:
+            invalidation = ["放量滞涨", "冲高回落跌破均价线", "板块不联动或大盘明显转弱"]
+
+        analysis.create_verification(
+            "ai_prediction",
+            stock_code,
+            stock_name,
+            datetime.now(),
+            strategy_name=f"AI研究审计/{scene}",
+            suggested_period=period,
+            source_id=analysis_id,
+            hypothesis=hypothesis,
+            entry_conditions=entry_conditions,
+            invalidation_conditions=invalidation,
+            stop_loss_rule=AIChat._extract_stop_rule(answer) or "只做观察/模拟验证；若 T+1 最大回撤超过 3% 记为高风险样本",
+            risk_level=risk_level,
+            confidence_level=confidence_level,
+            allow_real_trade=False,
+            max_loss_pct=3.0,
+        )
+
+    @staticmethod
+    def _extract_action_label(text: str) -> str:
+        for label in ("可观察", "仅模拟", "等待触发", "暂停", "放弃", "暂不碰"):
+            if label in text:
+                return label
+        if "加入观察" in text:
+            return "可观察"
+        if "模拟验证" in text:
+            return "仅模拟"
+        return ""
+
+    @staticmethod
+    def _extract_score_triplet(text: str) -> tuple[int | None, int | None, str | None]:
+        def num(pattern: str):
+            m = re.search(pattern, text)
+            return int(m.group(1)) if m else None
+        opportunity = num(r"机会分\s*[:：]?\s*(\d{1,3})")
+        risk = num(r"风险分\s*[:：]?\s*(\d{1,3})")
+        cm = re.search(r"置信度\s*[:：]?\s*(高|中|低)", text)
+        return opportunity, risk, cm.group(1) if cm else None
+
+    @staticmethod
+    def _risk_level_from_score(score: int | None) -> str:
+        if score is None:
+            return "中"
+        if score >= 80:
+            return "极高"
+        if score >= 65:
+            return "高"
+        if score >= 45:
+            return "中"
+        return "低"
+
+    @staticmethod
+    def _extract_period(text: str) -> str:
+        for period in ("隔夜", "1-2天", "2-3天", "3-5天", "不建议"):
+            if period in text:
+                return period
+        return ""
+
+    @staticmethod
+    def _build_hypothesis_summary(stock_code: str, stock_name: str, action: str,
+                                  opportunity: int | None, risk_score: int | None,
+                                  confidence: str, answer: str) -> str:
+        score_line = []
+        if opportunity is not None:
+            score_line.append(f"机会分{opportunity}")
+        if risk_score is not None:
+            score_line.append(f"风险分{risk_score}")
+        score_line.append(f"置信度{confidence}")
+        core = "，".join(score_line)
+        first = next((line.strip() for line in answer.splitlines()
+                      if line.strip() and not line.strip().startswith("|") and not line.strip().startswith("#")), "")
+        return f"{stock_name}({stock_code}) AI结论为{action}，{core}。待审计假设：{first[:160]}"
+
+    @staticmethod
+    def _extract_section_items(text: str, section_names: list[str]) -> list[str]:
+        items = []
+        lines = text.splitlines()
+        active = False
+        for raw in lines:
+            line = raw.strip()
+            if not line:
+                continue
+            is_heading = line.startswith("#")
+            if is_heading:
+                active = any(name in line for name in section_names)
+                continue
+            if active:
+                if line.startswith("|") and "---" not in line:
+                    cells = [c.strip() for c in line.strip("|").split("|") if c.strip()]
+                    if cells and cells[0] not in ("动作", "风险项", "维度"):
+                        items.append(" / ".join(cells[:3]))
+                elif re.match(r"^(\d+\.|-|•)", line):
+                    items.append(re.sub(r"^(\d+\.|-|•)\s*", "", line))
+                if len(items) >= 8:
+                    break
+        return [x[:120] for x in items if len(x) >= 3]
+
+    @staticmethod
+    def _extract_stop_rule(text: str) -> str:
+        for raw in text.splitlines():
+            line = raw.strip()
+            if "止损" in line or "退出" in line:
+                clean = re.sub(r"^[|\-\d\.\s]+", "", line).strip("| ")
+                if 6 <= len(clean) <= 160:
+                    return clean
+        return ""
 
     def _finalize_response(self, user_message: str, answer: str,
                            session_id: int | None, stock_code: str, scene: str,

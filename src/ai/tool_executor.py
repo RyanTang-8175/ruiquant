@@ -8,6 +8,13 @@ class ToolExecutor:
     def __init__(self): pass
     def close(self): pass
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.close()
+        return False
+
     def execute(self, tool_name: str, arguments: dict) -> str:
         handlers = {
             "get_stock_quote": self._get_stock_quote,
@@ -20,6 +27,7 @@ class ToolExecutor:
             "get_financial_data": self._get_financial_data,
             "get_positions": self._get_positions,
             "get_kline_data": self._get_kline_data,
+            "get_info_radar": self._get_info_radar,
         }
         handler = handlers.get(tool_name)
         if not handler:
@@ -33,7 +41,11 @@ class ToolExecutor:
     def _get_stock_quote(self, code: str) -> dict:
         from src.data.realtime import get_realtime_quote
         q = get_realtime_quote(code)
-        return {"error":f"无{code}行情"} if not q else {
+        if not q:
+            return {"error": f"无{code}行情", "data_quality": "unavailable",
+                    "source": "none"}
+        quality = q.get("_quality", {})
+        return {
             "code": q.get("code"), "name": q.get("name"),
             "price": q.get("price"), "change_pct": q.get("change_pct"),
             "open": q.get("open"), "high": q.get("high"), "low": q.get("low"),
@@ -47,6 +59,9 @@ class ToolExecutor:
                 else "缩量下跌" if (q.get("volume_ratio",0) or 0) < 0.8 and (q.get("change_pct",0) or 0) < 0
                 else "温和放量" if (q.get("volume_ratio",0) or 0) > 1.0
                 else "正常"),
+            "data_quality": quality.get("quality_level", "unknown"),
+            "data_source": quality.get("source", "unknown"),
+            "is_delayed": quality.get("is_delayed", True),
         }
 
     def _get_technical_analysis(self, code: str, days: int = 60) -> dict:
@@ -75,7 +90,13 @@ class ToolExecutor:
         with V6ScoringEngine() as e:
             r = e.score_stock(code)
         if not r:
-            return {"error": f"无{code}评分"}
+            return {"error": f"无{code}评分", "data_quality": "unavailable"}
+        quo = None
+        try:
+            from src.data.realtime import get_realtime_quote
+            quo = get_realtime_quote(code)
+        except: pass
+        quality = quo.get("_quality", {}) if quo else {}
         d = r.to_dict()
         return {
             "code": d["code"], "name": d.get("name", ""),
@@ -91,6 +112,8 @@ class ToolExecutor:
             },
             "anti_quant": d["anti_quant"],
             "matched_strategies": d.get("matched_strategies", []),
+            "data_quality": quality.get("quality_level", "unknown"),
+            "quote_source": quality.get("source", "unknown"),
         }
 
     def _get_market_snapshot(self) -> dict:
@@ -223,3 +246,11 @@ class ToolExecutor:
         from src.data.realtime import get_kline
         kls = get_kline(code, period="101", count=days)
         return {"code":code,"count":len(kls),"recent":kls[-5:] if kls else []}
+
+    def _get_info_radar(self, code: str, limit: int = 10) -> dict:
+        from src.news.radar import fetch_radar_for_stock
+        try:
+            result = fetch_radar_for_stock(code, limit=limit)
+            return result
+        except Exception as e:
+            return {"error": f"雷达获取失败: {str(e)[:80]}", "code": code, "total": 0}

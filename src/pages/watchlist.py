@@ -7,6 +7,10 @@ from src.data.stock_list import SW_INDUSTRY, CONCEPTS
 
 def render_watchlist_page():
     st.markdown("## 选股")
+    st.markdown(
+        '<div class="page-kicker">先筛候选，再交给 AI 做研究审计。分数越高代表越值得研究，不代表可以追高。</div>',
+        unsafe_allow_html=True,
+    )
 
     kw = st.text_input("", placeholder="搜索代码/名称 如茅台、600519、平安...", key="sk", label_visibility="collapsed")
 
@@ -57,6 +61,16 @@ def render_watchlist_page():
     c3.metric("中性", sum(1 for r in results if r['rating']=="中性"), border=True)
     c4.metric("不追", sum(1 for r in results if r['rating']=="不追"), border=True)
 
+    st.markdown(
+        '<div class="score-explainer">'
+        '<div class="score-explainer-card"><div class="score-explainer-title">总分怎么看？</div>'
+        '<div class="score-explainer-copy">总分=动量、换手、波动、量能、趋势的综合初筛。它只说明“值得研究程度”，不是买入信号。</div></div>'
+        '<div class="score-explainer-card"><div class="score-explainer-title">为什么还要研究审计？</div>'
+        '<div class="score-explainer-copy">AI 会把可观察股票自动写成假设，收盘后回放 T+1/T+2/T+3，看当时判断到底对不对。</div></div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
     st.markdown("---")
 
     rc = {"强关注":"#FF3B30","观察":"#3399FF","中性":"#FFB800","不追":"#555"}
@@ -70,9 +84,41 @@ def render_watchlist_page():
         top = sorted(factors.items(), key=lambda x: x[1], reverse=True)[:5]
         ft = " . ".join(f"{fn.get(k,k)}:{v:.0f}" for k, v in top)
 
-        st.markdown(f'<div style="display:flex;align-items:center;padding:.5rem .7rem;background:#131510;border:1px solid #2A2B26;margin-bottom:.2rem;"><div style="color:#6B6C68;font-family:JetBrains Mono,monospace;font-size:.72rem;width:26px;text-align:center;">{i+1}</div><div style="flex:1;margin-left:.4rem;"><span style="color:#E8E8E5;font-weight:600;font-size:.9rem;">{name}</span><span style="color:#6B6C68;font-family:JetBrains Mono,monospace;font-size:.68rem;margin-left:.3rem;">{code}</span><div style="color:#6B6C68;font-size:.72rem;margin-top:.1rem;">{ft}</div></div><div style="text-align:center;"><div style="font-size:1.3rem;font-weight:700;color:{clr};font-family:JetBrains Mono,monospace;">{score:.0f}</div><span style="background:{clr};color:#fff;padding:1px 8px;font-family:JetBrains Mono,monospace;font-size:.7rem;">{rating}</span></div></div>', unsafe_allow_html=True)
+        readable_rating = {
+            "强关注": "值得深入研究",
+            "观察": "可加入观察",
+            "中性": "先放一放",
+            "不追": "不适合追高",
+        }.get(rating, rating)
+        st.markdown(
+            f'<div class="watch-card">'
+            f'<div style="display:flex;gap:10px;align-items:flex-start">'
+            f'<div class="watch-rank">{i+1}</div>'
+            f'<div style="flex:1;min-width:0">'
+            f'<div class="watch-title">{name}<span class="watch-code">{code}</span></div>'
+            f'<div class="watch-sub">{ft or "暂无因子"} · {readable_rating}</div>'
+            f'</div>'
+            f'<div style="text-align:right;min-width:70px">'
+            f'<div class="watch-score" style="color:{clr}">{score:.0f}</div>'
+            f'<span class="badge {"badge-high" if rating=="强关注" else "badge-ai" if rating=="观察" else "badge-mid" if rating=="中性" else "badge-low"}">{rating}</span>'
+            f'</div></div></div>',
+            unsafe_allow_html=True,
+        )
 
-        if st.button(f"VIEW {name}", key=f"wl_{code}_{i}"):
+        c_view, c_ai = st.columns(2)
+        with c_view:
+            clicked = st.button(f"查看 {name}", key=f"wl_{code}_{i}", use_container_width=True)
+        with c_ai:
+            audit = st.button("AI研究审计", key=f"wl_ai_{code}_{i}", use_container_width=True)
+        if clicked:
             st.session_state["selected_stock"] = code
             st.session_state["current_page"] = "stock_detail"
+            st.rerun()
+        if audit:
+            st.session_state["selected_stock"] = code
+            st.session_state["current_page"] = "ai_chat"
+            st.session_state["qq"] = (
+                f"请对 {code} 做完整研究审计。必须给机会分、风险分、置信度，并用括号解释含义；"
+                "输出结论摘要、数据状态、证据表、反量化风险表、交易计划表、反证与失效条件，最后自动生成研究审计字段。"
+            )
             st.rerun()

@@ -64,7 +64,7 @@ def render_search_bar(placeholder: str = "搜索代码或名称 如 茅台 / 600
     c1, c2 = st.columns([5, 1])
     with c1:
         query = st.text_input(
-            "", placeholder=placeholder,
+            "股票搜索", placeholder=placeholder,
             key=f"q_{key}", label_visibility="collapsed",
         )
     with c2:

@@ -134,4 +134,19 @@ TOOLS = [
             }
         }
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_info_radar",
+            "description": "获取信息雷达：互动易问答+公告+财经新闻聚合，用于判断个股突发利空利好",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "code": {"type": "string", "description": "股票代码"},
+                    "limit": {"type": "integer", "description": "返回条目数，默认10"}
+                },
+                "required": ["code"]
+            }
+        }
+    },
 ]

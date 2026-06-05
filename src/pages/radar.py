@@ -53,12 +53,13 @@ def render_radar_page():
         phase = ("确认阶段·不追高" if m >= 50 else "观察阶段" if m >= 45 else "初筛阶段" if m >= 30 else "等待尾盘")
         st.info(f"尾盘 · {phase} · {now.strftime('%H:%M')}")
 
-    # ── 每日推荐板块 ──
-    _daily_sectors()
+    # ── 信息雷达是主入口，不再藏进 Tab ──
+    _show_info_radar()
 
     # ── Tab ──
     tab0, tab1, tab2 = st.tabs(["推荐选股", "风险排除", "策略扫描"])
     with tab0:
+        _daily_sectors()
         _render_filter_and_results()
     with tab1:
         _show_risk_scan()
@@ -108,6 +109,108 @@ def _render_filter_and_results():
     scope = f"{filter_type}:{filter_key or 'all'}"
     for index, (stock, result) in enumerate(results[:15]):
         _render_card(stock, result, scope=scope, index=index)
+
+
+def _show_info_radar():
+    st.markdown(
+        '<div class="ai-hero">'
+        '<div class="ai-hero-title">信息雷达</div>'
+        '<div class="ai-hero-sub">比“推荐股票”更靠前：先看市场正在讨论什么，再判断它是真信号、假热点，还是需要等待验证。</div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        '<div class="score-explainer">'
+        '<div class="score-explainer-card"><div class="score-explainer-title">升温信号</div>'
+        '<div class="score-explainer-copy">政策、互动问答、公告、新闻里突然反复出现的主题。它只表示“值得研究”，不等于可以买。</div></div>'
+        '<div class="score-explainer-card"><div class="score-explainer-title">伪热点过滤</div>'
+        '<div class="score-explainer-copy">如果只有标题热闹、没有公告验证、没有板块联动、没有成交承接，就先标成噪音。</div></div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+    code = st.session_state.get("selected_stock", "")
+    c1, c2 = st.columns([2, 1])
+    with c1:
+        query_code = st.text_input("个股雷达", value=code, placeholder="输入 6 位代码，如 600519", label_visibility="collapsed")
+    with c2:
+        run_stock = st.button("查个股", use_container_width=True)
+
+    if run_stock and query_code.strip():
+        _render_stock_radar(query_code.strip()[:6])
+
+    _render_market_radar()
+
+
+def _render_market_radar():
+    try:
+        from src.news.radar import fetch_radar_market_overview
+        radar = fetch_radar_market_overview(limit=24)
+    except Exception as exc:
+        st.warning(f"信息雷达暂不可用: {exc}")
+        return
+
+    sources = radar.get("sources", {})
+    st.markdown('<div class="sec-h">全市场雷达源状态</div>', unsafe_allow_html=True)
+    if sources:
+        cols = st.columns(min(3, max(1, len(sources))))
+        for i, (name, value) in enumerate(sources.items()):
+            with cols[i % len(cols)]:
+                ok = isinstance(value, int) and value > 0
+                label = f"{value} 条" if isinstance(value, int) else str(value)
+                st.metric(name, label, "可用" if ok else "待修复/无数据")
+
+    items = radar.get("items", [])
+    if not items:
+        st.info("当前全市场雷达没有稳定抓到有效条目。AI 会把雷达数据标成低置信度，不能据此给明确动作。")
+        return
+
+    st.markdown('<div class="sec-h">今日升温信号</div>', unsafe_allow_html=True)
+    for item in items[:12]:
+        _render_info_item(item)
+
+
+def _render_stock_radar(code: str):
+    try:
+        from src.news.radar import fetch_radar_for_stock
+        radar = fetch_radar_for_stock(code, limit=8)
+    except Exception as exc:
+        st.warning(f"{code} 个股雷达暂不可用: {exc}")
+        return
+
+    st.markdown(f'<div class="sec-h">{code} 个股信息雷达</div>', unsafe_allow_html=True)
+    sources = radar.get("sources", {})
+    source_text = " · ".join(f"{k}:{v}" for k, v in sources.items()) if sources else "无来源状态"
+    st.caption(source_text)
+    items = radar.get("items", [])
+    if not items:
+        st.info("没有抓到互动易/公告/新闻有效条目。这个结论不是“没有风险”，只是“公开源暂时没有返回数据”。")
+        return
+    for item in items[:10]:
+        _render_info_item(item)
+
+
+def _render_info_item(item: dict):
+    title = html.escape(str(item.get("title", "")))
+    source = html.escape(str(item.get("source", "未知")))
+    typ = html.escape(str(item.get("type", "")))
+    published = html.escape(str(item.get("published_at", "")))
+    sentiment = item.get("sentiment", "neutral")
+    color = "var(--green)" if sentiment == "positive" else "var(--red)" if sentiment == "negative" else "var(--amber)"
+    label = "偏利好" if sentiment == "positive" else "偏利空" if sentiment == "negative" else "待验证"
+    codes = item.get("related_codes") or []
+    code_text = " · ".join(codes[:3])
+    st.markdown(
+        f'<div class="recommend-card">'
+        f'<div style="display:flex;justify-content:space-between;gap:10px">'
+        f'<div style="flex:1;min-width:0"><div style="font-size:14px;font-weight:800;color:var(--text);line-height:1.45">{title}</div>'
+        f'<div style="font-size:12px;color:var(--muted);margin-top:5px">{source} · {typ} · {published}</div></div>'
+        f'<span class="badge" style="background:rgba(216,131,18,0.12);color:{color};white-space:nowrap">{label}</span>'
+        f'</div>'
+        f'{f"<div class=\"watch-sub\">相关代码：{html.escape(code_text)}</div>" if code_text else ""}'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
 
 
 def _fetch_and_score(filter_type: str, filter_key: str) -> list:

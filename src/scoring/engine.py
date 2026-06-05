@@ -31,7 +31,7 @@ class ScoringEngine:
 
     def __init__(self):
         self.db = SessionLocal()
-        self.weights = QUICK_WEIGHTS
+        self.weights = dict(QUICK_WEIGHTS)
 
     def close(self):
         try: self.db.close()
@@ -40,56 +40,146 @@ class ScoringEngine:
     def __enter__(self): return self
     def __exit__(self, *a): self.close(); return False
 
+    def _validate_quote(self, q: dict) -> tuple:
+        """验证行情数据完整性，返回 (is_ok, warnings, quality_level)"""
+        warnings = []
+        if not q:
+            return False, ["无行情数据"], "unavailable"
+        price = q.get("price", 0)
+        if price <= 0:
+            return False, ["price=0 或无有效价格"], "unavailable"
+
+        quality = "ok"
+        required = ["open", "high", "low", "change_pct", "turnover"]
+        missing = [k for k in required if q.get(k) is None]
+        degraded = [k for k in required if q.get(k, 0) == 0 and k != "change_pct"]
+
+        if missing:
+            quality = "degraded"
+            warnings.append(f"缺失字段: {', '.join(missing)}")
+        if degraded:
+            quality = "degraded"
+            warnings.append(f"零值字段: {', '.join(degraded)}")
+        if q.get("high", 0) < q.get("low", 0):
+            quality = "invalid"
+            warnings.append("high < low 数据异常")
+
+        return True, warnings, quality
+
     def quick_score(self, q: dict) -> dict:
+        """快速评分 — 带数据验证、防除零、质量标记"""
+        ok, warnings, quality = self._validate_quote(q)
+        if not ok:
+            return {
+                'code': q.get('code', '') if q else '',
+                'total_score': 0,
+                'rating': '数据不足',
+                'factors': {},
+                'quick': True,
+                'warnings': warnings,
+                'data_quality': quality,
+                'calculated_at': datetime.now(),
+            }
+
         p = q.get("price", 0); o = q.get("open", 0)
         h = q.get("high", 0); l = q.get("low", 0)
         chg = q.get("change_pct", 0); turn = q.get("turnover", 0)
+        vol_ratio = q.get("volume_ratio", 1.0)
         f = {}
+
+        # ── 动量: 涨跌幅 ──
         if chg > 5: f['momentum'] = 85
         elif chg > 2: f['momentum'] = 70
         elif chg > 0: f['momentum'] = 55
         elif chg > -2: f['momentum'] = 45
         elif chg > -5: f['momentum'] = 30
         else: f['momentum'] = 15
+
+        # ── 换手率 ──
         if turn > 20: f['turnover'] = 25
         elif turn > 10: f['turnover'] = 40
         elif turn > 3: f['turnover'] = 65
         elif turn > 1: f['turnover'] = 80
         elif turn > .3: f['turnover'] = 60
         else: f['turnover'] = 40
-        if h != l:
+
+        # ── 波动率: K线实体占比 ──
+        if h > l:
             body = abs(p - o) / (h - l)
             if body > .7: f['volatility'] = 80 if p > o else 30
             elif body > .4: f['volatility'] = 65
             elif body > .15: f['volatility'] = 50
             else: f['volatility'] = 40
-        else: f['volatility'] = 50
-        if turn > 5: f['volume_ratio'] = 70
-        elif turn > 2: f['volume_ratio'] = 60
-        elif turn > .8: f['volume_ratio'] = 50
-        else: f['volume_ratio'] = 40
-        if h != l:
+        else:
+            f['volatility'] = 50
+
+        # ── 量能: 使用真实量比(fix:之前用换手率冒充量比) ──
+        if vol_ratio > 3: f['volume_ratio'] = 80
+        elif vol_ratio > 2: f['volume_ratio'] = 70
+        elif vol_ratio > 1.2: f['volume_ratio'] = 60
+        elif vol_ratio > 0.8: f['volume_ratio'] = 50
+        elif vol_ratio > 0.5: f['volume_ratio'] = 40
+        else: f['volume_ratio'] = 25
+
+        # ── 趋势: 收盘在日内位置 ──
+        if h > l:
             pos = (p - l) / (h - l)
             if pos > .8: f['trend'] = 80
             elif pos > .6: f['trend'] = 65
             elif pos > .4: f['trend'] = 50
             elif pos > .2: f['trend'] = 35
             else: f['trend'] = 20
-        else: f['trend'] = 50
-        tw = sum(self.weights.get(k, .1) for k in f)
-        total = sum(f[k] * self.weights.get(k, .1) for k in f) / tw if tw > 0 else 50
+        else:
+            f['trend'] = 50
+
+        # ── 加权总分(防除零 + 异常兜底) ──
+        total = 50
+        try:
+            tw = sum(self.weights.get(k, 0.1) for k in f)
+            if tw > 0:
+                total = sum(f[k] * self.weights.get(k, 0.1) for k in f) / tw
+        except Exception:
+            logger.warning("quick_score 加权计算异常", exc_info=True)
+
         total = min(100, max(0, total))
         rating = "强关注" if total >= 80 else "观察" if total >= 65 else "中性" if total >= 50 else "不追"
-        return {'code': q.get('code', ''), 'total_score': round(total, 1),
-                'rating': rating, 'factors': f, 'quick': True,
-                'calculated_at': datetime.now()}
+
+        return {
+            'code': q.get('code', ''),
+            'total_score': round(total, 1),
+            'rating': rating,
+            'factors': f,
+            'quick': True,
+            'warnings': warnings,
+            'data_quality': quality,
+            'calculated_at': datetime.now(),
+        }
 
     def score_stock(self, code: str) -> dict:
+        """评分单只股票 — 行情异常不再静默返回 None"""
         from src.data.realtime import get_realtime_quote
-        q = get_realtime_quote(code)
-        if q and q.get("price", 0) > 0:
-            r = self.quick_score(q); r['name'] = q.get('name', ''); return r
-        return None
+        try:
+            q = get_realtime_quote(code)
+        except Exception as e:
+            logger.error(f"获取 {code} 行情失败: {e}")
+            return {
+                'code': code, 'total_score': 0, 'rating': 'API异常',
+                'factors': {}, 'quick': True,
+                'warnings': [f"行情API: {str(e)[:80]}"],
+                'data_quality': 'unavailable',
+                'calculated_at': datetime.now(),
+            }
+        if not q or q.get("price", 0) <= 0:
+            return {
+                'code': code, 'total_score': 0, 'rating': '无行情',
+                'factors': {}, 'quick': True,
+                'warnings': ["无有效行情数据"],
+                'data_quality': 'unavailable',
+                'calculated_at': datetime.now(),
+            }
+        r = self.quick_score(q)
+        r['name'] = q.get('name', '')
+        return r
 
     def score_all_stocks(self, limit: int = 80) -> list:
         from src.data.realtime import get_top_stocks
@@ -99,15 +189,18 @@ class ScoringEngine:
             cd = s.get("code", "")
             if not cd: continue
             r = self.score_stock(cd)
-            if r: r['name'] = s.get("name", cd); results.append(r)
+            r['name'] = s.get("name", cd); results.append(r)
         results.sort(key=lambda x: x['total_score'], reverse=True)
         return results
 
     def save_scores(self, results: list):
+        """保存评分记录 — 跳过数据不足的条目"""
         if not results: return 0
         s = 0
         try:
             for r in results:
+                if r.get('data_quality') == 'unavailable':
+                    continue
                 f = r.get('factors', {})
                 rec = ScoreRecordV6(
                     code=r['code'], name=r.get('name', ''),

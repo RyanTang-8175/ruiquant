@@ -1,4 +1,4 @@
-"""短线实验室：验证 AI、策略和用户执行。"""
+"""研究审计：自动验证 AI、策略和用户执行。"""
 
 from __future__ import annotations
 
@@ -8,21 +8,28 @@ import streamlit as st
 
 
 def render_lab_page():
-    st.markdown('<div class="sec-h">短线实验室</div>', unsafe_allow_html=True)
-    st.caption("把想法变成可验证计划。先记录条件，再回填结果，最后复盘执行偏差。")
+    st.markdown(
+        '<div class="audit-hero">'
+        '<div class="audit-title">研究审计</div>'
+        '<div class="audit-copy">每次 AI 给出“可观察 / 仅模拟 / 等待触发”，系统会自动生成假设并回放结果。你不需要天天填表，只需要偶尔反馈“有用、太晚、风险没提示”。</div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
 
     _risk_banner()
     _stats_bar()
 
-    tab1, tab2, tab3, tab4 = st.tabs(["新建计划", "待验证", "复盘结果", "执行反馈"])
-    with tab1:
-        _create_plan()
+    tab2, tab3, tab5, tab4, tab1 = st.tabs(["待审计", "审计结果", "归因画像", "一键反馈", "手动补录"])
     with tab2:
         _pending_panel()
     with tab3:
         _results_panel()
+    with tab5:
+        _attribution_panel()
     with tab4:
         _feedback_panel()
+    with tab1:
+        _create_plan()
 
 
 def _risk_banner():
@@ -56,16 +63,16 @@ def _stats_bar():
         with AnalysisMemory() as memory:
             stats = memory.get_stats()
         cols = st.columns(4)
-        cols[0].metric("待回填", stats["pending_backfills"])
+        cols[0].metric("待审计", stats["pending_backfills"])
         cols[1].metric("已完成", stats["completed_backfills"])
         cols[2].metric("+2%命中", f"{stats['hit_2pct_rate']}%")
         cols[3].metric("1日收益", f"{stats['avg_hold_1d_return']}%")
     except Exception as exc:
-        st.info(f"实验室数据库暂不可用: {exc}")
+        st.info(f"研究审计数据库暂不可用: {exc}")
 
 
 def _create_plan():
-    st.markdown('<div class="page-kicker">记录时必须写条件。没有失效条件的想法，不能进入验证。</div>', unsafe_allow_html=True)
+    st.markdown('<div class="page-kicker">手动补录只用于你自己临时想到的假设。AI 分析会自动进入研究审计，不需要手动复制。</div>', unsafe_allow_html=True)
     with st.form("lab_create_plan"):
         c1, c2 = st.columns(2)
         code = c1.text_input("股票代码", value=st.session_state.get("selected_stock", ""), placeholder="600900")
@@ -80,7 +87,7 @@ def _create_plan():
         c3, c4 = st.columns(2)
         risk_level = c3.selectbox("风险等级", ["低", "中", "高", "极高"], index=1)
         confidence_level = c4.selectbox("置信度", ["低", "中", "高"], index=1)
-        submitted = st.form_submit_button("加入实验室验证", use_container_width=True)
+        submitted = st.form_submit_button("加入研究审计", use_container_width=True)
 
     if submitted:
         if not code.strip() or not hypothesis.strip() or not invalidation_conditions.strip():
@@ -108,7 +115,7 @@ def _create_plan():
                     confidence_level=confidence_level,
                     allow_real_trade=False,
                 )
-            st.success(f"已加入验证 #{vid}。默认只作观察/模拟记录，不代表实盘建议。")
+            st.success(f"已加入研究审计 #{vid}。默认只作观察/模拟记录，不代表实盘建议。")
         except Exception as exc:
             st.warning(f"保存失败: {exc}")
 
@@ -116,18 +123,18 @@ def _create_plan():
 def _pending_panel():
     c1, c2 = st.columns([1, 1])
     with c1:
-        if st.button("立即回填", use_container_width=True):
+        if st.button("立即回放", use_container_width=True):
             try:
                 from src.lab.backfill import backfill_pending_verifications
 
                 result = backfill_pending_verifications()
-                st.success(f"检查 {result['checked']} 条，完成 {result['completed']} 条，跳过 {result['skipped']} 条")
+                st.success(f"审计 {result['checked']} 条，完成 {result['completed']} 条，跳过 {result['skipped']} 条")
                 if result.get("errors"):
                     st.caption("；".join(result["errors"][:3]))
             except Exception as exc:
                 st.warning(f"回填失败: {exc}")
     with c2:
-        st.caption("公开数据源可用时自动回填；iFinD 接入后会复用同一入口。")
+        st.caption("公开源可用时自动回放；iFinD 接入后复用同一入口，审计质量会更高。")
 
     try:
         from src.memory.analysis_memory import AnalysisMemory
@@ -135,7 +142,7 @@ def _pending_panel():
         with AnalysisMemory() as memory:
             rows = memory.get_pending_verifications()
         if not rows:
-            st.success("暂无待回填计划")
+            st.success("暂无待审计记录。去 AI 页分析具体股票，系统会自动生成。")
             return
         for row in rows:
             _plan_card(row, pending=True)
@@ -150,7 +157,7 @@ def _results_panel():
         with AnalysisMemory() as memory:
             rows = memory.get_verification_results()
         if not rows:
-            st.info("暂无复盘结果")
+            st.info("暂无审计结果")
             return
         for row in rows:
             _plan_card(row, pending=False)
@@ -165,10 +172,10 @@ def _feedback_panel():
         with AnalysisMemory() as memory:
             rows = memory.get_verification_results()
         if not rows:
-            st.info("先创建一条验证计划。")
+            st.info("先让 AI 分析一只股票，或手动补录一条研究假设。")
             return
         options = {f"#{r['id']} {r['stock_name']}({r['stock_code']}) · {r.get('strategy_name') or r.get('source_type')}": r["id"] for r in rows}
-        label = st.selectbox("选择要反馈的计划", list(options.keys()))
+        label = st.selectbox("选择要反馈的审计记录", list(options.keys()))
         fb = st.radio(
             "执行结果",
             ["按计划操作", "未操作", "提前卖出", "延后持有", "没止损", "没止盈", "反向操作", "追高"],
@@ -220,7 +227,7 @@ def _plan_card(row: dict, pending: bool):
 def _source_label(value: str | None) -> str:
     return {
         "manual": "手动研究",
-        "ai_prediction": "AI分析",
+        "ai_prediction": "AI自动审计",
         "strategy": "策略信号",
         "radar": "雷达候选",
     }.get(value or "", value or "未知")
@@ -228,3 +235,62 @@ def _source_label(value: str | None) -> str:
 
 def _lines(text: str) -> list[str]:
     return [line.strip(" -\t") for line in str(text or "").splitlines() if line.strip(" -\t")]
+
+
+def _attribution_panel():
+    """三类归因图表 — 策略效果 · AI准确率 · 用户执行纪律"""
+    st.markdown('<div class="page-kicker">三类归因帮你回答：策略有用吗？AI说得准吗？你执行有没有偏离计划？</div>', unsafe_allow_html=True)
+
+    try:
+        from src.lab.attribution import compute_attribution
+        attr = compute_attribution()
+    except Exception as e:
+        st.warning(f"归因分析暂不可用: {e}")
+        return
+
+    if attr.get("error"):
+        st.warning(attr["error"])
+        return
+    if attr.get("total", 0) == 0:
+        st.info("暂无验证数据。先创建验证计划并回填，归因数据会在这里展示。")
+        return
+
+    # ── 策略归因 ──
+    st.markdown("### 策略效果")
+    strategy = attr.get("strategy", {})
+    best = strategy.get("best_strategy", {})
+    if best.get("total", 0) > 0:
+        st.metric("最佳策略", f"{best.get('name', '')}",
+                  f"命中率 {best.get('hit_rate', 0)}% · {best.get('total', 0)}次验证")
+
+    by_source = strategy.get("by_source", [])
+    if by_source:
+        cols = st.columns(len(by_source))
+        for i, src in enumerate(by_source):
+            with cols[i]:
+                st.metric(f"{src['source']}({src['total']})",
+                          f"{src['hit_rate']}%", "命中率")
+
+    # ── AI 归因 ──
+    st.markdown("### AI 准确率")
+    ai = attr.get("ai", {})
+    if ai.get("total", 0) > 0:
+        c1, c2, c3 = st.columns(3)
+        c1.metric("AI 验证数", ai["total"])
+        c2.metric("命中率", f"{ai.get('hit_rate', 0)}%")
+        c3.metric("平均1日收益", f"{ai.get('avg_1d_return', 0)}%")
+        st.caption(ai.get("verdict", ""))
+
+    # ── 用户执行归因 ──
+    st.markdown("### 执行纪律")
+    user = attr.get("user", {})
+    if user.get("total", 0) > 0:
+        c1, c2, c3 = st.columns(3)
+        c1.metric("有反馈记录", user["total"])
+        c2.metric("按计划执行", user.get("disciplined", 0))
+        c3.metric("违规操作", user.get("undisciplined", 0))
+        st.caption(user.get("verdict", ""))
+
+        top_bad = user.get("top_bad_behaviors", [])
+        if top_bad:
+            st.markdown("**最常犯的错误**:  " + " · ".join(f"{b}({c}次)" for b, c in top_bad))
