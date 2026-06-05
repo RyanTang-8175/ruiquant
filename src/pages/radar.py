@@ -33,7 +33,7 @@ def render_radar_page():
             ("谨慎", "var(--red)", "大盘偏弱") if chg > -1.5 else
             ("不适合", "var(--red)", "建议观望")
         )
-        html = "".join(
+        index_html = "".join(
             f'<div class="idx-cell"><div class="n">{i.get("name","")}</div>'
             f'<div class="p">{i.get("price",0):.2f}</div>'
             f'<div class="c">{"+" if i.get("change_pct",0)>0 else ""}{i.get("change_pct",0):.2f}%</div></div>'
@@ -45,7 +45,7 @@ def render_radar_page():
             f'<span style="font-weight:700;font-size:17px">今日短线</span>'
             f'<span style="font-weight:700;font-size:16px;color:{clr}">{env}</span>'
             f'</div><div style="font-size:13px;color:var(--muted);margin-bottom:10px">{msg}</div>'
-            f'<div class="idx-strip" style="margin-bottom:0">{html}</div></div>',
+            f'<div class="idx-strip" style="margin-bottom:0">{index_html}</div></div>',
             unsafe_allow_html=True)
 
     h, m = now.hour, now.minute
@@ -128,6 +128,15 @@ def _show_info_radar():
         '</div>',
         unsafe_allow_html=True,
     )
+
+    try:
+        from src.data.providers.registry import provider_status
+
+        status = provider_status()
+        source_label = "iFinD专业源" if status.get("provider") == "ifind" and status.get("ready") else "公开源兜底"
+        st.caption(f"数据源：{source_label} · {status.get('message', '')}")
+    except Exception:
+        pass
 
     code = st.session_state.get("selected_stock", "")
     c1, c2 = st.columns([2, 1])

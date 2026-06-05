@@ -1,61 +1,374 @@
 """
-iFinD Provider 预留层。
+iFinD HTTP 数据源适配器。
 
-当前用于在 iFinD 免费试用 API 到位前稳定架构。它不会伪造专业数据；
-未配置时明确返回不可用。拿到 API 后，只需要在本文件实现同花顺接口映射，
-上层 AI、雷达、实验室和页面无需重写。
+官方 HTTP 示例流程：
+1. 用 refresh_token 请求 /get_access_token
+2. 后续接口使用 access_token 请求头
+
+本适配器只在明确配置 IFIND_REFRESH_TOKEN 时启用，并对高消耗接口做短 TTL 缓存。
+失败时抛出可读错误，由上层统一回退公开源，避免页面刷新反复消耗额度。
 """
 
+from __future__ import annotations
+
+import logging
+import time
+from datetime import datetime, timedelta
 from typing import Optional
+
+import requests
 
 from src.config import get_setting
 from src.data.providers.base import MarketDataProvider
 
+logger = logging.getLogger(__name__)
+
 
 class IFindProvider(MarketDataProvider):
-    """同花顺 iFinD 专业数据源适配器占位实现。"""
+    """同花顺 iFinD 专业数据源 HTTP 适配器。"""
 
     source_name = "ifind"
+    base_url = "https://quantapi.51ifind.com/api/v1"
 
     def __init__(self):
-        self.username = get_setting("ifind_username", "IFIND_USERNAME", "")
-        self.password = get_setting("ifind_password", "IFIND_PASSWORD", "")
-        self.token = get_setting("ifind_token", "IFIND_TOKEN", "")
+        self.refresh_token = get_setting("ifind_refresh_token", "IFIND_REFRESH_TOKEN", "")
+        self.access_token = get_setting("ifind_access_token", "IFIND_ACCESS_TOKEN", "")
+        self.timeout = float(get_setting("ifind_timeout", "IFIND_TIMEOUT", "8") or 8)
+        self._access_token_expire_at = 0.0
+        self._cache: dict[tuple, tuple[float, object]] = {}
 
     @property
     def configured(self) -> bool:
-        return bool(self.token or (self.username and self.password))
+        return bool(self.refresh_token or self.access_token)
 
-    def _not_ready(self):
-        return None
+    def _ttl_get(self, key: tuple, ttl: int):
+        cached = self._cache.get(key)
+        if not cached:
+            return None
+        ts, payload = cached
+        if time.time() - ts > ttl:
+            return None
+        return payload
+
+    def _ttl_set(self, key: tuple, payload):
+        self._cache[key] = (time.time(), payload)
+        return payload
+
+    def _get_access_token(self) -> str:
+        if self.access_token and time.time() < self._access_token_expire_at:
+            return self.access_token
+        if self.access_token and not self.refresh_token:
+            return self.access_token
+        if not self.refresh_token:
+            raise RuntimeError("未配置 IFIND_REFRESH_TOKEN")
+
+        response = requests.post(
+            f"{self.base_url}/get_access_token",
+            headers={"Content-Type": "application/json", "refresh_token": self.refresh_token},
+            timeout=self.timeout,
+        )
+        payload = response.json()
+        token = (payload.get("data") or {}).get("access_token") or payload.get("access_token")
+        if not token:
+            raise RuntimeError(f"iFinD access_token 获取失败: {str(payload)[:160]}")
+        self.access_token = token
+        self._access_token_expire_at = time.time() + 50 * 60
+        return token
+
+    def _post(self, endpoint: str, payload: dict) -> dict:
+        if not self.configured:
+            raise RuntimeError("未配置 IFIND_REFRESH_TOKEN")
+        token = self._get_access_token()
+        response = requests.post(
+            f"{self.base_url}/{endpoint}",
+            json=payload,
+            headers={"Content-Type": "application/json", "access_token": token},
+            timeout=self.timeout,
+        )
+        data = response.json()
+        code = data.get("errorcode", data.get("code", 0))
+        if code not in (0, "0", None):
+            msg = data.get("errmsg") or data.get("message") or str(data)[:160]
+            raise RuntimeError(f"iFinD {endpoint} 返回错误 {code}: {msg}")
+        return data
+
+    @staticmethod
+    def _ths_code(code: str) -> str:
+        code = str(code or "").strip().upper()
+        if "." in code:
+            return code
+        if code.startswith(("6", "9")):
+            return f"{code}.SH"
+        if code.startswith(("8", "4")):
+            return f"{code}.BJ"
+        return f"{code}.SZ"
+
+    @staticmethod
+    def _plain_code(ths_code: str) -> str:
+        return str(ths_code or "").split(".")[0]
+
+    @staticmethod
+    def _first(value, default=None):
+        if isinstance(value, list):
+            return value[0] if value else default
+        return default if value is None else value
+
+    @classmethod
+    def _table_value(cls, table: dict, *names, default=None):
+        raw = table.get("table", table)
+        for name in names:
+            if isinstance(raw, dict) and name in raw:
+                return cls._first(raw.get(name), default)
+            if name in table:
+                return cls._first(table.get(name), default)
+        return default
+
+    @staticmethod
+    def _num(value, default=0.0) -> float:
+        try:
+            if value in ("", None, "--", "None"):
+                return default
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
+    def _normalize_quote_table(self, table: dict, fallback_code: str) -> dict:
+        ths_code = table.get("thscode") or table.get("code") or self._ths_code(fallback_code)
+        code = self._plain_code(ths_code)
+        price = self._num(self._table_value(table, "latest", "new", "close"))
+        prev_close = self._num(self._table_value(table, "preClose", "pre_close", "prev_close"))
+        change_pct = self._table_value(table, "changeRatio", "change_pct", "涨跌幅")
+        if change_pct is None and price and prev_close:
+            change_pct = price / prev_close * 100 - 100
+        quote = {
+            "code": code,
+            "name": str(self._table_value(table, "secName", "stockname", "股票简称", default=code) or code),
+            "price": price,
+            "prev_close": prev_close,
+            "open": self._num(self._table_value(table, "open")),
+            "high": self._num(self._table_value(table, "high")),
+            "low": self._num(self._table_value(table, "low")),
+            "volume": int(self._num(self._table_value(table, "volume"), 0)),
+            "amount": self._num(self._table_value(table, "amount", "amt"), 0),
+            "change_pct": self._num(change_pct, 0),
+            "turnover": self._num(self._table_value(table, "turnoverRatio", "turnover"), 0),
+            "volume_ratio": self._num(self._table_value(table, "volumeRatio", "volume_ratio"), 1.0),
+            "source": "ifind",
+            "quality_level": "professional",
+            "is_delayed": False,
+            "_quality": {
+                "source": "ifind",
+                "quality_level": "professional",
+                "is_delayed": False,
+                "issues": [],
+            },
+        }
+        if not quote["name"] or quote["name"] == code:
+            try:
+                from src.data.stock_list import resolve_stock_name
+
+                quote["name"] = resolve_stock_name(code, code)
+            except Exception:
+                pass
+        return quote
 
     def get_realtime_quote(self, code: str) -> Optional[dict]:
-        return self._not_ready()
+        rows = self.get_realtime_quotes([code])
+        return rows[0] if rows else None
 
     def get_realtime_quotes(self, codes: list) -> list:
-        return []
+        clean_codes = [str(code or "").strip()[:6] for code in codes if str(code or "").strip()]
+        if not clean_codes:
+            return []
+        key = ("rq", tuple(clean_codes))
+        cached = self._ttl_get(key, 20)
+        if cached is not None:
+            return cached
+        payload = {
+            "codes": ",".join(self._ths_code(code) for code in clean_codes),
+            "indicators": "latest,open,high,low,preClose,volume,amount,changeRatio,turnoverRatio,volumeRatio,secName",
+        }
+        data = self._post("real_time_quotation", payload)
+        tables = data.get("tables") or data.get("data") or []
+        if isinstance(tables, dict):
+            tables = [tables]
+        rows = [self._normalize_quote_table(table, clean_codes[i if i < len(clean_codes) else 0])
+                for i, table in enumerate(tables)]
+        return self._ttl_set(key, [row for row in rows if row.get("price", 0) > 0])
 
     def get_intraday_bars(self, code: str, trade_date: str = None) -> list:
-        return []
+        day = trade_date or datetime.now().strftime("%Y-%m-%d")
+        key = ("hf", code, day)
+        cached = self._ttl_get(key, 90)
+        if cached is not None:
+            return cached
+        payload = {
+            "codes": self._ths_code(code),
+            "indicators": "open,high,low,close,volume,amount,changeRatio",
+            "starttime": f"{day} 09:15:00",
+            "endtime": f"{day} 15:30:00",
+        }
+        data = self._post("high_frequency", payload)
+        return self._ttl_set(key, self._normalize_bar_tables(data))
 
     def get_daily_bars(self, code: str, start: str, end: str) -> list:
-        return []
+        key = ("daily", code, start, end)
+        cached = self._ttl_get(key, 6 * 3600)
+        if cached is not None:
+            return cached
+        payload = {
+            "codes": self._ths_code(code),
+            "indicators": "open,high,low,close,volume,amount,changeRatio",
+            "startdate": start,
+            "enddate": end,
+            "functionpara": {"Fill": "Previous"},
+        }
+        data = self._post("cmd_history_quotation", payload)
+        return self._ttl_set(key, self._normalize_bar_tables(data))
+
+    def _normalize_bar_tables(self, data: dict) -> list:
+        bars = []
+        for table in data.get("tables", []) or []:
+            raw = table.get("table", table)
+            if not isinstance(raw, dict):
+                continue
+            times = raw.get("time") or table.get("time") or raw.get("日期") or []
+            closes = raw.get("close") or raw.get("latest") or []
+            total = max(len(times or []), len(closes or []))
+            for i in range(total):
+                pick = lambda name, default=0: self._first(raw.get(name, []), default) if i == 0 else (
+                    raw.get(name, [default] * total)[i] if isinstance(raw.get(name), list) and i < len(raw.get(name)) else default
+                )
+                bars.append({
+                    "date": str(pick("time", ""))[:19],
+                    "open": self._num(pick("open")),
+                    "high": self._num(pick("high")),
+                    "low": self._num(pick("low")),
+                    "close": self._num(pick("close", pick("latest"))),
+                    "volume": int(self._num(pick("volume"))),
+                    "amount": self._num(pick("amount")),
+                    "change_pct": self._num(pick("changeRatio")),
+                    "source": "ifind",
+                })
+        return [bar for bar in bars if bar["date"] or bar["close"] > 0]
 
     def get_float_market_cap(self, code: str) -> Optional[float]:
+        today = datetime.now().strftime("%Y%m%d")
+        data = self.basic_data(code, "ths_float_mv_stock", [today])
+        for table in data.get("tables", []) or []:
+            value = self._table_value(table, "ths_float_mv_stock")
+            num = self._num(value, 0)
+            if num:
+                return num
         return None
 
     def get_sector_info(self, code: str) -> Optional[dict]:
+        data = self.basic_data(code, "ths_industry_sw_stock", ["2021"])
+        for table in data.get("tables", []) or []:
+            industry = self._table_value(table, "ths_industry_sw_stock")
+            if industry:
+                return {"industry": industry, "source": "ifind"}
         return None
 
     def get_market_snapshot(self) -> dict:
-        return {"indices": [], "source": self.source_name, "status": "not_configured"}
+        quotes = self.get_realtime_quotes(["000001", "399001", "399006"])
+        names = {"000001": "上证", "399001": "深证", "399006": "创业板"}
+        return {
+            "source": "ifind",
+            "indices": [
+                {"name": names.get(q["code"], q["name"]), "price": q["price"], "change_pct": q["change_pct"]}
+                for q in quotes
+            ],
+        }
 
-    def get_top_stocks(self, sort_field: str = "change_pct",
-                       asc: bool = False, limit: int = 50) -> list:
-        return []
+    def get_top_stocks(self, sort_field: str = "change_pct", asc: bool = False, limit: int = 50) -> list:
+        query_map = {
+            "changepercent": "A股涨幅榜" if not asc else "A股跌幅榜",
+            "change_pct": "A股涨幅榜" if not asc else "A股跌幅榜",
+            "amount": "A股成交额排名",
+            "turnoverratio": "A股换手率排名",
+        }
+        return self.smart_stock_picking(query_map.get(sort_field, "A股涨幅榜"), limit=limit)
+
+    def smart_stock_picking(self, query: str, limit: int = 20) -> list:
+        limit = max(1, min(int(limit or 20), 50))
+        key = ("wc", query, limit)
+        cached = self._ttl_get(key, 10 * 60)
+        if cached is not None:
+            return cached
+        data = self._post("smart_stock_picking", {"searchstring": query, "searchtype": "stock"})
+        rows = self._normalize_wencai_tables(data)[:limit]
+        return self._ttl_set(key, rows)
+
+    def _normalize_wencai_tables(self, data: dict) -> list:
+        rows = []
+        for table in data.get("tables", []) or []:
+            raw = table.get("table", table)
+            if isinstance(raw, list):
+                for item in raw:
+                    rows.append(self._normalize_wencai_row(item))
+            elif isinstance(raw, dict):
+                code_values = raw.get("股票代码") or raw.get("thscode") or raw.get("code") or []
+                total = len(code_values) if isinstance(code_values, list) else 1
+                for i in range(total):
+                    item = {}
+                    for k, v in raw.items():
+                        item[k] = v[i] if isinstance(v, list) and i < len(v) else v
+                    rows.append(self._normalize_wencai_row(item))
+        return [row for row in rows if row.get("code")]
+
+    def _normalize_wencai_row(self, item: dict) -> dict:
+        ths_code = item.get("股票代码") or item.get("thscode") or item.get("code") or ""
+        code = self._plain_code(ths_code)
+        return {
+            "code": code,
+            "name": item.get("股票简称") or item.get("secName") or item.get("name") or code,
+            "change_pct": self._num(item.get("涨跌幅") or item.get("changeRatio") or item.get("change_pct")),
+            "source": "ifind_wencai",
+        }
+
+    def report_query(self, code: str, days: int = 30, limit: int = 20) -> list:
+        end = datetime.now().date()
+        start = end - timedelta(days=max(1, int(days or 30)))
+        key = ("report", code, days, limit)
+        cached = self._ttl_get(key, 6 * 3600)
+        if cached is not None:
+            return cached
+        data = self._post("report_query", {
+            "codes": self._ths_code(code),
+            "functionpara": {"reportType": "901"},
+            "beginrDate": start.isoformat(),
+            "endrDate": end.isoformat(),
+            "outputpara": "reportDate:Y,thscode:Y,secName:Y,ctime:Y,reportTitle:Y,pdfURL:Y,seq:Y",
+        })
+        rows = []
+        for table in data.get("tables", []) or []:
+            raw = table.get("table", table)
+            if not isinstance(raw, dict):
+                continue
+            titles = raw.get("reportTitle") or raw.get("公告标题") or []
+            total = len(titles) if isinstance(titles, list) else 1
+            for i in range(total):
+                pick = lambda name: raw.get(name, [""] * total)[i] if isinstance(raw.get(name), list) and i < len(raw.get(name)) else raw.get(name, "")
+                title = pick("reportTitle") or pick("公告标题")
+                if title:
+                    rows.append({
+                        "title": title,
+                        "source": "iFinD公告",
+                        "type": "announcement",
+                        "published_at": pick("reportDate") or pick("ctime"),
+                        "url": pick("pdfURL"),
+                    })
+        return self._ttl_set(key, rows[:limit])
+
+    def basic_data(self, codes: str, indicator: str, params: list | None = None) -> dict:
+        return self._post("basic_data_service", {
+            "codes": ",".join(self._ths_code(code.strip()) for code in str(codes).split(",") if code.strip()),
+            "indipara": [{"indicator": indicator, "indiparams": params or [""]}],
+        })
 
     def get_news(self, code: str = None, limit: int = 20) -> list:
-        return []
+        return self.report_query(code, days=45, limit=limit) if code else []
 
     def health_check(self) -> dict:
         if not self.configured:
@@ -63,11 +376,20 @@ class IFindProvider(MarketDataProvider):
                 "source": self.source_name,
                 "status": "not_configured",
                 "ready": False,
-                "message": "IFIND_USERNAME/IFIND_PASSWORD 或 IFIND_TOKEN 未配置，等待 iFinD 试用 API。",
+                "message": "未配置 IFIND_REFRESH_TOKEN；当前会自动使用公开源兜底。",
             }
-        return {
-            "source": self.source_name,
-            "status": "configured_pending_implementation",
-            "ready": False,
-            "message": "iFinD 凭据已配置，但接口映射尚未实现。",
-        }
+        try:
+            token = self._get_access_token()
+            return {
+                "source": self.source_name,
+                "status": "ok" if token else "error",
+                "ready": bool(token),
+                "message": "iFinD HTTP 接口已配置，行情/历史/智能选股会优先使用 iFinD。",
+            }
+        except Exception as exc:
+            return {
+                "source": self.source_name,
+                "status": "error",
+                "ready": False,
+                "message": f"iFinD 检查失败: {str(exc)[:120]}",
+            }

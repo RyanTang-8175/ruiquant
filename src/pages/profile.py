@@ -40,21 +40,24 @@ def render_profile_page():
     cur_u = get_setting("base_url","DEEPSEEK_BASE_URL","https://api.deepseek.com")
     cur_m = get_setting("model","DEEPSEEK_MODEL","deepseek-chat")
     cur_dp = get_setting("data_provider","ALPHAEYE_DATA_PROVIDER","open")
-    cur_ifind_user = get_setting("ifind_username","IFIND_USERNAME","")
-    cur_ifind_token = get_setting("ifind_token","IFIND_TOKEN","")
+    cur_ifind_refresh = get_setting("ifind_refresh_token","IFIND_REFRESH_TOKEN","")
     with st.form("cfg"):
         nk = st.text_input("API Key", value=cur_k, type="password", placeholder="sk-...")
         nu = st.text_input("Base URL", value=cur_u)
         nm = st.text_input("Model", value=cur_m)
         ndp = st.selectbox("数据源", ["open", "ifind"], index=0 if cur_dp != "ifind" else 1)
-        ifu = st.text_input("iFinD 用户名", value=cur_ifind_user)
-        ift = st.text_input("iFinD Token", value=cur_ifind_token, type="password")
+        ifr = st.text_input("iFinD refresh_token", value=cur_ifind_refresh, type="password")
         if st.form_submit_button("保存", use_container_width=True, type="primary"):
             save_settings({"api_key":nk,"base_url":nu,"model":nm,
                            "data_provider":ndp,
-                           "ifind_username":ifu,
-                           "ifind_token":ift,
+                           "ifind_refresh_token":ifr,
                            "phone":get_setting("phone","","")})
+            try:
+                from src.data.providers.registry import clear_provider_cache
+
+                clear_provider_cache()
+            except Exception:
+                pass
             st.success("已保存"); st.rerun()
 
     if st.button("退出登录", use_container_width=True):

@@ -3,8 +3,9 @@ from datetime import datetime
 from types import SimpleNamespace
 
 
-def test_data_provider_registry_exposes_ifind_stub(monkeypatch):
+def test_data_provider_registry_exposes_ifind_http_provider(monkeypatch):
     monkeypatch.setenv("ALPHAEYE_DATA_PROVIDER", "ifind")
+    monkeypatch.delenv("IFIND_REFRESH_TOKEN", raising=False)
 
     from src.data.providers.registry import get_provider, provider_status
 
@@ -14,7 +15,100 @@ def test_data_provider_registry_exposes_ifind_stub(monkeypatch):
     assert provider.source_name == "ifind"
     assert status["provider"] == "ifind"
     assert status["ready"] is False
-    assert "IFIND" in status["message"]
+    assert "IFIND_REFRESH_TOKEN" in status["message"]
+
+
+def test_ifind_provider_normalizes_realtime_quote(monkeypatch):
+    monkeypatch.setenv("IFIND_REFRESH_TOKEN", "refresh-token")
+
+    from src.data.providers.ifind_provider import IFindProvider
+
+    calls = []
+
+    class FakeResponse:
+        def __init__(self, payload):
+            self._payload = payload
+            self.content = b"{}"
+
+        def json(self):
+            return self._payload
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        calls.append((url, headers or {}, json or {}))
+        if url.endswith("/get_access_token"):
+            return FakeResponse({"data": {"access_token": "access-token"}})
+        assert headers["access_token"] == "access-token"
+        return FakeResponse({
+            "tables": [
+                {
+                    "thscode": "600519.SH",
+                    "time": ["2026-06-05 14:56:00"],
+                    "table": {
+                        "latest": [1668.8],
+                        "open": [1650.0],
+                        "high": [1680.0],
+                        "low": [1640.0],
+                        "preClose": [1660.0],
+                        "volume": [123456],
+                        "amount": [234567890.0],
+                        "changeRatio": [0.53],
+                        "turnoverRatio": [0.81],
+                    },
+                }
+            ]
+        })
+
+    monkeypatch.setattr("src.data.providers.ifind_provider.requests.post", fake_post)
+    quote = IFindProvider().get_realtime_quote("600519")
+
+    assert quote["code"] == "600519"
+    assert quote["source"] == "ifind"
+    assert quote["price"] == 1668.8
+    assert quote["prev_close"] == 1660.0
+    assert quote["change_pct"] == 0.53
+    assert quote["turnover"] == 0.81
+    assert quote["_quality"]["source"] == "ifind"
+    assert calls[0][0].endswith("/get_access_token")
+    assert calls[1][0].endswith("/real_time_quotation")
+
+
+def test_ifind_smart_stock_picking_uses_low_limit_and_normalizes_rows(monkeypatch):
+    monkeypatch.setenv("IFIND_REFRESH_TOKEN", "refresh-token")
+
+    from src.data.providers.ifind_provider import IFindProvider
+
+    class FakeResponse:
+        def __init__(self, payload):
+            self._payload = payload
+            self.content = b"{}"
+
+        def json(self):
+            return self._payload
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        if url.endswith("/get_access_token"):
+            return FakeResponse({"data": {"access_token": "access-token"}})
+        assert url.endswith("/smart_stock_picking")
+        assert json["searchstring"] == "主力资金流入"
+        return FakeResponse({
+            "tables": [
+                {
+                    "table": {
+                        "股票代码": ["600900.SH", "688981.SH"],
+                        "股票简称": ["长江电力", "中芯国际"],
+                        "涨跌幅": [1.2, -0.8],
+                    }
+                }
+            ]
+        })
+
+    monkeypatch.setattr("src.data.providers.ifind_provider.requests.post", fake_post)
+    rows = IFindProvider().smart_stock_picking("主力资金流入", limit=2)
+
+    assert rows == [
+        {"code": "600900", "name": "长江电力", "change_pct": 1.2, "source": "ifind_wencai"},
+        {"code": "688981", "name": "中芯国际", "change_pct": -0.8, "source": "ifind_wencai"},
+    ]
 
 
 def test_user_risk_state_enters_cooldown_after_recent_bad_feedback():

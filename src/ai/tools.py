@@ -149,4 +149,19 @@ TOOLS = [
             }
         }
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "ifind_smart_stock_picking",
+            "description": "调用 iFinD 智能选股/问财能力，按自然语言条件返回候选。适合回答主力资金、题材升温、涨幅/成交额榜等问题；未配置 iFinD 时会明确返回不可用。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "智能选股条件，如 主力资金流入 涨幅 居前"},
+                    "limit": {"type": "integer", "description": "返回数量，默认10，最大20"}
+                },
+                "required": ["query"]
+            }
+        }
+    },
 ]

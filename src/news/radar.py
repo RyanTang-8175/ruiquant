@@ -101,6 +101,18 @@ def fetch_announcements(code: str, limit: int = 10) -> List[Dict]:
     """获取个股公告（巨潮资讯 + 新浪公告回退）"""
     items = []
     try:
+        from src.data.providers.registry import get_provider
+
+        provider = get_provider()
+        if provider.source_name == "ifind":
+            items.extend(provider.report_query(code, days=45, limit=limit))
+    except Exception as e:
+        logger.warning(f"iFinD公告 {code}: {e}")
+
+    if items:
+        return items[:limit]
+
+    try:
         r = requests.get(
             'http://www.cninfo.com.cn/new/disclosure',
             params={
@@ -217,6 +229,13 @@ def fetch_radar_market_overview(limit: int = 30) -> Dict:
     sources = {}
 
     try:
+        smart = fetch_ifind_smart_picks("主力资金流入 涨幅 居前", limit=8)
+        items.extend(smart)
+        sources['iFinD智能选股'] = len(smart)
+    except Exception as e:
+        sources['iFinD智能选股'] = f"error: {str(e)[:40]}"
+
+    try:
         policy = fetch_policy_updates(limit // 3)
         items.extend(policy)
         sources['政策'] = len(policy)
@@ -248,6 +267,35 @@ def fetch_radar_market_overview(limit: int = 30) -> Dict:
 # ═══════════════════════════════════════════
 # 工具
 # ═══════════════════════════════════════════
+
+def fetch_ifind_smart_picks(query: str, limit: int = 10) -> List[Dict]:
+    """低频 iFinD 智能选股结果，未配置时返回空列表。"""
+    try:
+        from src.data.providers.registry import get_provider
+
+        provider = get_provider()
+        if provider.source_name != "ifind" or not hasattr(provider, "smart_stock_picking"):
+            return []
+        rows = provider.smart_stock_picking(query, limit=min(limit, 20))
+    except Exception as e:
+        logger.warning(f"iFinD智能选股: {e}")
+        return []
+
+    items = []
+    for row in rows[:limit]:
+        title = f"{row.get('name') or row.get('code')}({row.get('code')}) 智能选股命中：{query}"
+        if row.get("change_pct") is not None:
+            title += f"，涨跌幅 {row.get('change_pct'):+.2f}%"
+        items.append({
+            "title": title,
+            "content": "iFinD 智能选股返回的候选，只能作为研究入口，仍需结合公告、成交承接和反量化风险验证。",
+            "source": "iFinD智能选股",
+            "type": "smart_pick",
+            "published_at": datetime.now().strftime("%m-%d %H:%M"),
+            "related_codes": [row.get("code")] if row.get("code") else [],
+            "sentiment": "neutral",
+        })
+    return items
 
 def _dedup_by_title(items: list, key_len: int = 40) -> list:
     seen, out = set(), []

@@ -28,6 +28,7 @@ class ToolExecutor:
             "get_positions": self._get_positions,
             "get_kline_data": self._get_kline_data,
             "get_info_radar": self._get_info_radar,
+            "ifind_smart_stock_picking": self._ifind_smart_stock_picking,
         }
         handler = handlers.get(tool_name)
         if not handler:
@@ -195,7 +196,11 @@ class ToolExecutor:
                             "action": "等待实时确认",
                         })
                 items.sort(key=lambda x: (x["score"] is not None, x["score"] or 0), reverse=True)
-                payload.append({"kind": kind, "name": name, "candidates": items[:max(1, limit)]})
+                payload.append({
+                    "kind": kind,
+                    "name": name,
+                    "candidates": self._prioritize_representative_candidates(name, items, max(1, limit)),
+                })
 
         return {
             "groups": payload,
@@ -215,6 +220,28 @@ class ToolExecutor:
         if group_name == "白酒":
             return "消费权重"
         return "短线候选"
+
+    @staticmethod
+    def _prioritize_representative_candidates(group_name: str, items: list, limit: int) -> list:
+        """保证行业代表股不会因公开源临时报价缺失而被前三名挤掉。"""
+        preferred_map = {
+            "半导体芯片": ["688981", "688012", "688008"],
+            "电子": ["688981", "688012", "688008"],
+            "电力": ["600900", "601985", "003816"],
+            "公用事业": ["600900", "601985", "003816"],
+        }
+        preferred = preferred_map.get(group_name, [])
+        by_code = {item.get("code"): item for item in items}
+        picked = []
+        for code in preferred:
+            item = by_code.get(code)
+            if item:
+                picked.append(item)
+                break
+        for item in items:
+            if item not in picked:
+                picked.append(item)
+        return picked[:limit]
 
     @staticmethod
     def _candidate_action(risk_level: str) -> str:
@@ -254,3 +281,31 @@ class ToolExecutor:
             return result
         except Exception as e:
             return {"error": f"雷达获取失败: {str(e)[:80]}", "code": code, "total": 0}
+
+    def _ifind_smart_stock_picking(self, query: str, limit: int = 10) -> dict:
+        try:
+            from src.data.providers.registry import get_provider, provider_status
+
+            provider = get_provider()
+            status = provider_status()
+            if provider.source_name != "ifind" or not hasattr(provider, "smart_stock_picking"):
+                return {
+                    "query": query,
+                    "count": 0,
+                    "stocks": [],
+                    "data_quality": "unavailable",
+                    "message": "当前未启用 iFinD，不能使用智能选股；请基于公开源低置信度回答。",
+                    "provider_status": status,
+                }
+            rows = provider.smart_stock_picking(query, limit=min(int(limit or 10), 20))
+            return {
+                "query": query,
+                "count": len(rows),
+                "stocks": rows,
+                "data_quality": "professional" if rows else "empty",
+                "data_source": "ifind_smart_stock_picking",
+                "usage_note": "智能选股按低频缓存调用，候选只代表研究入口，仍需行情、公告、反量化风险交叉验证。",
+                "provider_status": status,
+            }
+        except Exception as e:
+            return {"query": query, "count": 0, "stocks": [], "error": f"iFinD智能选股失败: {str(e)[:80]}"}

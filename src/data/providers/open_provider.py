@@ -17,9 +17,9 @@ class OpenDataProvider(MarketDataProvider):
     source_name = "open"
 
     def get_realtime_quote(self, code: str) -> Optional[dict]:
-        from src.data.realtime import get_realtime_quote
+        from src.data.realtime import _open_realtime_quote
 
-        quote = get_realtime_quote(code)
+        quote = _open_realtime_quote(code)
         if quote:
             quote.setdefault("source", "open")
             quote.setdefault("quality_level", "open_unverified")
@@ -33,9 +33,9 @@ class OpenDataProvider(MarketDataProvider):
         return []
 
     def get_daily_bars(self, code: str, start: str, end: str) -> list:
-        from src.data.realtime import get_kline
+        from src.data.realtime import _open_kline
 
-        bars = get_kline(code, period="101", count=240)
+        bars = _open_kline(code, period="101", count=240)
         for bar in bars:
             bar.setdefault("source", "open")
         return bars
@@ -47,17 +47,17 @@ class OpenDataProvider(MarketDataProvider):
         return None
 
     def get_market_snapshot(self) -> dict:
-        from src.data.realtime import get_market_overview
+        from src.data.realtime import _open_market_overview
 
-        snapshot = get_market_overview()
+        snapshot = _open_market_overview()
         snapshot.setdefault("source", "open")
         return snapshot
 
     def get_top_stocks(self, sort_field: str = "change_pct",
                        asc: bool = False, limit: int = 50) -> list:
-        from src.data.realtime import get_top_stocks
+        from src.data.realtime import _open_top_stocks
 
-        rows = get_top_stocks(sort_field=sort_field, asc=asc, limit=limit)
+        rows = _open_top_stocks(sort_field=sort_field, asc=asc, limit=limit)
         for row in rows:
             row.setdefault("source", "open")
         return rows
