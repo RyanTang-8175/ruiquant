@@ -20,6 +20,9 @@ def render_profile_page():
     st.markdown('<div class="sec-h">系统状态</div>', unsafe_allow_html=True)
     _system_status()
 
+    st.markdown('<div class="sec-h">iFinD 额度</div>', unsafe_allow_html=True)
+    _ifind_usage_panel()
+
     st.markdown('<div class="sec-h">偏好</div>', unsafe_allow_html=True)
     try:
         from src.memory.user_profile import get_profile
@@ -67,9 +70,8 @@ def render_profile_page():
 
 def _system_status():
     try:
-        from src.data.providers.registry import provider_status, clear_provider_cache
+        from src.data.providers.registry import provider_status
 
-        clear_provider_cache()
         status = provider_status()
         c1, c2 = st.columns(2)
         c1.metric("数据源", status.get("provider", "open"))
@@ -89,6 +91,31 @@ def _system_status():
         st.caption(state.get("action_policy", ""))
     except Exception:
         pass
+
+
+def _ifind_usage_panel():
+    try:
+        from src.data.providers.registry import get_provider, provider_status
+
+        provider = get_provider()
+        status = provider_status()
+        usage = provider.usage_stats() if hasattr(provider, "usage_stats") else {}
+        calls = usage.get("calls") or {}
+        c1, c2 = st.columns(2)
+        c1.metric("数据源", status.get("provider", "open"))
+        c2.metric("缓存", usage.get("cache_entries", 0))
+        st.caption(
+            " · ".join(
+                [
+                    f"可用 {status.get('ready')}",
+                    f"调用 {sum(int(v) for v in calls.values()) if calls else 0}",
+                    f"接口 {len(calls)}",
+                    f"说明 {status.get('message', '')}",
+                ]
+            )
+        )
+    except Exception as exc:
+        st.caption(f"iFinD 额度面板暂不可用: {exc}")
 
     try:
         from src.memory.conversation_memory import ConversationMemory

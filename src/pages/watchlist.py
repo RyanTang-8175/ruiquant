@@ -105,14 +105,21 @@ def render_watchlist_page():
             unsafe_allow_html=True,
         )
 
-        c_view, c_ai = st.columns(2)
+        c_view, c_research, c_ai = st.columns(3)
         with c_view:
             clicked = st.button(f"查看 {name}", key=f"wl_{code}_{i}", use_container_width=True)
+        with c_research:
+            research = st.button("研究底稿", key=f"wl_research_{code}_{i}", use_container_width=True)
         with c_ai:
             audit = st.button("AI研究审计", key=f"wl_ai_{code}_{i}", use_container_width=True)
         if clicked:
             st.session_state["selected_stock"] = code
             st.session_state["current_page"] = "stock_detail"
+            st.rerun()
+        if research:
+            st.session_state["selected_stock"] = code
+            st.session_state["research_code"] = code
+            st.session_state["current_page"] = "research"
             st.rerun()
         if audit:
             st.session_state["selected_stock"] = code

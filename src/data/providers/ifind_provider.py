@@ -36,6 +36,7 @@ class IFindProvider(MarketDataProvider):
         self.timeout = float(get_setting("ifind_timeout", "IFIND_TIMEOUT", "8") or 8)
         self._access_token_expire_at = 0.0
         self._cache: dict[tuple, tuple[float, object]] = {}
+        self._calls: dict[str, int] = {}
 
     @property
     def configured(self) -> bool:
@@ -86,6 +87,7 @@ class IFindProvider(MarketDataProvider):
             timeout=self.timeout,
         )
         data = response.json()
+        self._calls[endpoint] = self._calls.get(endpoint, 0) + 1
         code = data.get("errorcode", data.get("code", 0))
         if code not in (0, "0", None):
             msg = data.get("errmsg") or data.get("message") or str(data)[:160]
@@ -378,6 +380,57 @@ class IFindProvider(MarketDataProvider):
             "codes": ",".join(self._ths_code(code.strip()) for code in str(codes).split(",") if code.strip()),
             "indipara": [{"indicator": indicator, "indiparams": params or [""]}],
         })
+
+    def date_sequence(self, codes: str, indicator: str, params: list | None,
+                      start: str, end: str, fill: str = "Blank") -> dict:
+        """日期序列接口：用于财务/估值/日频指标跨日期查询。"""
+        return self._post("date_sequence", {
+            "codes": ",".join(self._ths_code(code.strip()) for code in str(codes).split(",") if code.strip()),
+            "startdate": start,
+            "enddate": end,
+            "functionpara": {"Fill": fill},
+            "indipara": [{"indicator": indicator, "indiparams": params or [""]}],
+        })
+
+    def data_pool(self, reportname: str, functionpara: dict, outputpara: str) -> dict:
+        """专题报表接口：用于板块成分、专题列表、全 A 池等低频数据。"""
+        return self._post("data_pool", {
+            "reportname": reportname,
+            "functionpara": functionpara or {},
+            "outputpara": outputpara,
+        })
+
+    def edb_service(self, indicators: str, start: str, end: str) -> dict:
+        """经济数据库接口：用于宏观指标和政策背景。"""
+        return self._post("edb_service", {
+            "indicators": indicators,
+            "startdate": start,
+            "enddate": end,
+        })
+
+    def get_trade_dates(self, marketcode: str = "212001", startdate: str = None,
+                        offset: int = -10) -> dict:
+        """交易日接口：用于审计回放和低频任务调度。"""
+        startdate = startdate or datetime.now().strftime("%Y-%m-%d")
+        return self._post("get_trade_dates", {
+            "marketcode": marketcode,
+            "functionpara": {
+                "dateType": "0",
+                "period": "D",
+                "offset": str(offset),
+                "dateFormat": "0",
+                "output": "sequencedate",
+            },
+            "startdate": startdate,
+        })
+
+    def usage_stats(self) -> dict:
+        return {
+            "source": self.source_name,
+            "calls": dict(self._calls),
+            "cache_entries": len(self._cache),
+            "configured": self.configured,
+        }
 
     def get_news(self, code: str = None, limit: int = 20) -> list:
         return self.report_query(code, days=45, limit=limit) if code else []

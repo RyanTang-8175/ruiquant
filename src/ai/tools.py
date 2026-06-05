@@ -164,4 +164,64 @@ TOOLS = [
             }
         }
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "ifind_company_research",
+            "description": "生成 iFinD 公司研究底稿：行情、K线、公告、基础数据、智能选股命中、证据摘要和缓存/用量状态。用于具体股票深度分析。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "code": {"type": "string", "description": "股票代码，如 600900"},
+                    "profile": {"type": "string", "description": "研究深度：quick 或 deep，默认 quick"}
+                },
+                "required": ["code"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "ifind_market_radar",
+            "description": "运行 iFinD 市场雷达模板，按自然语言查询多个主题候选并返回裁剪后的证据，适合发现短线升温方向。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "queries": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "智能选股查询列表，如 主力资金流入、业绩预增、回购增持"
+                    }
+                }
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_research_memory",
+            "description": "读取 AlphaEye 研究知识库，查看最近研究、常用有效证据和历史假设，避免重复研究。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "limit": {"type": "integer", "description": "返回条数，默认8"}
+                }
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "ifind_evidence_score",
+            "description": "基于 iFinD 研究底稿重新生成机会分、风险分、置信度和行动建议。用于替换旧因子评分的并行验证。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "code": {"type": "string", "description": "股票代码，如 600900"},
+                    "profile": {"type": "string", "description": "评分深度：quick 或 deep，默认 quick"}
+                },
+                "required": ["code"]
+            }
+        }
+    },
 ]

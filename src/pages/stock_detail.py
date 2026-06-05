@@ -25,6 +25,7 @@ def render_stock_detail_page(code: str | None = None):
     if result:
         _score_detail(result)
         _antiquant_detail(result)
+        _ifind_evidence_panel(code)
     else:
         st.info("六维评分暂不可用")
     _kline_chart(code)
@@ -135,6 +136,41 @@ def _antiquant_detail(result):
             unsafe_allow_html=True)
 
 
+def _ifind_evidence_panel(code: str):
+    st.markdown('<div class="sec-h">iFinD 证据评分</div>', unsafe_allow_html=True)
+    key = f"ifind_evidence_{code}"
+    score = st.session_state.get(key)
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("生成证据评分", use_container_width=True, key=f"{key}_gen"):
+            try:
+                from src.research.harness import ResearchHarness
+                from src.scoring.evidence import IFindEvidenceScorer
+
+                research = ResearchHarness().company_research(code, profile="quick")
+                score = IFindEvidenceScorer().score(research)
+                st.session_state[key] = score
+            except Exception as exc:
+                st.warning(f"证据评分生成失败: {exc}")
+    with c2:
+        if st.button("清除缓存", use_container_width=True, key=f"{key}_clr"):
+            st.session_state.pop(key, None)
+            st.rerun()
+
+    score = st.session_state.get(key)
+    if not score:
+        st.info("点击上方按钮生成证据评分，或者先在研究页创建研究底稿。")
+        return
+
+    cols = st.columns(3)
+    cols[0].metric("机会分", f"{score.get('opportunity_score', 0):.1f}")
+    cols[1].metric("风险分", f"{score.get('risk_score', 0):.1f}")
+    cols[2].metric("置信度", score.get("confidence", "低"))
+
+    for item in (score.get("evidence_summary") or [])[:3]:
+        st.markdown(f'<div class="soft-card" style="margin-bottom:6px">{item}</div>', unsafe_allow_html=True)
+
+
 def _kline_chart(code):
     st.markdown('<div class="sec-h">K线走势</div>', unsafe_allow_html=True)
     try:
@@ -178,7 +214,7 @@ def _kline_chart(code):
 
 def _ai_bar(code, quote, result=None):
     st.markdown('<div class="sec-h">操作</div>', unsafe_allow_html=True)
-    c1, c2, c3 = st.columns(3)
+    c1, c2, c3, c4 = st.columns(4)
     with c1:
         if st.button("审查风险", use_container_width=True, key="sdr"):
             st.session_state["selected_stock"] = code
@@ -190,6 +226,12 @@ def _ai_bar(code, quote, result=None):
             st.session_state["qq"] = f"判断 {code} 适合隔夜/1-2天/2-3天，给出条件和离场红线"
             st.session_state["current_page"] = "ai_chat"; st.rerun()
     with c3:
+        if st.button("研究底稿", use_container_width=True, key="sda"):
+            st.session_state["selected_stock"] = code
+            st.session_state["research_code"] = code
+            st.session_state["current_page"] = "research"
+            st.rerun()
+    with c4:
         if st.button("加入验证", use_container_width=True, key="sdl"):
             try:
                 from src.memory.analysis_memory import AnalysisMemory

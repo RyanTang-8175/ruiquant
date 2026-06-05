@@ -144,6 +144,12 @@ def _show_ifind_smart_picks():
                     st.session_state["current_page"] = "stock_detail"
                     st.rerun()
             with c2:
+                if st.button("研究", key=f"ifind_r_{code}", use_container_width=True):
+                    st.session_state["selected_stock"] = code
+                    st.session_state["research_code"] = code
+                    st.session_state["current_page"] = "research"
+                    st.rerun()
+            with _:
                 if st.button("AI分析", key=f"ifind_a_{code}", use_container_width=True):
                     st.session_state["selected_stock"] = code
                     st.session_state["current_page"] = "ai_chat"

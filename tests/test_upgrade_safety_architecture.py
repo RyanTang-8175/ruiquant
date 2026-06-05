@@ -111,6 +111,194 @@ def test_ifind_smart_stock_picking_uses_low_limit_and_normalizes_rows(monkeypatc
     ]
 
 
+def test_ifind_provider_exposes_more_http_endpoints(monkeypatch):
+    monkeypatch.setenv("IFIND_REFRESH_TOKEN", "refresh-token")
+
+    from src.data.providers.ifind_provider import IFindProvider
+
+    seen = []
+
+    class FakeResponse:
+        def __init__(self, payload):
+            self._payload = payload
+            self.content = b"{}"
+
+        def json(self):
+            return self._payload
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        seen.append((url.rsplit("/", 1)[-1], json or {}))
+        if url.endswith("/get_access_token"):
+            return FakeResponse({"data": {"access_token": "access-token"}})
+        return FakeResponse({"tables": [{"table": {"x": [1]}}]})
+
+    monkeypatch.setattr("src.data.providers.ifind_provider.requests.post", fake_post)
+    provider = IFindProvider()
+
+    provider.date_sequence("600900", "ths_close_price_stock", ["", "100", ""], "2026-06-01", "2026-06-05")
+    provider.data_pool("p03425", {"date": "20260605", "blockname": "001005010"}, "p03291_f002")
+    provider.edb_service("G009035746", "2026-05-01", "2026-06-01")
+
+    endpoints = [name for name, _ in seen]
+    assert "date_sequence" in endpoints
+    assert "data_pool" in endpoints
+    assert "edb_service" in endpoints
+    assert provider.usage_stats()["calls"]["date_sequence"] == 1
+
+
+def test_research_harness_caches_and_writes_knowledge(tmp_path):
+    from src.research.harness import ResearchHarness
+
+    class FakeProvider:
+        source_name = "ifind"
+
+        def __init__(self):
+            self.calls = 0
+
+        def get_realtime_quote(self, code):
+            self.calls += 1
+            return {"code": code, "name": "长江电力", "price": 25.0, "change_pct": 1.2, "source": "ifind"}
+
+        def get_daily_bars(self, code, start, end):
+            return [{"date": "2026-06-05", "close": 25.0, "change_pct": 1.2}]
+
+        def report_query(self, code, days=45, limit=20):
+            return [{"title": "长江电力回购公告", "type": "announcement", "source": "iFinD公告"}]
+
+        def smart_stock_picking(self, query, limit=20):
+            return [{"code": "600900", "name": "长江电力", "change_pct": 1.2}]
+
+        def basic_data(self, codes, indicator, params=None):
+            return {"tables": [{"table": {indicator: [123.4]}}]}
+
+        def usage_stats(self):
+            return {"calls": {"real_time_quotation": self.calls}}
+
+    provider = FakeProvider()
+    harness = ResearchHarness(provider=provider, cache_dir=tmp_path / "cache", knowledge_path=tmp_path / "knowledge.json")
+
+    first = harness.company_research("600900", profile="deep")
+    second = harness.company_research("600900", profile="deep")
+
+    assert first["cached"] is False
+    assert second["cached"] is True
+    assert provider.calls == 1
+    assert first["summary_cards"][0]["title"] == "行情"
+    assert "公告" in first["evidence"]
+    assert (tmp_path / "knowledge.json").exists()
+
+
+def test_tool_executor_exposes_ifind_research_harness(monkeypatch, tmp_path):
+    monkeypatch.setenv("ALPHAEYE_RESEARCH_CACHE_DIR", str(tmp_path / "cache"))
+    monkeypatch.setenv("ALPHAEYE_RESEARCH_KNOWLEDGE", str(tmp_path / "knowledge.json"))
+
+    class FakeHarness:
+        def company_research(self, code, profile="quick"):
+            return {"code": code, "profile": profile, "summary_cards": [{"title": "行情"}], "cached": False}
+
+        def market_radar(self, queries=None):
+            return {"queries": queries or [], "themes": [], "cached": False}
+
+    monkeypatch.setattr("src.ai.tool_executor.ResearchHarness", lambda: FakeHarness())
+
+    from src.ai.tool_executor import ToolExecutor
+
+    company = ToolExecutor()._ifind_company_research("600900", "deep")
+    market = ToolExecutor()._ifind_market_radar(["主力资金流入"])
+
+    assert company["code"] == "600900"
+    assert company["profile"] == "deep"
+    assert market["queries"] == ["主力资金流入"]
+
+
+def test_ifind_evidence_score_combines_opportunity_risk_and_confidence():
+    from src.scoring.evidence import IFindEvidenceScorer
+
+    research = {
+        "code": "600900",
+        "source": "ifind",
+        "quality": "high",
+        "evidence": {
+            "行情": {"price": 25.0, "change_pct": 2.1, "turnover": 3.2, "amount": 4200000000, "source": "ifind"},
+            "K线": [
+                {"close": 23.5, "change_pct": 0.5},
+                {"close": 24.2, "change_pct": 1.0},
+                {"close": 25.0, "change_pct": 2.1},
+            ],
+            "公告": [
+                {"title": "长江电力回购股份方案", "source": "iFinD公告"},
+                {"title": "长江电力业绩预增公告", "source": "iFinD公告"},
+            ],
+            "基础数据": {"市盈率TTM": 18.5, "净利润": 123.4, "流通市值": 3000},
+            "智能选股": [{"query": "主力资金流入", "code": "600900"}],
+        },
+    }
+
+    score = IFindEvidenceScorer().score(research)
+
+    assert score["code"] == "600900"
+    assert score["opportunity_score"] >= 60
+    assert score["risk_score"] < 70
+    assert score["confidence"] in {"中", "高"}
+    assert set(score["dimensions"]) == {"fund_heat", "support_quality", "catalyst", "fundamental_safety", "crowding_risk", "data_confidence"}
+    assert score["action"] in {"可模拟验证", "可观察"}
+    assert score["evidence_summary"]
+
+
+def test_tool_executor_exposes_ifind_evidence_score(monkeypatch):
+    class FakeHarness:
+        def company_research(self, code, profile="quick"):
+            return {
+                "code": code,
+                "source": "ifind",
+                "quality": "medium",
+                "evidence": {
+                    "行情": {"price": 10.0, "change_pct": 0.5, "turnover": 1.0, "amount": 500000000},
+                    "K线": [],
+                    "公告": [],
+                    "基础数据": {},
+                    "智能选股": [],
+                },
+            }
+
+    monkeypatch.setattr("src.ai.tool_executor.ResearchHarness", lambda: FakeHarness())
+
+    from src.ai.tool_executor import ToolExecutor
+
+    result = ToolExecutor()._ifind_evidence_score("600900")
+
+    assert result["code"] == "600900"
+    assert "opportunity_score" in result
+    assert "risk_score" in result
+
+
+def test_navigation_helper_keeps_transient_pages_out_of_main_nav():
+    from src.ui.navigation import resolve_main_navigation
+
+    state = resolve_main_navigation(
+        current_page="stock_detail",
+        selected_nav="market",
+        last_nav_page="radar",
+        tab_pages=["market", "radar", "research", "ai_chat", "lab", "profile"],
+    )
+
+    assert state["current_page"] == "stock_detail"
+    assert state["show_main_nav"] is False
+    assert state["selected_nav"] == "radar"
+
+
+def test_system_prompt_mentions_ifind_research_tools_and_quota():
+    from src.ai.chat import AIChat
+
+    prompt = AIChat.build_system_prompt("deep_analysis", "请对 600900 做深度研究")
+
+    assert "ifind_company_research" in prompt
+    assert "ifind_market_radar" in prompt
+    assert "ifind_evidence_score" in prompt
+    assert "额度" in prompt
+    assert "Research Harness" in prompt or "研究 Harness" in prompt
+
+
 def test_user_risk_state_enters_cooldown_after_recent_bad_feedback():
     from src.risk.user_state import evaluate_user_risk_state
 

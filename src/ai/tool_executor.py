@@ -1,6 +1,8 @@
 """AI 工具执行器 — 每个工具独立超时保护"""
 
 import json, logging
+from src.research.harness import ResearchHarness
+from src.scoring.evidence import IFindEvidenceScorer
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +31,10 @@ class ToolExecutor:
             "get_kline_data": self._get_kline_data,
             "get_info_radar": self._get_info_radar,
             "ifind_smart_stock_picking": self._ifind_smart_stock_picking,
+            "ifind_company_research": self._ifind_company_research,
+            "ifind_market_radar": self._ifind_market_radar,
+            "get_research_memory": self._get_research_memory,
+            "ifind_evidence_score": self._ifind_evidence_score,
         }
         handler = handlers.get(tool_name)
         if not handler:
@@ -309,3 +315,48 @@ class ToolExecutor:
             }
         except Exception as e:
             return {"query": query, "count": 0, "stocks": [], "error": f"iFinD智能选股失败: {str(e)[:80]}"}
+
+    def _ifind_company_research(self, code: str, profile: str = "quick") -> dict:
+        try:
+            return ResearchHarness().company_research(code, profile=profile or "quick")
+        except Exception as e:
+            return {
+                "code": code,
+                "profile": profile,
+                "error": f"iFinD公司研究失败: {str(e)[:100]}",
+                "data_quality": "unavailable",
+            }
+
+    def _ifind_market_radar(self, queries: list = None) -> dict:
+        try:
+            return ResearchHarness().market_radar(queries=queries)
+        except Exception as e:
+            return {
+                "queries": queries or [],
+                "themes": [],
+                "error": f"iFinD市场雷达失败: {str(e)[:100]}",
+                "data_quality": "unavailable",
+            }
+
+    def _get_research_memory(self, limit: int = 8) -> dict:
+        try:
+            return ResearchHarness().knowledge_context(limit=min(int(limit or 8), 20))
+        except Exception as e:
+            return {"runs": [], "insights": [], "error": f"研究记忆读取失败: {str(e)[:100]}"}
+
+    def _ifind_evidence_score(self, code: str, profile: str = "quick") -> dict:
+        try:
+            research = ResearchHarness().company_research(code, profile=profile or "quick")
+            return IFindEvidenceScorer().score(research)
+        except Exception as e:
+            return {
+                "code": code,
+                "profile": profile,
+                "error": f"iFinD证据评分失败: {str(e)[:100]}",
+                "opportunity_score": 0,
+                "risk_score": 100,
+                "confidence": "低",
+                "action": "只观察",
+                "dimensions": {},
+                "evidence_summary": [],
+            }
