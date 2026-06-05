@@ -118,6 +118,13 @@ class AIChat:
                 messages.append({"role":"assistant","content":h["answer"]})
             messages.append({"role":"user","content":user_message})
 
+            # 实时行情护栏：紧贴当前问题注入最新行情，权重压过历史里的旧价格
+            # 解决"AI照抄自己历史回答里的旧价格"问题
+            if stock_code:
+                live_guard = self._live_quote_guard(stock_code)
+                if live_guard:
+                    messages.append({"role": "system", "content": live_guard})
+
             self._tools_used = []
             answer = ""
 
@@ -1187,6 +1194,37 @@ class AIChat:
     # ═══════════════════════════════════════
     # 智能追问 & 场景检测 & 动态角色提示
     # ═══════════════════════════════════════
+
+    def _live_quote_guard(self, stock_code: str) -> str:
+        """生成实时行情护栏文本：紧贴当前问题注入，权重压过历史旧价格。
+
+        解决 AI 照抄自己历史回答里旧价格的问题——明确给出当前真实行情，
+        并指令 AI 忽略对话历史/记忆里的任何旧价格。
+        """
+        try:
+            from src.data.realtime import get_realtime_quote
+            from src.data.stock_list import resolve_stock_name
+            q = get_realtime_quote(stock_code)
+            if not q or not q.get("price"):
+                return ""
+            name = q.get("name") or resolve_stock_name(stock_code, stock_code)
+            price = q.get("price", 0)
+            pct = q.get("change_pct", 0)
+            turnover = q.get("turnover", 0) or 0
+            amount = (q.get("amount", 0) or 0) / 1e8
+            src = q.get("source", "")
+            ts = datetime.now().strftime("%Y-%m-%d %H:%M")
+            return (
+                f"[实时行情护栏 · 最高优先级 · {ts}]\n"
+                f"{name}({stock_code}) 当前真实行情：\n"
+                f"现价 {price:.2f} 元 | 涨跌 {pct:+.2f}% | 换手 {turnover:.2f}% | 成交额 {amount:.1f}亿 | 来源 {src}\n"
+                f"⚠️ 铁律：本条是此刻真实行情。你的对话历史、研究底稿、记忆里可能有这只股票的旧价格，"
+                f"那些全部作废。本次回答的价格、涨跌幅、换手、成交额必须用上面这条，绝不允许使用历史里的旧数字。"
+                f"不许说'复用研究底稿'来沿用旧价格。如果历史价格与此处不同，以此处为准。"
+            )
+        except Exception as e:
+            logger.warning(f"live_quote_guard 失败 {stock_code}: {e}")
+            return ""
 
     @staticmethod
     def build_system_prompt(scene: str = "general", user_message: str = "") -> str:
