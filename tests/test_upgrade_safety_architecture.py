@@ -146,6 +146,36 @@ def test_ifind_provider_exposes_more_http_endpoints(monkeypatch):
     assert provider.usage_stats()["calls"]["date_sequence"] == 1
 
 
+def test_ifind_usage_stats_persist_daily_and_monthly_counts(monkeypatch, tmp_path):
+    monkeypatch.setenv("IFIND_REFRESH_TOKEN", "refresh-token")
+    monkeypatch.setenv("ALPHAEYE_IFIND_USAGE_PATH", str(tmp_path / "ifind_usage.json"))
+
+    from src.data.providers.ifind_provider import IFindProvider
+
+    class FakeResponse:
+        def __init__(self, payload):
+            self._payload = payload
+            self.content = b"{}"
+
+        def json(self):
+            return self._payload
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        if url.endswith("/get_access_token"):
+            return FakeResponse({"data": {"access_token": "access-token"}})
+        return FakeResponse({"tables": []})
+
+    monkeypatch.setattr("src.data.providers.ifind_provider.requests.post", fake_post)
+    provider = IFindProvider()
+    provider.smart_stock_picking("主力资金流入", limit=1)
+    usage = provider.usage_stats()
+
+    assert usage["calls"]["smart_stock_picking"] == 1
+    assert usage["today_calls"] >= 1
+    assert usage["month_calls"] >= 1
+    assert usage["usage_path"].endswith("ifind_usage.json")
+
+
 def test_research_harness_caches_and_writes_knowledge(tmp_path):
     from src.research.harness import ResearchHarness
 
@@ -185,7 +215,12 @@ def test_research_harness_caches_and_writes_knowledge(tmp_path):
     assert provider.calls == 1
     assert first["summary_cards"][0]["title"] == "行情"
     assert "公告" in first["evidence"]
+    assert {item["name"] for item in first["scenario_report"]} == {"利好继续发酵", "冲高回落", "板块不联动"}
     assert (tmp_path / "knowledge.json").exists()
+
+    refreshed = harness.company_research("600900", profile="deep", force=True)
+    assert refreshed["cached"] is False
+    assert provider.calls == 2
 
 
 def test_tool_executor_exposes_ifind_research_harness(monkeypatch, tmp_path):

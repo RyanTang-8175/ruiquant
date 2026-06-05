@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import html
+import json
 from datetime import datetime
 
 import streamlit as st
@@ -79,9 +80,10 @@ def _render_research(code: str):
         with st.spinner("正在生成研究底稿…"):
             try:
                 harness = ResearchHarness()
-                research = harness.company_research(code, profile=profile)
+                research = harness.company_research(code, profile=profile, force=force_refresh)
                 score = IFindEvidenceScorer().score(research)
                 research["evidence_score"] = score
+                research["legacy_score"] = _legacy_score(code)
                 st.session_state["research_last"] = research
             except Exception as exc:
                 st.error(f"研究生成失败: {exc}")
@@ -96,15 +98,19 @@ def _render_research(code: str):
     _summary_cards(summary_cards, research)
     _action_bar(code, research, score)
 
-    tab1, tab2, tab3, tab4 = st.tabs(["证据", "评分", "记忆", "审计"])
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["证据", "评分", "情景", "记忆", "审计", "原始"])
     with tab1:
         _evidence_panel(evidence)
     with tab2:
         _score_panel(score, research)
     with tab3:
-        _memory_panel()
+        _scenario_panel(research.get("scenario_report") or [])
     with tab4:
+        _memory_panel()
+    with tab5:
         _audit_panel(research, score)
+    with tab6:
+        _raw_panel(research)
 
 
 def _header(research: dict, score: dict):
@@ -253,13 +259,22 @@ def _score_panel(score: dict, research: dict):
         st.info("暂无新评分结果")
         return
 
-    cols = st.columns(3)
+    legacy = research.get("legacy_score") or {}
+    cols = st.columns(4)
     with cols[0]:
         st.metric("机会分", f"{score.get('opportunity_score', 0):.1f}")
     with cols[1]:
         st.metric("风险分", f"{score.get('risk_score', 0):.1f}")
     with cols[2]:
         st.metric("置信度", score.get("confidence", "低"))
+    with cols[3]:
+        st.metric("旧评分", f"{legacy.get('total_score', 0):.1f}" if legacy else "-")
+
+    if legacy:
+        diff = float(score.get("opportunity_score", 0) or 0) - float(legacy.get("total_score", 0) or 0)
+        st.caption(
+            f"新评分以 iFinD 证据为主线，旧六维评分保留作参考；当前差异 {diff:+.1f}。"
+        )
 
     for key, title in [
         ("fund_heat", "资金热度"),
@@ -285,6 +300,33 @@ def _score_panel(score: dict, research: dict):
     st.markdown('<div class="sec-h">证据摘要</div>', unsafe_allow_html=True)
     for line in score.get("evidence_summary") or []:
         st.markdown(f'- {html.escape(str(line))}')
+
+
+def _scenario_panel(scenarios: list):
+    if not scenarios:
+        st.info("暂无情景推演")
+        return
+    st.markdown('<div class="sec-h">三情景推演</div>', unsafe_allow_html=True)
+    for item in scenarios:
+        st.markdown(
+            f'<div class="card" style="margin-bottom:8px">'
+            f'<div style="display:flex;justify-content:space-between;gap:10px">'
+            f'<div style="font-weight:750;color:var(--text)">{html.escape(str(item.get("name", "")))}</div>'
+            f'<div style="font-family:var(--mono);font-weight:800;color:var(--ai)">{html.escape(str(item.get("possibility", "")))}</div>'
+            f'</div>'
+            f'<div style="font-size:12px;color:var(--muted);line-height:1.55;margin-top:6px">证据：{html.escape(str(item.get("evidence", "")))}</div>'
+            f'<div style="font-size:12px;color:var(--text);line-height:1.55;margin-top:4px">触发：{html.escape(str(item.get("trigger", "")))}</div>'
+            f'<div style="font-size:12px;color:var(--text);line-height:1.55;margin-top:4px">失效：{html.escape(str(item.get("failure", "")))}</div>'
+            f'<div style="font-size:11px;color:var(--muted);margin-top:4px">观察周期：{html.escape(str(item.get("watch_window", "")))}</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+
+def _raw_panel(research: dict):
+    st.markdown('<div class="sec-h">原始证据</div>', unsafe_allow_html=True)
+    st.caption("这里展示的是裁剪后的本地研究底稿，便于排查 AI 结论是否有证据来源。")
+    st.code(json.dumps(research, ensure_ascii=False, indent=2, default=str)[:12000], language="json")
 
 
 def _memory_panel():
@@ -399,3 +441,22 @@ def _empty_state():
 
 def _lines(text: str) -> list[str]:
     return [line.strip(" -\t") for line in str(text or "").splitlines() if line.strip(" -\t")]
+
+
+def _legacy_score(code: str) -> dict:
+    try:
+        from src.scoring.engine import V6ScoringEngine
+
+        with V6ScoringEngine() as engine:
+            result = engine.score_stock(code)
+        if not result:
+            return {}
+        data = result.to_dict() if hasattr(result, "to_dict") else {}
+        return {
+            "total_score": float(data.get("total_score", 0) or 0),
+            "status_label": data.get("status_label", ""),
+            "risk_level": data.get("risk_level", ""),
+            "anti_quant": data.get("anti_quant", {}),
+        }
+    except Exception:
+        return {}

@@ -28,11 +28,11 @@ class ResearchHarness:
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.knowledge = ResearchKnowledge(knowledge_path)
 
-    def company_research(self, code: str, profile: str = "quick") -> dict:
+    def company_research(self, code: str, profile: str = "quick", force: bool = False) -> dict:
         code = str(code or "").strip()[:6]
         profile = profile or "quick"
         fp = self._fingerprint("company", code, profile)
-        cached = self._read_cache(fp, ttl=6 * 3600)
+        cached = None if force else self._read_cache(fp, ttl=6 * 3600)
         if cached:
             cached["cached"] = True
             return cached
@@ -64,6 +64,7 @@ class ResearchHarness:
             "source": getattr(self.provider, "source_name", "unknown"),
             "summary_cards": self._summary_cards(evidence),
             "evidence": evidence,
+            "scenario_report": self._scenario_report(evidence),
             "quality": self._quality(evidence),
             "usage": self._usage(),
             "created_at": datetime.now().isoformat(),
@@ -151,6 +152,49 @@ class ResearchHarness:
             {"title": "公告", "value": len(announcements), "note": "近90天"},
             {"title": "基础数据", "value": sum(1 for v in basics.values() if v not in (None, "", 0)), "note": "可用指标"},
             {"title": "智能选股", "value": len(smart), "note": "问财命中"},
+        ]
+
+    @staticmethod
+    def _scenario_report(evidence: dict) -> list[dict]:
+        quote = evidence.get("行情") or {}
+        announcements = evidence.get("公告") or []
+        smart = evidence.get("智能选股") or []
+        bars = evidence.get("K线") or []
+        chg = float(quote.get("change_pct") or 0.0)
+        turnover = float(quote.get("turnover") or 0.0)
+        last_bar = bars[-1] if bars else {}
+        last_change = float(last_bar.get("change_pct") or chg)
+        catalyst_count = len(announcements) + len(smart)
+
+        bullish = min(80, 35 + catalyst_count * 8 + max(chg, 0) * 3)
+        pullback = min(85, 40 + max(chg, 0) * 5 + max(turnover - 4, 0) * 4)
+        invalid = min(80, 35 + (10 if catalyst_count == 0 else 0) + max(-last_change, 0) * 5)
+
+        return [
+            {
+                "name": "利好继续发酵",
+                "possibility": f"{bullish:.0f}%",
+                "evidence": f"公告 {len(announcements)} 条，智能选股命中 {len(smart)} 条，当前涨跌幅 {chg:+.2f}%。",
+                "trigger": "公告/政策/资金信号继续被行情确认，板块内出现同步走强。",
+                "failure": "消息有热度但成交不跟，或同板块核心股不联动。",
+                "watch_window": "T+1 到 T+3",
+            },
+            {
+                "name": "冲高回落",
+                "possibility": f"{pullback:.0f}%",
+                "evidence": f"涨跌幅 {chg:+.2f}%，换手 {turnover:.2f}%，短线拥挤度可能抬升。",
+                "trigger": "高开急冲后跌回分时均价线，放量但价格推不动。",
+                "failure": "回踩不破且成交额温和放大，说明承接没有失效。",
+                "watch_window": "盘中 30-90 分钟",
+            },
+            {
+                "name": "板块不联动",
+                "possibility": f"{invalid:.0f}%",
+                "evidence": f"最近K线涨跌 {last_change:+.2f}%，外部证据块数量 {catalyst_count}。",
+                "trigger": "个股单独拉升，行业/概念没有扩散，新闻或公告无法复核。",
+                "failure": "同方向出现 2-3 只核心股同步走强，并且尾盘不回落。",
+                "watch_window": "T+1",
+            },
         ]
 
     @staticmethod

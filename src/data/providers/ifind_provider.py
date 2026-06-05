@@ -11,9 +11,12 @@ iFinD HTTP 数据源适配器。
 
 from __future__ import annotations
 
+import json
 import logging
+import os
 import time
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Optional
 
 import requests
@@ -37,6 +40,11 @@ class IFindProvider(MarketDataProvider):
         self._access_token_expire_at = 0.0
         self._cache: dict[tuple, tuple[float, object]] = {}
         self._calls: dict[str, int] = {}
+        self._cache_hits = 0
+        self._cache_misses = 0
+        raw_usage = os.getenv("ALPHAEYE_IFIND_USAGE_PATH")
+        self._usage_path = Path(raw_usage) if raw_usage else Path(__file__).resolve().parents[3] / "data" / "ifind_usage.json"
+        self._usage_path.parent.mkdir(parents=True, exist_ok=True)
 
     @property
     def configured(self) -> bool:
@@ -45,10 +53,13 @@ class IFindProvider(MarketDataProvider):
     def _ttl_get(self, key: tuple, ttl: int):
         cached = self._cache.get(key)
         if not cached:
+            self._cache_misses += 1
             return None
         ts, payload = cached
         if time.time() - ts > ttl:
+            self._cache_misses += 1
             return None
+        self._cache_hits += 1
         return payload
 
     def _ttl_set(self, key: tuple, payload):
@@ -87,12 +98,38 @@ class IFindProvider(MarketDataProvider):
             timeout=self.timeout,
         )
         data = response.json()
-        self._calls[endpoint] = self._calls.get(endpoint, 0) + 1
+        self._record_call(endpoint)
         code = data.get("errorcode", data.get("code", 0))
         if code not in (0, "0", None):
             msg = data.get("errmsg") or data.get("message") or str(data)[:160]
             raise RuntimeError(f"iFinD {endpoint} 返回错误 {code}: {msg}")
         return data
+
+    def _record_call(self, endpoint: str) -> None:
+        self._calls[endpoint] = self._calls.get(endpoint, 0) + 1
+        today = datetime.now().strftime("%Y-%m-%d")
+        month = datetime.now().strftime("%Y-%m")
+        try:
+            usage = self._load_usage()
+            usage.setdefault("daily", {}).setdefault(today, {})
+            usage.setdefault("monthly", {}).setdefault(month, {})
+            usage["daily"][today][endpoint] = int(usage["daily"][today].get(endpoint, 0)) + 1
+            usage["monthly"][month][endpoint] = int(usage["monthly"][month].get(endpoint, 0)) + 1
+            usage["last_call_at"] = datetime.now().isoformat()
+            self._save_usage(usage)
+        except Exception as exc:
+            logger.debug("iFinD usage ledger write failed: %s", exc)
+
+    def _load_usage(self) -> dict:
+        if not self._usage_path.exists():
+            return {"daily": {}, "monthly": {}, "last_call_at": None}
+        try:
+            return json.loads(self._usage_path.read_text(encoding="utf-8"))
+        except Exception:
+            return {"daily": {}, "monthly": {}, "last_call_at": None}
+
+    def _save_usage(self, usage: dict) -> None:
+        self._usage_path.write_text(json.dumps(usage, ensure_ascii=False, indent=2), encoding="utf-8")
 
     @staticmethod
     def _ths_code(code: str) -> str:
@@ -425,11 +462,26 @@ class IFindProvider(MarketDataProvider):
         })
 
     def usage_stats(self) -> dict:
+        usage = self._load_usage()
+        today = datetime.now().strftime("%Y-%m-%d")
+        month = datetime.now().strftime("%Y-%m")
+        today_by_endpoint = usage.get("daily", {}).get(today, {})
+        month_by_endpoint = usage.get("monthly", {}).get(month, {})
+        cache_total = self._cache_hits + self._cache_misses
         return {
             "source": self.source_name,
             "calls": dict(self._calls),
+            "today_calls": sum(int(v) for v in today_by_endpoint.values()),
+            "month_calls": sum(int(v) for v in month_by_endpoint.values()),
+            "today_by_endpoint": today_by_endpoint,
+            "month_by_endpoint": month_by_endpoint,
             "cache_entries": len(self._cache),
+            "cache_hits": self._cache_hits,
+            "cache_misses": self._cache_misses,
+            "cache_hit_rate": round(self._cache_hits / cache_total, 3) if cache_total else 0,
             "configured": self.configured,
+            "last_call_at": usage.get("last_call_at"),
+            "usage_path": str(self._usage_path),
         }
 
     def get_news(self, code: str = None, limit: int = 20) -> list:

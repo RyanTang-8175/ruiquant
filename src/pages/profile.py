@@ -101,19 +101,28 @@ def _ifind_usage_panel():
         status = provider_status()
         usage = provider.usage_stats() if hasattr(provider, "usage_stats") else {}
         calls = usage.get("calls") or {}
-        c1, c2 = st.columns(2)
+        c1, c2, c3, c4 = st.columns(4)
         c1.metric("数据源", status.get("provider", "open"))
-        c2.metric("缓存", usage.get("cache_entries", 0))
+        c2.metric("今日调用", usage.get("today_calls", 0))
+        c3.metric("本月调用", usage.get("month_calls", 0))
+        c4.metric("缓存命中", f"{float(usage.get('cache_hit_rate', 0) or 0):.0%}")
         st.caption(
             " · ".join(
                 [
                     f"可用 {status.get('ready')}",
-                    f"调用 {sum(int(v) for v in calls.values()) if calls else 0}",
+                    f"本轮调用 {sum(int(v) for v in calls.values()) if calls else 0}",
+                    f"缓存 {usage.get('cache_entries', 0)}",
                     f"接口 {len(calls)}",
+                    f"最近 {usage.get('last_call_at') or '-'}",
                     f"说明 {status.get('message', '')}",
                 ]
             )
         )
+        month_by_endpoint = usage.get("month_by_endpoint") or {}
+        if month_by_endpoint:
+            st.markdown('<div class="page-kicker">本月接口分布</div>', unsafe_allow_html=True)
+            for endpoint, count in sorted(month_by_endpoint.items(), key=lambda x: x[1], reverse=True)[:8]:
+                st.caption(f"{endpoint}: {count}")
     except Exception as exc:
         st.caption(f"iFinD 额度面板暂不可用: {exc}")
 

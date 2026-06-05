@@ -37,7 +37,10 @@ ENV/
 data/*.db
 data/*.sqlite
 data/settings.json
+data/ifind_usage.json
 data/conversations/
+data/research_cache/
+data/research_knowledge.json
 data/scratchpad/
 *.db
 *.sqlite

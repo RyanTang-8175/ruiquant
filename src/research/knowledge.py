@@ -34,6 +34,18 @@ class ResearchKnowledge:
         if item["id"] and not any(r.get("id") == item["id"] for r in runs):
             runs.insert(0, item)
         data["runs"] = runs[:300]
+        if item["id"] and payload.get("quality") == "low":
+            dead_ends = data.setdefault("dead_ends", [])
+            if not any(d.get("id") == item["id"] for d in dead_ends):
+                dead_ends.insert(0, {
+                    "id": item["id"],
+                    "kind": item["kind"],
+                    "code": item["code"],
+                    "title": item["title"],
+                    "reason": "证据块不足，后续同类问题应先补数据再下结论。",
+                    "created_at": item["created_at"],
+                })
+            data["dead_ends"] = dead_ends[:100]
         data["insights"] = self._derive_insights(data["runs"])
         self._save(data)
 
@@ -42,6 +54,7 @@ class ResearchKnowledge:
         return {
             "runs": data.get("runs", [])[:limit],
             "insights": data.get("insights", [])[:limit],
+            "dead_ends": data.get("dead_ends", [])[:limit],
         }
 
     @staticmethod
@@ -66,7 +79,7 @@ class ResearchKnowledge:
         try:
             return json.loads(self.path.read_text(encoding="utf-8"))
         except Exception:
-            return {"runs": [], "insights": []}
+            return {"runs": [], "insights": [], "dead_ends": []}
 
     def _save(self, data: dict) -> None:
         self.path.write_text(json.dumps(data, ensure_ascii=False, indent=2, default=str), encoding="utf-8")

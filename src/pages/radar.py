@@ -96,13 +96,20 @@ def _show_ifind_smart_picks():
 
     queries = [
         ("主力资金流入 涨幅居前", "主力资金"),
+        ("政策利好 行业 龙头", "政策利好"),
+        ("公告利好 回购 增持", "公告催化"),
+        ("业绩预增 净利润增长", "业绩预增"),
+        ("回购 增持 A股", "回购增持"),
         ("换手率 活跃 成交额居前", "换手活跃"),
-        ("连续上涨", "强势延续"),
+        ("低位 放量 突破", "低位放量"),
+        ("连续上涨", "连续上涨"),
+        ("行业龙头 资金流入", "行业龙头"),
+        ("风险排除 非ST 非退市 低负债", "风险排除"),
     ]
 
-    cols = st.columns(len(queries))
+    cols = st.columns(5)
     for idx, (query, label) in enumerate(queries):
-        with cols[idx]:
+        with cols[idx % 5]:
             if st.button(label, key=f"ifind_sp_{idx}", use_container_width=True):
                 with st.spinner(f"iFinD 智能选股：{label}…"):
                     try:
