@@ -139,13 +139,14 @@ def render_market_page():
                 limit_tag = '<span style="background:#007348;color:#fff;font-size:9px;font-weight:700;padding:1px 4px;border-radius:2px;margin-left:4px">跌停</span>'
 
             amt_str = f'{amt/1e8:.1f}亿' if amt >= 1e8 else (f'{amt/1e4:.0f}万' if amt > 0 else "")
+            amt_span = ('<span style="font-size:10px;color:var(--muted);margin-left:4px">' + amt_str + '</span>') if amt_str else ""
 
             st.markdown(
                 f'<div class="sr">'
                 f'<div style="color:var(--muted);font-family:var(--mono);font-size:12px;width:24px;text-align:center">{i+1}</div>'
                 f'<div class="inf"><div><span class="nm">{nm}</span>{limit_tag}</div>'
                 f'<div><span class="cd">{cd}</span>'
-                f'{"<span style=\"font-size:10px;color:var(--muted);margin-left:4px\">" + amt_str + "</span>" if amt_str else ""}'
+                f'{amt_span}'
                 f' {q_html}</div></div>'
                 f'<div style="text-align:right">'
                 f'<div class="pr" style="color:{cl}">{pr:.2f}</div>'
