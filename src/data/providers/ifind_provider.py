@@ -159,10 +159,13 @@ class IFindProvider(MarketDataProvider):
         code = str(code or "").strip().upper()
         if "." in code:
             return code
-        if code.startswith(("6", "9")):
+        # 上海主板: 6xxxxx, 科创板: 688xxx
+        if code.startswith("6"):
             return f"{code}.SH"
-        if code.startswith(("8", "4")):
+        # 北交所: 8xxxxx, 43xxxx, 83xxxx (支持较差，建议过滤)
+        if code.startswith(("8", "43", "83")):
             return f"{code}.BJ"
+        # 深圳主板/中小板: 000xxx/002xxx, 创业板: 300xxx
         return f"{code}.SZ"
 
     @staticmethod
@@ -372,18 +375,32 @@ class IFindProvider(MarketDataProvider):
             "turnoverratio": "A股换手率排名",
         }
         rows = self.smart_stock_picking(query_map.get(sort_field, "A股涨幅榜"), limit=limit)
+
         # 用批量行情补齐 price/volume/amount（wencai 返回的数据可能不完整）
         if rows:
-            codes = [r.get("code") for r in rows if r.get("code")]
-            if codes:
+            # 过滤掉北交所股票(920xxx)，iFinD 对北交所支持不完整
+            main_board_codes = [r.get("code") for r in rows if r.get("code") and not str(r.get("code", "")).startswith("92")]
+
+            if main_board_codes:
                 try:
-                    # 分批获取行情，避免单次请求过多
-                    quotes = self.get_realtime_quotes(codes[:50])
-                    qmap = {q.get("code"): q for q in quotes}
+                    # 逐个获取行情，避免批量失败影响全部
+                    qmap = {}
+                    for i in range(0, len(main_board_codes), 10):
+                        batch = main_board_codes[i:i+10]
+                        try:
+                            quotes = self.get_realtime_quotes(batch)
+                            for q in quotes:
+                                qmap[q.get("code")] = q
+                        except Exception as e:
+                            logger.warning(f"批量行情获取失败 batch {i}: {e}")
+                            continue
+
+                    # 补齐数据
                     for row in rows:
-                        q = qmap.get(row.get("code"))
+                        code = row.get("code")
+                        q = qmap.get(code)
                         if q:
-                            # 直接覆盖而非 if not，确保使用最新实时数据
+                            # 直接覆盖而非条件判断，确保使用最新实时数据
                             row["price"] = q.get("price", row.get("price", 0))
                             row["volume"] = q.get("volume", row.get("volume", 0))
                             row["amount"] = q.get("amount", row.get("amount", 0))
@@ -394,7 +411,9 @@ class IFindProvider(MarketDataProvider):
                             row["change_pct"] = q.get("change_pct", row.get("change_pct", 0))
                 except Exception as e:
                     logger.warning(f"榜单数据补齐失败: {e}")
-        return rows
+
+        # 过滤掉价格为0的无效数据
+        return [r for r in rows if r.get("price", 0) > 0]
 
     def smart_stock_picking(self, query: str, limit: int = 20) -> list:
         limit = max(1, min(int(limit or 20), 50))
