@@ -40,6 +40,9 @@ class AIChat:
         self._tools_used = []
         self._memory = None
         self._active_session_key = None
+        # Phase 4.1: 多轮对话上下文
+        self._last_stock: str | None = None
+        self._conversation_context: dict = {}
 
     @classmethod
     def provider_status(cls, api_key: str | None = None, base_url: str | None = None, model: str | None = None) -> dict:
@@ -103,6 +106,10 @@ class AIChat:
         try:
             scene = self.detect_scene(user_message)
             stock_code = self._extract_stock_code(user_message)
+            # Phase 4.1: 代词解析 — "它/他/这只/该股"自动补全为上轮股票
+            user_message = self._resolve_pronouns(user_message, stock_code)
+            if not stock_code:
+                stock_code = self._extract_stock_code(user_message)
             run_id, scratchpad = self._start_audit(user_message, scene)
             session_id = self._save_user_message(user_message, scene, stock_code)
             messages = [{"role":"system","content":self.build_system_prompt(scene, user_message)}]
@@ -681,6 +688,27 @@ class AIChat:
         m = re.search(r"\b(\d{6})\b", text or "")
         return m.group(1) if m else ""
 
+    def _resolve_pronouns(self, user_message: str, current_stock_code: str) -> str:
+        """Phase 4.1: 代词解析 — 把"它的风险呢"补全为"300033 它的风险呢"
+
+        当用户输入含代词但无股票代码时，用 _last_stock 补全。
+        """
+        msg = (user_message or "").strip()
+        if current_stock_code or not self._last_stock:
+            return user_message or ""
+
+        pronouns = ("它", "他", "她", "这只", "该股", "这股", "这票", "这个票")
+        has_pronoun = any(p in msg for p in pronouns)
+        if not has_pronoun and len(msg) < 15:
+            # 短消息可能是追问（如"风险呢""换手率多少"），也尝试补全
+            has_pronoun = True
+
+        if has_pronoun:
+            from src.data.stock_list import resolve_stock_name
+            name = resolve_stock_name(self._last_stock, self._last_stock)
+            return f"{name}({self._last_stock}) {msg}"
+        return user_message or ""
+
     def _get_memory(self):
         if self._memory is not None:
             return self._memory
@@ -994,6 +1022,11 @@ class AIChat:
     def _finalize_response(self, user_message: str, answer: str,
                            session_id: int | None, stock_code: str, scene: str,
                            scratchpad, run_id: str | None) -> str:
+        # Phase 4.1: 追踪多轮对话上下文
+        if stock_code:
+            self._last_stock = stock_code
+            self._conversation_context["last_stock"] = stock_code
+            self._conversation_context["last_scene"] = scene
         self.history.append({
             "question": user_message,
             "answer": answer,
