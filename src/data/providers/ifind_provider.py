@@ -333,15 +333,36 @@ class IFindProvider(MarketDataProvider):
         return None
 
     def get_market_snapshot(self) -> dict:
-        quotes = self.get_realtime_quotes(["000001", "399001", "399006"])
-        names = {"000001": "上证", "399001": "深证", "399006": "创业板"}
-        return {
-            "source": "ifind",
-            "indices": [
-                {"name": names.get(q["code"], q["name"]), "price": q["price"], "change_pct": q["change_pct"]}
-                for q in quotes
-            ],
+        # iFinD 指数代码：上证 000001.SH / 深证 399001.SZ / 创业板 399006.SZ
+        # 不能用 get_realtime_quotes，因为它把 000001 映射成 000001.SZ（平安银行）
+        codes_map = {"000001.SH": "上证指数", "399001.SZ": "深证成指", "399006.SZ": "创业板指"}
+        ths_codes = list(codes_map.keys())
+        key = ("idx", tuple(ths_codes))
+        cached = self._ttl_get(key, 30)
+        if cached is not None:
+            return cached
+        payload = {
+            "codes": ",".join(ths_codes),
+            "indicators": "latest,open,high,low,preClose,volume,amount,changeRatio,secName",
         }
+        data = self._post("real_time_quotation", payload)
+        tables = data.get("tables") or data.get("data") or []
+        if isinstance(tables, dict):
+            tables = [tables]
+        indices = []
+        for table in tables:
+            ths_code = table.get("thscode") or table.get("code") or ""
+            name = codes_map.get(ths_code, ths_code)
+            price = self._num(self._table_value(table, "latest", "close"))
+            if price <= 0:
+                continue
+            indices.append({
+                "name": name,
+                "price": price,
+                "change_pct": self._num(self._table_value(table, "changeRatio", "change_pct")),
+            })
+        result = {"source": "ifind", "indices": indices}
+        return self._ttl_set(key, result)
 
     def get_top_stocks(self, sort_field: str = "change_pct", asc: bool = False, limit: int = 50) -> list:
         query_map = {
@@ -350,7 +371,27 @@ class IFindProvider(MarketDataProvider):
             "amount": "A股成交额排名",
             "turnoverratio": "A股换手率排名",
         }
-        return self.smart_stock_picking(query_map.get(sort_field, "A股涨幅榜"), limit=limit)
+        rows = self.smart_stock_picking(query_map.get(sort_field, "A股涨幅榜"), limit=limit)
+        # 用批量行情补齐 price/volume/amount，避免页面显示 0.00
+        if rows:
+            codes = [r.get("code") for r in rows if r.get("code")]
+            if codes:
+                try:
+                    quotes = self.get_realtime_quotes(codes[:30])
+                    qmap = {q.get("code"): q for q in quotes}
+                    for row in rows:
+                        q = qmap.get(row.get("code"))
+                        if q:
+                            row.setdefault("price", q.get("price", 0))
+                            row.setdefault("volume", q.get("volume", 0))
+                            row.setdefault("amount", q.get("amount", 0))
+                            row.setdefault("turnover", q.get("turnover", 0))
+                            row.setdefault("open", q.get("open", 0))
+                            row.setdefault("high", q.get("high", 0))
+                            row.setdefault("low", q.get("low", 0))
+                except Exception:
+                    pass
+        return rows
 
     def smart_stock_picking(self, query: str, limit: int = 20) -> list:
         limit = max(1, min(int(limit or 20), 50))
