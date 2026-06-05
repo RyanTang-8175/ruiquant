@@ -6,28 +6,32 @@ from datetime import datetime
 import streamlit as st
 from src.ai.chat import AIChat
 
+# 快捷任务图标映射
+_TASK_ICONS = {
+    "深度审查": "🔍",
+    "观察计划": "📋",
+    "持股多久": "⏱",
+    "反量化扫描": "🛡",
+    "周一计划": "📅",
+    "今日选股": "🎯",
+    "大盘解读": "📊",
+    "学习模式": "📚",
+}
+
 
 def _quick_tasks(code: str) -> list:
     if code:
         return [
-            ("深度审查", f"全面分析 {code} 风险与机会",
-             f"请对 {code} 做完整深度分析。先调行情/评分/技术/新闻工具，然后输出完整研究备忘录：结论摘要、数据状态表、证据表、反量化风险表、交易计划表、反证与失效条件、复盘入库。每个专业术语附白话解释，越详细越好。"),
-            ("观察计划", f"{code} 现在能观察吗",
-             f"请判断 {code} 是否适合加入观察/模拟验证。必须文表并用，输出结论摘要、证据表、反量化风险表、交易计划表、失效条件、实验室入库字段。回答只能使用：可观察、仅模拟、等待触发、暂停。"),
-            ("持股多久", f"{code} 适合持有多久",
-             f"判断 {code} 适合隔夜、1-2天还是2-3天。请输出持股周期判断表、继续持有条件、离场条件、明早竞价/开盘/尾盘观察清单、反证与失效条件。"),
-            ("反量化扫描", f"{code} 有被收割风险吗",
-             f"对 {code} 做完整反量化扫描：尾盘诱多/高位接盘/分时脉冲/放量滞涨/板块背离。必须给风险表：当前判断、触发证据、散户容易怎么亏、应对动作、实验室验证字段。每条用大白话解释。"),
+            ("深度审查", f"全面分析 {code}", f"请对 {code} 做完整深度分析。先调行情/评分/技术/新闻工具，然后输出完整研究备忘录：结论摘要、数据状态表、证据表、反量化风险表、交易计划表、反证与失效条件、复盘入库。每个专业术语附白话解释，越详细越好。"),
+            ("观察计划", f"{code} 能观察吗", f"请判断 {code} 是否适合加入观察/模拟验证。必须文表并用，输出结论摘要、证据表、反量化风险表、交易计划表、失效条件、实验室入库字段。回答只能使用：可观察、仅模拟、等待触发、暂停。"),
+            ("持股多久", f"{code} 持有周期", f"判断 {code} 适合隔夜、1-2天还是2-3天。请输出持股周期判断表、继续持有条件、离场条件、明早竞价/开盘/尾盘观察清单、反证与失效条件。"),
+            ("反量化扫描", f"{code} 风险扫描", f"对 {code} 做完整反量化扫描：尾盘诱多/高位接盘/分时脉冲/放量滞涨/板块背离。必须给风险表：当前判断、触发证据、散户容易怎么亏、应对动作、实验室验证字段。每条用大白话解释。"),
         ]
     return [
-        ("周一计划", "周一盘前怎么筛候选",
-         "现在是周五收盘后，请为下周一盘前生成中国A股短线候选计划。必须先强调不能无证据直接买入，然后按：1) 周末要等待的政策/公告/新闻 2) 周一9:15竞价筛选 3) 9:30-10:30承接确认 4) 雷达候选股池使用方式 5) iFinD Evidence Score 阈值 6) 禁止买入条件 7) 入实验室审计字段 输出。不要给无来源的确定买入指令。"),
-        ("今日选股", "今天有哪些短线机会",
-         "基于市场环境和六维评分框架，给今天值得研究的 3-5 个短线方向或板块。必须输出候选表、证据表、风险表、时间表、资金纪律、实验室入库字段。越详细越好。"),
-        ("大盘解读", "今天适合做短线吗",
-         "分析今天大盘和板块环境。适不适合做短线？什么板块强？什么在退潮？请输出市场状态表、主线/退潮表、操作时间表、禁止动作和复盘字段。"),
-        ("学习模式", "教我理解一个概念",
-         "用新手能听懂的方式解释：1)反量化风险是什么，散户怎么识别 2)尾盘隔夜策略的核心逻辑。请用表格、例子、错误示范和检查清单讲清楚。"),
+        ("周一计划", "盘前候选计划", "现在是周五收盘后，请为下周一盘前生成中国A股短线候选计划。必须先强调不能无证据直接买入，然后按：1) 周末要等待的政策/公告/新闻 2) 周一9:15竞价筛选 3) 9:30-10:30承接确认 4) 雷达候选股池使用方式 5) iFinD Evidence Score 阈值 6) 禁止买入条件 7) 入实验室审计字段 输出。不要给无来源的确定买入指令。"),
+        ("今日选股", "今日短线机会", "基于市场环境和六维评分框架，给今天值得研究的 3-5 个短线方向或板块。必须输出候选表、证据表、风险表、时间表、资金纪律、实验室入库字段。越详细越好。"),
+        ("大盘解读", "今天适合做短线吗", "分析今天大盘和板块环境。适不适合做短线？什么板块强？什么在退潮？请输出市场状态表、主线/退潮表、操作时间表、禁止动作和复盘字段。"),
+        ("学习模式", "教我一个概念", "用新手能听懂的方式解释：1)反量化风险是什么，散户怎么识别 2)尾盘隔夜策略的核心逻辑。请用表格、例子、错误示范和检查清单讲清楚。"),
     ]
 
 
@@ -36,15 +40,16 @@ def render_ai_chat_page():
     history = ai.get_history()
     selected_code = st.session_state.get("selected_stock", "")
 
+    # ── Hero ──
     st.markdown(
         '<div class="ai-hero">'
         '<div class="ai-hero-title">AlphaEye Research Desk</div>'
-        '<div class="ai-hero-sub">金融老手式 AI 研究台：先证据，再风险，再计划。所有回答自动进入研究记忆和实验室验证链路。</div>'
+        '<div class="ai-hero-sub">先证据，再风险，再计划。所有分析自动进入研究记忆和实验室验证链路。</div>'
         '</div>',
         unsafe_allow_html=True,
     )
 
-    # 搜索
+    # ── 搜索 ──
     from src.ui.search import render_search_bar
     code = render_search_bar(key="ai")
     if code:
@@ -52,29 +57,30 @@ def render_ai_chat_page():
         st.session_state["previous_page"] = "ai_chat"
         st.session_state["current_page"] = "stock_detail"; st.rerun()
 
-    # 状态条
+    # ── 状态条 ──
     env = _market_label()
     stock = selected_code or "未选择"
     mem_count = _memory_count()
     ai_status = AIChat.provider_status()
-    ai_label = "DeepSeek在线" if ai_status.get("ready") else "本地兜底"
+    ai_label = "DeepSeek 在线" if ai_status.get("ready") else "本地兜底"
+    ai_color = "var(--green)" if ai_status.get("ready") else "var(--amber)"
     st.markdown(
         '<div class="ai-statusbar">'
         f'<div class="ai-stat"><div class="ai-stat-label">市场温度</div><div class="ai-stat-value">{env}</div></div>'
-        f'<div class="ai-stat"><div class="ai-stat-label">当前标的</div><div class="ai-stat-value">{stock}</div></div>'
+        f'<div class="ai-stat"><div class="ai-stat-label">当前标的</div><div class="ai-stat-value" style="color:var(--ai)">{stock}</div></div>'
         f'<div class="ai-stat"><div class="ai-stat-label">本页对话</div><div class="ai-stat-value">{len(history)}</div></div>'
         f'<div class="ai-stat"><div class="ai-stat-label">研究记忆</div><div class="ai-stat-value">{mem_count}</div></div>'
-        f'<div class="ai-stat"><div class="ai-stat-label">AI模型</div><div class="ai-stat-value">{ai_label}</div></div>'
+        f'<div class="ai-stat"><div class="ai-stat-label">AI 状态</div><div class="ai-stat-value" style="color:{ai_color}">{ai_label}</div></div>'
         '</div>',
         unsafe_allow_html=True,
     )
-    st.caption(f"AI状态：{ai_status.get('model', '-')} · {ai_status.get('base_url', '-')} · {ai_status.get('message', '')}")
 
     if selected_code:
         st.markdown(
-            f'<div style="background:rgba(36,107,254,0.04);border:1px solid rgba(36,107,254,0.10);'
-            f'border-radius:10px;padding:8px 12px;margin-bottom:10px;font-size:13px;color:#17212F">'
-            f'当前 <strong>{selected_code}</strong> · AI 自动注入评分、K线和反量化详情</div>',
+            f'<div style="background:rgba(0,47,167,0.04);border:1px solid rgba(0,47,167,0.12);'
+            f'border-left:3px solid var(--ai);'
+            f'border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:13px;color:var(--text)">'
+            f'当前标的 <strong style="color:var(--ai)">{selected_code}</strong> · AI 自动注入评分、K线和反量化详情</div>',
             unsafe_allow_html=True)
 
     _render_memory_panel(selected_code)
@@ -82,14 +88,20 @@ def render_ai_chat_page():
     # ── 快捷任务 ──
     st.markdown('<div class="sec-h">研究模板</div>', unsafe_allow_html=True)
     tasks = _quick_tasks(selected_code)
+    # 2×2 网格，每个按钮有图标+标题+副标题
     for row in range(2):
         cols = st.columns(2)
         for i in range(2):
-            title, subtitle = tasks[row * 2 + i][:2]
+            t_idx = row * 2 + i
+            if t_idx >= len(tasks):
+                break
+            title, subtitle = tasks[t_idx][:2]
+            icon = _TASK_ICONS.get(title, "")
             with cols[i]:
-                if st.button(f"{title}\n{subtitle}", key=f"qt_{row}_{i}",
-                             use_container_width=True):
-                    st.session_state["qq"] = tasks[row * 2 + i][2]
+                # 自定义卡片样式的按钮
+                btn_label = f"{icon} {title}\n{subtitle}"
+                if st.button(btn_label, key=f"qt_{row}_{i}", use_container_width=True):
+                    st.session_state["qq"] = tasks[t_idx][2]
                     st.rerun()
 
     st.markdown("---")
@@ -101,23 +113,22 @@ def render_ai_chat_page():
             ai.chat(_with_context(q))
         st.rerun()
 
-    # ═══════════════════════════════════
-    # 对话记录：每条 AI 回复可折叠，自动提取标题
-    # ═══════════════════════════════════
+    # ── 对话记录 ──
     if history:
         st.markdown('<div class="sec-h">研究记录</div>', unsafe_allow_html=True)
-        # 默认展开最新2条
         for idx, item in enumerate(history):
             is_recent = idx >= len(history) - 2
             _render_item(item, idx, is_recent=is_recent)
     else:
         st.markdown(
-            '<div style="text-align:center;padding:24px 12px;color:#5D6B7C;font-size:13px">'
-            '点击快捷任务开始，或直接输入问题<br>'
-            f'{"可以问「分析 " + selected_code + "」" if selected_code else "可以问「今天适合做短线吗」"}'
+            '<div style="text-align:center;padding:32px 12px;color:var(--muted);font-size:13px;'
+            'border:1px dashed var(--border);border-radius:8px;margin:16px 0">'
+            '点击上方研究模板开始，或直接输入问题<br>'
+            f'<span style="color:var(--ai);font-size:12px;margin-top:6px;display:block">'
+            f'{"可以问「分析 " + selected_code + " 的反量化风险」" if selected_code else "可以问「今天适合做短线吗」"}</span>'
             '</div>', unsafe_allow_html=True)
 
-    # 输入
+    # ── 输入框 ──
     ph = f"问 {selected_code} 的任何问题..." if selected_code else "输入股票代码或直接提问..."
     u = st.chat_input(ph)
     if u:
@@ -125,7 +136,7 @@ def render_ai_chat_page():
             ai.chat(_with_context(u))
         st.rerun()
 
-    # ── 功能横条 ──
+    # ── 工具箱 ──
     st.markdown('<div class="sec-h">工具箱</div>', unsafe_allow_html=True)
     actions = [
         ("盘前早报", "mb", lambda: ai.morning_briefing(), "开盘前了解今日方向"),
@@ -156,7 +167,7 @@ def render_ai_chat_page():
                             })
                             ai.save_to_disk(); st.rerun()
 
-    # ── 底部 ──
+    # ── 底部操作 ──
     if history:
         c1, c2 = st.columns(2)
         with c1:
@@ -204,52 +215,54 @@ def render_ai_chat_page():
 # ══════════════════════════════
 
 def _render_item(item: dict, idx: int, is_recent: bool = False):
-    """渲染一条对话：用户消息气泡 + AI 可折叠回复 + 智能追问"""
     q_text = html.escape(str(item.get("question", "")))
     a_text = str(item.get("answer", ""))
     title = _extract_title(a_text)
+    ts = str(item.get("timestamp", ""))[:16]
 
-    # 用户消息
+    # 用户消息气泡
     st.markdown(
-        f'<div style="background:rgba(36,107,254,0.05);border-radius:8px;'
-        f'padding:6px 10px;margin:6px 0 4px 16px;font-size:13px;'
-        f'color:#17212F;line-height:1.45">{q_text}</div>',
+        f'<div style="background:rgba(0,47,167,0.03);border:1px solid rgba(0,47,167,0.08);'
+        f'border-radius:8px;padding:8px 12px;margin:8px 0 4px 24px;font-size:13px;'
+        f'color:var(--text);line-height:1.5">'
+        f'<span style="font-size:10px;color:var(--muted);margin-right:6px">{ts}</span>'
+        f'{q_text}</div>',
         unsafe_allow_html=True)
 
-    # AI 回复：折叠 expander
+    # AI 回复折叠
     with st.expander(title, expanded=is_recent):
         st.markdown(_fmt(a_text), unsafe_allow_html=True)
         tools = item.get("tools_used", [])
         if tools:
-            nm = {"get_stock_quote":"行情","get_technical_analysis":"技术",
-                  "get_scoring_result":"评分","get_market_snapshot":"大盘",
-                  "get_news":"新闻","get_positions":"持仓","get_kline_data":"K线",
-                  "get_watchlist":"选股","get_financial_data":"财务"}
-            st.caption(" · ".join(nm.get(t, t) for t in tools))
+            nm = {"get_stock_quote": "行情", "get_technical_analysis": "技术",
+                  "get_scoring_result": "评分", "get_market_snapshot": "大盘",
+                  "get_news": "新闻", "get_positions": "持仓", "get_kline_data": "K线",
+                  "get_watchlist": "选股", "get_financial_data": "财务"}
+            st.caption("数据来源: " + " · ".join(nm.get(t, t) for t in tools))
 
-        # ── 智能追问按钮 ──
+        # 智能追问
         followups = AIChat.follow_up_questions(q_text, a_text)
         if followups:
-            st.markdown("<br>", unsafe_allow_html=True)
+            st.markdown('<div style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px">'
+                        '<span style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.4px">继续追问</span></div>',
+                        unsafe_allow_html=True)
             for fu in followups:
-                if st.button(fu, key=f"fu_{idx}_{hash(fu) % 10000}",
-                             use_container_width=True):
+                if st.button(fu, key=f"fu_{idx}_{hash(fu) % 10000}", use_container_width=True):
                     st.session_state["qq"] = fu
                     st.rerun()
 
 
 def _render_memory_panel(selected_code: str):
-    with st.expander("研究记忆 / 旧聊天迁移", expanded=False):
+    with st.expander("研究记忆", expanded=False):
         try:
             from src.memory.conversation_memory import ConversationMemory
-
             memory = ConversationMemory()
             try:
                 tabs = st.tabs(["最近", "当前股票", "搜索"])
                 with tabs[0]:
                     rows = memory.list_recent_threads(limit=8)
                     if not rows:
-                        st.caption("暂无数据库会话。若旧版 data/conversations/latest_conversation.json 仍在，打开本页会自动导入。")
+                        st.caption("暂无数据库会话。")
                     for row in rows:
                         _memory_row(row, prefix="recent")
                 with tabs[1]:
@@ -262,7 +275,7 @@ def _render_memory_panel(selected_code: str):
                         for row in rows:
                             _memory_row(row, prefix="stock")
                 with tabs[2]:
-                    kw = st.text_input("搜索历史", placeholder="例如：止损 / 半导体 / 600900", key="ai_memory_search")
+                    kw = st.text_input("搜索历史", placeholder="止损 / 半导体 / 600900", key="ai_memory_search")
                     if kw.strip():
                         rows = memory.search_messages(kw, limit=10)
                         if not rows:
@@ -298,7 +311,6 @@ def _memory_row(row: dict, prefix: str):
 def _memory_count() -> int:
     try:
         from src.memory.conversation_memory import ConversationMemory
-
         memory = ConversationMemory()
         try:
             return len(memory.list_recent_threads(limit=200))
@@ -309,24 +321,17 @@ def _memory_count() -> int:
 
 
 def _extract_title(text: str) -> str:
-    """从 AI 回复中提取折叠标题"""
-    # 取第一个 ## 或 ### 标题
     m = re.search(r'#{2,3}\s+(.+?)(?:\n|<br>)', text)
     if m:
-        return m.group(1).strip()[:50]
-
-    # 取第一个 **粗体**
+        return m.group(1).strip()[:60]
     m = re.search(r'\*\*(.+?)\*\*', text)
     if m:
-        return m.group(1).strip()[:50]
-
-    # 取第一行有意义文字
+        return m.group(1).strip()[:60]
     first = text.strip().split("\n")[0]
     first = re.sub(r'<[^>]+>', '', first)
     first = re.sub(r'[*#]', '', first).strip()
     if len(first) > 5:
-        return first[:50]
-
+        return first[:60]
     return "分析结果"
 
 
@@ -348,15 +353,18 @@ def _market_label() -> str:
         if not indices: return "?"
         main = next((i for i in indices if "上证" in i.get("name", "")), indices[0])
         chg = main.get("change_pct", 0)
-        return "暖" if chg > 0.5 else "震" if chg > -0.5 else "冷" if chg > -1.5 else "危"
-    except: return "?"
+        if chg > 1.0: return "偏热 🔴"
+        if chg > 0.3: return "暖 🟠"
+        if chg > -0.3: return "震荡"
+        if chg > -1.0: return "偏冷 🟢"
+        return "危 ⚠️"
+    except Exception: return "?"
 
 
 def _with_context(text: str) -> str:
     stock_code = _extract_code(text) or st.session_state.get("selected_stock", "")
     parts = [text]
 
-    # 用户画像
     try:
         from src.memory.user_profile import get_profile
         p = get_profile()
@@ -366,10 +374,8 @@ def _with_context(text: str) -> str:
         if ctx: parts.insert(1, ctx)
     except Exception: pass
 
-    # 用户执行风险闸门
     try:
         from src.risk.user_state import get_user_risk_state
-
         state = get_user_risk_state()
         reasons = "；".join(state.get("reasons", [])[:3])
         parts.insert(1, (
@@ -387,7 +393,6 @@ def _with_context(text: str) -> str:
             from src.ai.context_builder import AIContextBuilder
             from src.memory.stock_memory import StockMemory
             from src.memory.analysis_memory import AnalysisMemory
-
             sm = StockMemory()
             try:
                 with AnalysisMemory() as am:
@@ -396,20 +401,19 @@ def _with_context(text: str) -> str:
                     parts.append(f"\n\n[系统: 股票长期记忆/历史验证]\n{rich}")
             finally:
                 sm.close()
-        except Exception:
-            pass
+        except Exception: pass
         try:
             from src.scoring.engine import V6ScoringEngine
             with V6ScoringEngine() as e:
                 ctx = e.build_ai_context(stock_code)
             parts.append(f"\n\n[系统: {stock_code} 六维评分+K线]\n{ctx}")
-        except: pass
+        except Exception: pass
         try:
             from src.news.fetcher import fetch_stock_news
             news = fetch_stock_news(stock_code, limit=3)
             if news:
                 parts.append("\n[新闻]\n" + "\n".join(f"- {n.get('title','')}" for n in news[:3]))
-        except: pass
+        except Exception: pass
     else:
         gctx = _build_group_context(text)
         if gctx: parts.append(f"\n[系统: 行业/概念候选]\n{gctx}")
@@ -450,9 +454,10 @@ def _build_group_context(text: str) -> str:
                     lines.append(f"- {resolve_stock_name(r.code, q.get('name', r.code))}({r.code})：机会分{r.total_score:.0f} 涨幅{q.get('change_pct',0):+.2f}% 状态{r.status_label} 反量化{r.anti_quant.risk_level} 触发:{t}")
                 if not scored:
                     lines.append("- 实时行情暂不可用，请直接引用上方静态候选池，不要只给代码。")
-        finally: engine.close()
+        finally:
+            engine.close()
         return "\n".join(lines)
-    except:
+    except Exception:
         names = "、".join(f"{kind}:{name}" for kind, name, _ in groups)
         return (
             f"用户问题是行业/概念选股，不要要求用户必须给单只股票代码。目标：{names}。"
@@ -514,7 +519,6 @@ def _markdown_table_to_html(lines: list[str]) -> str:
         rows.append(cells)
     if not rows:
         return ""
-
     html_rows = ['<div class="ai-table-wrap"><table class="ai-table">']
     header = rows[0]
     html_rows.append("<thead><tr>" + "".join(f"<th>{_inline(c)}</th>" for c in header) + "</tr></thead><tbody>")

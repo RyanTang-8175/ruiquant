@@ -500,7 +500,7 @@ class IFindProvider(MarketDataProvider):
     def smart_stock_picking(self, query: str, limit: int = 20) -> list:
         limit = max(1, min(int(limit or 20), 50))
         key = ("wc", query, limit)
-        cached = self._ttl_get(key, 10 * 60)
+        cached = self._ttl_get(key, 60 * 60)  # 60min：保护4000/月额度
         if cached is not None:
             return cached
         data = self._post("smart_stock_picking", {"searchstring": query, "searchtype": "stock"})

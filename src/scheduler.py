@@ -19,29 +19,35 @@ def _is_trade_day() -> bool:
 
 
 def _daily_data_pipeline():
-    """每日数据管道：采集 -> 指标 -> 评分"""
+    """每日数据管道：采集 -> 指标 -> 评分（各步骤独立隔离，单步失败不影响后续）"""
+    logger.info("开始每日数据管道...")
+
     try:
-        logger.info("开始每日数据管道...")
         from src.data.collector import DataCollector
         collector = DataCollector()
         collector.collect_all_stocks(days=5)
         collector.close()
         logger.info("数据采集完成")
+    except Exception as e:
+        logger.error(f"数据采集失败（跳过，继续执行指标计算）: {e}")
 
+    try:
         from src.data.indicators import IndicatorCalculator
         calc = IndicatorCalculator()
         calc.calculate_for_all()
         calc.close()
         logger.info("技术指标计算完成")
+    except Exception as e:
+        logger.error(f"技术指标计算失败（跳过，继续执行评分）: {e}")
 
+    try:
         from src.scoring.engine import ScoringEngine
         engine = ScoringEngine()
         results = engine.get_watchlist(min_score=0, limit=80)
         engine.close()
         logger.info(f"评分完成，保存 {len(results)} 条记录")
-
     except Exception as e:
-        logger.error(f"每日数据管道失败: {e}")
+        logger.error(f"评分失败: {e}")
 
 
 def _fetch_news_job():

@@ -158,7 +158,7 @@ class AIChat:
                                 scratchpad,
                                 run_id,
                             )
-                    except:
+                    except Exception:
                         pass
                     local_answer = self._fallback_answer(user_message)
                     return self._finalize_response(
@@ -679,7 +679,7 @@ class AIChat:
     def clear_history(self):
         self.history = []; self._tools_used = []
         try: self._history_file().unlink(missing_ok=True)
-        except: pass
+        except Exception: pass
 
     def get_history(self): return self.history
 
@@ -1416,7 +1416,7 @@ class AIChat:
                             pos_text = "\n".join(plines)
                         if acct.cash:
                             pos_text += f"\n现金余额: {acct.cash:.0f}"
-            except: pass
+            except Exception: pass
 
             # ═══ 今日对话全文（不截断，让AI能验证自己说过什么）═══
             chat_full = "无对话"
@@ -1566,7 +1566,7 @@ class AIChat:
                         temperature=0.7, max_tokens=200, timeout=15)
                     summary = resp.choices[0].message.content or ""
                     return ("完成", summary)
-                except: pass
+                except Exception: pass
             return ("完成", "\n".join(lines[:8]))
         except Exception as e:
             return ("错误", f"尾盘扫描失败: {e}")

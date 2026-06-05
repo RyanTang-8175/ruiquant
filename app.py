@@ -512,6 +512,30 @@ code {
   border-radius: 8px !important; border-color: var(--border) !important;
 }
 
+/* ── Quick task buttons — multi-line label with icon ── */
+.stButton > button[data-testid*="qt_"] {
+  text-align: left !important;
+  padding: 12px 14px !important;
+  min-height: 64px !important;
+  white-space: pre-line !important;
+  line-height: 1.4 !important;
+  font-size: 13px !important;
+}
+
+/* ── Progress / sentiment bar ── */
+.sentiment-bar {
+  height: 6px; border-radius: 3px; overflow: hidden;
+  display: flex; margin: 6px 0;
+}
+
+/* ── Limit-up/down tag ── */
+.tag-limit-up   { background: var(--red);   color: #fff; font-size: 9px; font-weight: 700; padding: 1px 4px; border-radius: 2px; margin-left: 4px; }
+.tag-limit-down { background: var(--green); color: #fff; font-size: 9px; font-weight: 700; padding: 1px 4px; border-radius: 2px; margin-left: 4px; }
+
+/* ── MA legend row ── */
+.ma-legend { display: flex; gap: 12px; font-size: 11px; margin-bottom: 6px; }
+.ma-legend span { display: flex; align-items: center; gap: 4px; }
+
 @media (max-width: 400px) {
   .main .block-container { padding: 0 12px 80px 12px; }
 }
@@ -578,7 +602,8 @@ if indices:
     t = '<div class="ticker">'
     for idx in indices:
         p = idx.get("change_pct", 0)
-        c = "#F04438" if p > 0 else "#12B76A" if p < 0 else "#667180"
+        # 统一使用 CSS 变量：--red (#CF0011) 涨，--green (#007348) 跌
+        c = "var(--red)" if p > 0 else "var(--green)" if p < 0 else "var(--muted)"
         s = "+" if p > 0 else ""
         t += (
             f'<span class="ti">'

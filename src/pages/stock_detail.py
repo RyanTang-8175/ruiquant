@@ -189,7 +189,13 @@ def _kline_chart(code):
     import pandas as pd
     df = pd.DataFrame(kls)
     df["date"] = pd.to_datetime(df["date"])
-    df = df.sort_values("date")
+    df = df.sort_values("date").reset_index(drop=True)
+
+    # MA 均线
+    df["ma5"] = df["close"].rolling(5).mean()
+    df["ma10"] = df["close"].rolling(10).mean()
+    df["ma20"] = df["close"].rolling(20).mean()
+
     recent = df.tail(5)
 
     # 近5日迷你卡片
@@ -200,17 +206,39 @@ def _kline_chart(code):
         f'<div style="font-family:var(--mono);font-size:10px;color:{"var(--red)" if r.get("change_pct",0)>0 else "var(--green)"}">{r.get("change_pct",0):+.1f}%</div></div>'
         for _, r in recent.iterrows()) + '</div>', unsafe_allow_html=True)
 
-    # Plotly K线图
+    # MA 数值行
+    last = df.iloc[-1]
+    ma_parts = []
+    if not pd.isna(last.get("ma5")): ma_parts.append(f'<span style="color:#002FA7">MA5 <strong>{last["ma5"]:.2f}</strong></span>')
+    if not pd.isna(last.get("ma10")): ma_parts.append(f'<span style="color:#C74E00">MA10 <strong>{last["ma10"]:.2f}</strong></span>')
+    if not pd.isna(last.get("ma20")): ma_parts.append(f'<span style="color:#6B6B6B">MA20 <strong>{last["ma20"]:.2f}</strong></span>')
+    if ma_parts:
+        st.markdown(
+            f'<div style="font-size:11px;display:flex;gap:12px;margin-bottom:6px">' + "  ".join(ma_parts) + '</div>',
+            unsafe_allow_html=True)
+
+    # Plotly K线图 + MA 均线
     try:
         import plotly.graph_objects as go
-        fig = go.Figure(data=[go.Candlestick(
+        fig = go.Figure()
+        fig.add_trace(go.Candlestick(
             x=df["date"], open=df["open"], high=df["high"], low=df["low"], close=df["close"],
-            increasing_line_color="#E53935", decreasing_line_color="#0A9B66")])
-        fig.update_layout(height=240, margin=dict(l=0, r=0, t=0, b=0),
-                          paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                          xaxis=dict(showgrid=False, visible=False),
-                          yaxis=dict(showgrid=True, gridcolor="#E7EEF6", tickfont=dict(size=10, color="#5D6B7C")),
-                          showlegend=False)
+            increasing_line_color="#E53935", decreasing_line_color="#0A9B66",
+            name="K线", showlegend=False))
+        # MA 均线
+        for col, color, name in [("ma5", "#002FA7", "MA5"), ("ma10", "#C74E00", "MA10"), ("ma20", "#9AA4B2", "MA20")]:
+            valid = df[col].dropna()
+            if not valid.empty:
+                fig.add_trace(go.Scatter(
+                    x=df["date"][valid.index], y=valid,
+                    mode="lines", line=dict(color=color, width=1.2),
+                    name=name, showlegend=False, hovertemplate=f"{name}: %{{y:.2f}}<extra></extra>"))
+        fig.update_layout(
+            height=260, margin=dict(l=0, r=0, t=0, b=0),
+            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+            xaxis=dict(showgrid=False, visible=False, rangeslider=dict(visible=False)),
+            yaxis=dict(showgrid=True, gridcolor="#E7EEF6", tickfont=dict(size=10, color="#5D6B7C")),
+            showlegend=False)
         st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
     except Exception:
         last5 = df.tail(5)

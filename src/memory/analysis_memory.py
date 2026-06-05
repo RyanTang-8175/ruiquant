@@ -267,9 +267,28 @@ class AnalysisMemory:
                      .filter(VerificationRecord.backfill_status == "complete")
                      .count())
         pending = total - completed
-        backfills = self.db.query(VerificationBackfill).all()
-        hit_2pct = sum(1 for b in backfills if b.hit_plus_2pct)
-        total_bf = len(backfills) or 1
+
+        # 分母用 VerificationRecord（每个假设一条），而非 VerificationBackfill（每条有3行T+1/T+2/T+3）
+        # 否则命中率被放大约3倍
+        completed_ids = set(
+            r.id for r in self.db.query(VerificationRecord)
+            .filter(VerificationRecord.backfill_status == "complete").all()
+        )
+        total_completed = len(completed_ids) or 1
+        # 每个已完成假设：任意一天的 high 达到+2% 即命中
+        hit_ids = set(
+            b.verification_id for b in self.db.query(VerificationBackfill).all()
+            if b.hit_plus_2pct and b.verification_id in completed_ids
+        )
+        # avg_hold_1d_return：只取 day_offset=1 的行，防止多天混平均
+        t1_rows = [
+            b for b in self.db.query(VerificationBackfill).all()
+            if b.day_offset == 1 and b.verification_id in completed_ids
+        ]
+        avg_1d = round(
+            sum(b.hold_1d_return or 0 for b in t1_rows) / (len(t1_rows) or 1), 2
+        )
+
         feedback_rows = self.db.query(UserFeedback).all()
         bad_feedback = sum(1 for f in feedback_rows if f.feedback_type in {
             "no_stop_loss", "没止损", "user_chasing", "追高", "strategy_error",
@@ -279,10 +298,8 @@ class AnalysisMemory:
             "total_verifications": total,
             "pending_backfills": pending,
             "completed_backfills": completed,
-            "hit_2pct_rate": round(hit_2pct / total_bf * 100, 1),
-            "avg_hold_1d_return": round(
-                sum(b.hold_1d_return or 0 for b in backfills) / total_bf, 2
-            ),
+            "hit_2pct_rate": round(len(hit_ids) / total_completed * 100, 1),
+            "avg_hold_1d_return": avg_1d,
             "feedback_count": len(feedback_rows),
             "bad_feedback_count": bad_feedback,
         }
