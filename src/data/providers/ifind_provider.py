@@ -372,7 +372,7 @@ class IFindProvider(MarketDataProvider):
             "turnoverratio": "A股换手率排名",
         }
         rows = self.smart_stock_picking(query_map.get(sort_field, "A股涨幅榜"), limit=limit)
-        # 用批量行情补齐 price/volume/amount，避免页面显示 0.00
+        # 用批量行情补齐 price/volume/amount（wencai 返回的 price 一般为 0）
         if rows:
             codes = [r.get("code") for r in rows if r.get("code")]
             if codes:
@@ -382,13 +382,22 @@ class IFindProvider(MarketDataProvider):
                     for row in rows:
                         q = qmap.get(row.get("code"))
                         if q:
-                            row.setdefault("price", q.get("price", 0))
-                            row.setdefault("volume", q.get("volume", 0))
-                            row.setdefault("amount", q.get("amount", 0))
-                            row.setdefault("turnover", q.get("turnover", 0))
-                            row.setdefault("open", q.get("open", 0))
-                            row.setdefault("high", q.get("high", 0))
-                            row.setdefault("low", q.get("low", 0))
+                            if not row.get("price"):
+                                row["price"] = q.get("price", 0)
+                            if not row.get("volume"):
+                                row["volume"] = q.get("volume", 0)
+                            if not row.get("amount"):
+                                row["amount"] = q.get("amount", 0)
+                            if not row.get("turnover"):
+                                row["turnover"] = q.get("turnover", 0)
+                            if not row.get("open"):
+                                row["open"] = q.get("open", 0)
+                            if not row.get("high"):
+                                row["high"] = q.get("high", 0)
+                            if not row.get("low"):
+                                row["low"] = q.get("low", 0)
+                            if not row.get("change_pct"):
+                                row["change_pct"] = q.get("change_pct", 0)
                 except Exception:
                     pass
         return rows
