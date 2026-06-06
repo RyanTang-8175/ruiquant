@@ -567,6 +567,251 @@ def test_market_radar_includes_research_views_and_sector_moves(monkeypatch):
     assert any(item["type"] == "sector_move" for item in result["items"])
 
 
+def test_answer_evidence_guard_rewrites_stale_quote_and_unsupported_trade_claim():
+    from src.ai.evidence_guard import AnswerEvidenceGuard
+
+    answer = (
+        "中国铝业（601600）—— 当前7.57元，周五跌-1.30%，"
+        "换手0.94%，成交9.7亿。你持有1万股，周五收盘前还加仓了。\n"
+        "如果低开破7.45，先观察。"
+    )
+    quote = {
+        "code": "601600",
+        "name": "中国铝业",
+        "price": 10.68,
+        "change_pct": -2.02,
+        "turnover": 2.04,
+        "amount": 2_900_000_000,
+        "source": "ifind",
+        "_fallback": False,
+    }
+
+    guarded, report = AnswerEvidenceGuard().validate_and_rewrite(
+        answer=answer,
+        user_message="我手上买了一万股的中国铝业，下周你有什么建议",
+        stock_code="601600",
+        quote=quote,
+        verified_trades=[],
+    )
+
+    assert report["corrected"] is True
+    assert "7.57元" not in guarded
+    assert "周五跌-1.30%" not in guarded
+    assert "换手0.94%" not in guarded
+    assert "成交9.7亿" not in guarded
+    assert "10.68元" in guarded
+    assert "-2.02%" in guarded
+    assert "换手率2.04%" in guarded
+    assert "成交额29.0亿" in guarded
+    assert "按你本轮口述" in guarded
+    assert "周五收盘前还加仓了" not in guarded
+    assert "没有可核验记录" in guarded
+    assert "iFinD" in guarded
+
+
+def test_answer_evidence_guard_preserves_conditional_support_levels():
+    from src.ai.evidence_guard import AnswerEvidenceGuard
+
+    guarded, _ = AnswerEvidenceGuard().validate_and_rewrite(
+        answer="当前7.57元。如果下周低开跌破7.45元，研究假设失效。",
+        user_message="分析601600",
+        stock_code="601600",
+        quote={
+            "code": "601600",
+            "name": "中国铝业",
+            "price": 10.68,
+            "change_pct": -2.02,
+            "turnover": 2.04,
+            "amount": 2_900_000_000,
+            "source": "tencent",
+            "_fallback": True,
+        },
+        verified_trades=[],
+    )
+
+    assert "当前10.68元" in guarded
+    assert "跌破7.45元" in guarded
+    assert "腾讯公开源兜底" in guarded
+
+
+def test_answer_evidence_guard_preserves_future_scenarios_and_historical_metrics():
+    from src.ai.evidence_guard import AnswerEvidenceGuard
+
+    guarded, _ = AnswerEvidenceGuard().validate_and_rewrite(
+        answer=(
+            "当前7.57元。如果周一上涨3%，继续观察。"
+            "2025年收盘价7.57元，成交额9.7亿，换手率0.94%。"
+        ),
+        user_message="分析601600",
+        stock_code="601600",
+        quote={
+            "code": "601600",
+            "name": "中国铝业",
+            "price": 10.68,
+            "change_pct": -2.02,
+            "turnover": 2.04,
+            "amount": 2_900_000_000,
+            "source": "ifind",
+        },
+        verified_trades=[],
+    )
+
+    assert "当前10.68元" in guarded
+    assert "如果周一上涨3%" in guarded
+    assert "2025年收盘价7.57元" in guarded
+    assert "成交额9.7亿" in guarded
+    assert "换手率0.94%" in guarded
+
+
+def test_ai_finalize_guards_answer_before_history_and_audit(monkeypatch):
+    from src.ai.chat import AIChat
+
+    ai = AIChat()
+    ai.history = []
+    ai._tools_used = ["get_stock_quote"]
+    ai._last_stock = ""
+    ai._conversation_context = {}
+    ai._request_evidence = {
+        "quotes": {
+            "601600": {
+                "code": "601600",
+                "name": "中国铝业",
+                "price": 10.68,
+                "change_pct": -2.02,
+                "turnover": 2.04,
+                "amount": 2_900_000_000,
+                "source": "ifind",
+            }
+        },
+        "positions": {},
+        "trades": [],
+    }
+    saved = {}
+
+    monkeypatch.setattr(ai, "save_to_disk", lambda: None)
+    monkeypatch.setattr(
+        ai,
+        "_save_ai_message",
+        lambda **kwargs: saved.update({"answer": kwargs["answer"]}),
+    )
+    monkeypatch.setattr(ai, "_finish_audit", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        "src.data.realtime.get_realtime_quote",
+        lambda _code: (_ for _ in ()).throw(AssertionError("不应重复调用行情接口")),
+    )
+
+    result = ai._finalize_response(
+        user_message="我手上买了一万股的中国铝业",
+        answer="当前7.57元。你持有1万股，周五收盘前还加仓了。",
+        session_id=None,
+        stock_code="601600",
+        scene="deep_analysis",
+        scratchpad=None,
+        run_id=None,
+    )
+
+    assert "当前10.68元" in result
+    assert "7.57元" not in result
+    assert "周五收盘前还加仓了" not in result
+    assert ai.history[-1]["answer"] == result
+    assert saved["answer"] == result
+
+
+def test_answer_evidence_guard_removes_current_price_when_quote_unavailable():
+    from src.ai.evidence_guard import AnswerEvidenceGuard
+
+    guarded, report = AnswerEvidenceGuard().validate_and_rewrite(
+        answer="当前7.57元，建议继续观察。",
+        user_message="分析601600",
+        stock_code="601600",
+        quote={},
+        verified_trades=[],
+    )
+
+    assert report["corrected"] is True
+    assert "7.57元" not in guarded
+    assert "当前价格暂无可靠数据" in guarded
+
+
+def test_validation_header_omits_metrics_that_source_did_not_return():
+    from src.ai.evidence_guard import AnswerEvidenceGuard
+
+    guarded, _ = AnswerEvidenceGuard().validate_and_rewrite(
+        answer="当前7.57元。",
+        user_message="分析601600",
+        stock_code="601600",
+        quote={
+            "code": "601600",
+            "name": "中国铝业",
+            "price": 10.68,
+            "source": "sina",
+            "_fallback": True,
+        },
+        verified_trades=[],
+    )
+
+    header = guarded.split("\n", 1)[0]
+    assert "10.68元" in header
+    assert "涨跌幅" not in header
+    assert "换手率" not in header
+    assert "成交额" not in header
+
+
+def test_answer_evidence_guard_requires_trade_time_to_match_claim():
+    from datetime import datetime
+    from src.ai.evidence_guard import AnswerEvidenceGuard
+
+    guarded, _ = AnswerEvidenceGuard().validate_and_rewrite(
+        answer="你周五收盘前还加仓了。",
+        user_message="我持有中国铝业",
+        stock_code="601600",
+        quote={},
+        verified_trades=[
+            {
+                "direction": "buy",
+                "created_at": "2026-06-01T10:00:00",
+            }
+        ],
+        validated_at=datetime(2026, 6, 6, 15, 0),
+    )
+
+    assert "周五收盘前还加仓了" not in guarded
+    assert "没有可核验记录" in guarded
+
+
+def test_trade_question_does_not_verify_that_trade_already_happened():
+    from datetime import datetime
+    from src.ai.evidence_guard import AnswerEvidenceGuard
+
+    guarded, _ = AnswerEvidenceGuard().validate_and_rewrite(
+        answer="你周五收盘前还加仓了。",
+        user_message="我周一该不该加仓中国铝业？",
+        stock_code="601600",
+        quote={},
+        verified_trades=[],
+        validated_at=datetime(2026, 6, 6, 15, 0),
+    )
+
+    assert "周五收盘前还加仓了" not in guarded
+    assert "没有可核验记录" in guarded
+
+
+def test_user_reported_real_position_is_not_overwritten_by_paper_position():
+    from src.ai.evidence_guard import AnswerEvidenceGuard
+
+    guarded, _ = AnswerEvidenceGuard().validate_and_rewrite(
+        answer="你持有1万股，先观察。",
+        user_message="我真实账户持有一万股中国铝业",
+        stock_code="601600",
+        quote={},
+        verified_position={"quantity": 5000, "cost_price": 9.8},
+        verified_trades=[],
+    )
+
+    assert "按你本轮口述，你持有1万股" in guarded
+    assert "模拟盘记录显示你持有5000股" not in guarded
+
+
 def test_user_risk_state_enters_cooldown_after_recent_bad_feedback():
     from src.risk.user_state import evaluate_user_risk_state
 
@@ -730,6 +975,9 @@ def test_prompt_explains_three_scores_for_beginner():
     assert "置信度" in prompt
     assert "括号" in prompt
     assert "新手也能看懂" in prompt
+    assert "持仓事实铁律" in prompt
+    assert "用户口述" in prompt
+    assert "get_positions" in prompt
 
 
 def test_conversation_memory_indexes_threads_and_search(tmp_path, monkeypatch):

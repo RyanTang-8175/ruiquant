@@ -43,6 +43,7 @@ class AIChat:
         # Phase 4.1: 多轮对话上下文
         self._last_stock: str | None = None
         self._conversation_context: dict = {}
+        self._request_evidence = self._empty_request_evidence()
 
     @classmethod
     def provider_status(cls, api_key: str | None = None, base_url: str | None = None, model: str | None = None) -> dict:
@@ -87,6 +88,8 @@ class AIChat:
         }
 
     def chat(self, user_message: str, context: dict = None) -> str:
+        # 每轮独立保存已取得证据，最终回答校验时复用，避免重复消耗 iFinD 额度。
+        self._request_evidence = self._empty_request_evidence()
         if not self.client:
             scene = self.detect_scene(user_message)
             stock_code = self._extract_stock_code(user_message)
@@ -197,6 +200,7 @@ class AIChat:
                         result = self.tool_executor.execute(nm, args)
                     except Exception:
                         result = json.dumps({"error": f"工具 {nm} 执行失败"}, ensure_ascii=False)
+                    self._capture_tool_evidence(nm, result)
                     self._log_audit_tool(scratchpad, run_id, nm, args, result)
 
                     messages.append({"role":"tool","tool_call_id":tc.id,"content":result})
@@ -1029,6 +1033,20 @@ class AIChat:
     def _finalize_response(self, user_message: str, answer: str,
                            session_id: int | None, stock_code: str, scene: str,
                            scratchpad, run_id: str | None) -> str:
+        answer, guard_report = self._apply_answer_evidence_guard(
+            answer=answer,
+            user_message=user_message,
+            stock_code=stock_code,
+        )
+        if guard_report:
+            self._log_audit_tool(
+                scratchpad,
+                run_id,
+                "answer_evidence_guard",
+                {"stock_code": stock_code},
+                guard_report,
+            )
+
         # Phase 4.1: 追踪多轮对话上下文
         if stock_code:
             self._last_stock = stock_code
@@ -1050,6 +1068,112 @@ class AIChat:
         )
         self._finish_audit(scratchpad, run_id, answer)
         return answer
+
+    @staticmethod
+    def _empty_request_evidence() -> dict:
+        return {"quotes": {}, "positions": {}, "trades": []}
+
+    def _capture_tool_evidence(self, tool_name: str, result) -> None:
+        """把本轮工具结果保存为最终回答的硬校验证据。"""
+        try:
+            payload = json.loads(result) if isinstance(result, str) else result
+            if not isinstance(payload, dict):
+                return
+            if tool_name == "get_stock_quote" and payload.get("code"):
+                code = str(payload.get("code"))
+                amount = payload.get("amount")
+                if amount is None:
+                    amount_text = str(payload.get("amount_display") or "")
+                    match = re.search(r"(\d+(?:\.\d+)?)\s*亿", amount_text)
+                    amount = float(match.group(1)) * 1e8 if match else 0
+                quote = dict(payload)
+                quote["amount"] = amount or 0
+                quote["source"] = payload.get("data_source") or payload.get("source") or ""
+                quote["_fallback"] = quote["source"] not in ("ifind", "")
+                self._request_evidence.setdefault("quotes", {})[code] = quote
+            elif tool_name == "get_positions":
+                for item in payload.get("positions") or []:
+                    code = str(item.get("code") or "")
+                    if code:
+                        self._request_evidence.setdefault("positions", {})[code] = dict(item)
+        except Exception as exc:
+            logger.debug(f"capture tool evidence failed: {exc}")
+
+    def _apply_answer_evidence_guard(
+        self,
+        answer: str,
+        user_message: str,
+        stock_code: str,
+    ) -> tuple[str, dict]:
+        if not stock_code:
+            return answer, {}
+        try:
+            from src.ai.evidence_guard import AnswerEvidenceGuard
+
+            evidence = self._request_evidence or self._empty_request_evidence()
+            quotes = evidence.setdefault("quotes", {})
+            quote = quotes.get(stock_code)
+            if not quote:
+                from src.data.realtime import get_realtime_quote
+
+                quote = get_realtime_quote(stock_code) or {}
+                if quote:
+                    quotes[stock_code] = quote
+
+            positions = evidence.setdefault("positions", {})
+            trades = evidence.setdefault("trades", [])
+            if not positions.get(stock_code) or not trades:
+                local_position, local_trades = self._load_local_trade_evidence(stock_code)
+                if local_position and not positions.get(stock_code):
+                    positions[stock_code] = local_position
+                if local_trades and not trades:
+                    trades.extend(local_trades)
+
+            return AnswerEvidenceGuard().validate_and_rewrite(
+                answer=answer,
+                user_message=user_message,
+                stock_code=stock_code,
+                quote=quote,
+                verified_position=positions.get(stock_code) or {},
+                verified_trades=trades,
+            )
+        except Exception as exc:
+            logger.warning(f"answer evidence guard failed {stock_code}: {exc}")
+            return answer, {"error": str(exc)[:120], "stock_code": stock_code}
+
+    @staticmethod
+    def _load_local_trade_evidence(stock_code: str) -> tuple[dict, list]:
+        """读取模拟盘持仓/交易，仅用于核验模型对用户交易行为的陈述。"""
+        try:
+            from src.trading.engine import TradingEngine
+
+            with TradingEngine() as engine:
+                position = next(
+                    (item for item in engine.get_positions() if str(item.code) == stock_code),
+                    None,
+                )
+                trades = [
+                    {
+                        "code": str(item.code),
+                        "direction": item.direction,
+                        "quantity": item.quantity,
+                        "price": item.price,
+                        "created_at": item.created_at.isoformat() if item.created_at else None,
+                    }
+                    for item in engine.get_trades(limit=50)
+                    if str(item.code) == stock_code
+                ]
+            position_data = {}
+            if position:
+                position_data = {
+                    "code": str(position.code),
+                    "quantity": position.quantity,
+                    "cost_price": position.cost_price,
+                    "buy_date": position.buy_date.isoformat() if position.buy_date else None,
+                }
+            return position_data, trades
+        except Exception:
+            return {}, []
 
     @staticmethod
     def _start_audit(user_message: str, scene: str):
@@ -1207,6 +1331,7 @@ class AIChat:
             q = get_realtime_quote(stock_code)
             if not q or not q.get("price"):
                 return ""
+            self._request_evidence.setdefault("quotes", {})[stock_code] = dict(q)
             name = q.get("name") or resolve_stock_name(stock_code, stock_code)
             price = q.get("price", 0)
             pct = q.get("change_pct", 0)
