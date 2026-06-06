@@ -1209,3 +1209,27 @@ def test_account_diagnosis_uses_local_fallback_when_ai_not_configured():
     assert "模型服务暂时不可用" in answer
     assert "本地账户诊断" in answer
     assert "AI 未配置" not in answer
+
+
+def test_pytest_collects_only_portable_project_tests():
+    from pathlib import Path
+
+    config_path = Path(__file__).resolve().parents[1] / "pytest.ini"
+
+    assert config_path.exists()
+    config = config_path.read_text(encoding="utf-8")
+    assert "testpaths = tests" in config
+
+
+def test_aliyun_systemd_unit_runs_streamlit_from_server_workspace():
+    from pathlib import Path
+
+    unit_path = Path(__file__).resolve().parents[1] / "deploy" / "ruiquant.service"
+
+    assert unit_path.exists()
+    unit = unit_path.read_text(encoding="utf-8")
+    assert "WorkingDirectory=/root/ruiquant" in unit
+    assert "EnvironmentFile=-/root/ruiquant/.env" in unit
+    assert "ExecStart=/root/ruiquant/venv/bin/streamlit run /root/ruiquant/app.py" in unit
+    assert "--server.port=8501" in unit
+    assert "Restart=always" in unit

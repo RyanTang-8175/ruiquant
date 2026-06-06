@@ -1,0 +1,19 @@
+[Unit]
+Description=AlphaEye RuiQuant Streamlit
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/ruiquant
+EnvironmentFile=-/root/ruiquant/.env
+Environment=PYTHONPATH=/root/ruiquant
+ExecStart=/root/ruiquant/venv/bin/streamlit run /root/ruiquant/app.py --server.address=0.0.0.0 --server.port=8501 --server.headless=true --browser.gatherUsageStats=false
+Restart=always
+RestartSec=5
+TimeoutStopSec=20
+KillSignal=SIGINT
+
+[Install]
+WantedBy=multi-user.target
