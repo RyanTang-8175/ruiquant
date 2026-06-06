@@ -184,6 +184,7 @@ def test_research_harness_caches_and_writes_knowledge(tmp_path):
 
         def __init__(self):
             self.calls = 0
+            self.picks = 0
 
         def get_realtime_quote(self, code):
             self.calls += 1
@@ -196,6 +197,7 @@ def test_research_harness_caches_and_writes_knowledge(tmp_path):
             return [{"title": "长江电力回购公告", "type": "announcement", "source": "iFinD公告"}]
 
         def smart_stock_picking(self, query, limit=20):
+            self.picks += 1
             return [{"code": "600900", "name": "长江电力", "change_pct": 1.2}]
 
         def basic_data(self, codes, indicator, params=None):
@@ -212,7 +214,11 @@ def test_research_harness_caches_and_writes_knowledge(tmp_path):
 
     assert first["cached"] is False
     assert second["cached"] is True
-    assert provider.calls == 1
+    # 缓存命中时仍刷新实时行情(便宜的高频接口)，所以 get_realtime_quote 被调用两次
+    assert provider.calls == 2
+    # 但昂贵的智能选股(4000/月额度)绝不重复调用，仍走缓存
+    assert provider.picks == 1
+    assert second.get("live_refreshed") is True
     assert first["summary_cards"][0]["title"] == "行情"
     assert "公告" in first["evidence"]
     assert {item["name"] for item in first["scenario_report"]} == {"利好继续发酵", "冲高回落", "板块不联动"}
@@ -220,7 +226,9 @@ def test_research_harness_caches_and_writes_knowledge(tmp_path):
 
     refreshed = harness.company_research("600900", profile="deep", force=True)
     assert refreshed["cached"] is False
-    assert provider.calls == 2
+    # force=True 完整重跑：行情第3次、智能选股第2次
+    assert provider.calls == 3
+    assert provider.picks == 2
 
 
 def test_tool_executor_exposes_ifind_research_harness(monkeypatch, tmp_path):

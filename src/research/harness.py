@@ -35,6 +35,9 @@ class ResearchHarness:
         cached = None if force else self._read_cache(fp, ttl=6 * 3600)
         if cached:
             cached["cached"] = True
+            # 关键：缓存命中时强制刷新行情字段为实时，慢变数据(公告/基本面/K线)仍走缓存省额度
+            # 否则 AI 会拿到几小时前的旧价格，回答数据全错
+            self._refresh_live_quote(cached, code)
             return cached
 
         quote = self._safe(lambda: self.provider.get_realtime_quote(code), {})
@@ -72,6 +75,36 @@ class ResearchHarness:
         self._write_cache(fp, result)
         self.knowledge.record_run(result)
         return result
+
+    def _refresh_live_quote(self, cached: dict, code: str) -> None:
+        """缓存命中时，把研究底稿里的行情字段强制刷新为实时。
+
+        慢变数据（公告/基本面/K线历史）保留缓存以省 iFinD 额度，
+        但价格/涨跌幅/换手/成交额必须是当前实时值——否则 AI 拿到旧价格回答全错。
+        """
+        try:
+            live = self._safe(lambda: self.provider.get_realtime_quote(code), {})
+            if not live or not live.get("price"):
+                return
+            compact = self._compact_quote(live)
+            # 刷新 evidence.行情
+            evidence = cached.get("evidence")
+            if isinstance(evidence, dict):
+                evidence["行情"] = compact
+                # K线最后一根的收盘价也同步到实时，避免均线参照漂移误导
+            # 刷新 summary_cards 里的行情卡
+            for card in cached.get("summary_cards") or []:
+                if isinstance(card, dict) and card.get("title") == "行情":
+                    card["value"] = f"{live.get('price', 0) or 0:.2f}"
+                    card["note"] = f"{live.get('change_pct', 0) or 0:+.2f}%"
+            # 重新生成情景报告（依赖实时涨跌幅/换手）
+            if isinstance(evidence, dict):
+                cached["scenario_report"] = self._scenario_report(evidence)
+            # 标注：行情已刷新为实时，其余为缓存
+            cached["live_refreshed"] = True
+            cached["live_quote"] = compact
+        except Exception:
+            pass
 
     def market_radar(self, queries: list[str] | None = None) -> dict:
         queries = queries or ["主力资金流入 涨幅居前", "政策利好 行业", "换手率活跃 成交额居前"]
