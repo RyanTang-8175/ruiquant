@@ -1,0 +1,32 @@
+{
+  "id": "earnings_review",
+  "name": "财报事件复核",
+  "version": "1.0",
+  "kind": "earnings",
+  "description": "核对最新财报或业绩公告、行情与基础指标；缺少财报证据时阻断业绩判断。",
+  "stages": [
+    "报告期确认",
+    "财报证据收集",
+    "质量门",
+    "变化复核草稿",
+    "人工复核"
+  ],
+  "required_evidence": [
+    "可靠行情",
+    "基础指标>=2",
+    "财报事件公告",
+    "财报原文链接"
+  ],
+  "quota_budget": {
+    "real_time_quotation": 1,
+    "report_query": 1,
+    "basic_data_service": 5,
+    "smart_stock_picking": 1
+  },
+  "deliverables": [
+    "earnings_review_note",
+    "financial_events",
+    "evidence_gaps"
+  ],
+  "review_required": true
+}

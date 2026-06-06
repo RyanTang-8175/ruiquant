@@ -1,0 +1,29 @@
+{
+  "id": "thematic_market",
+  "name": "主题市场研究",
+  "version": "1.0",
+  "kind": "theme",
+  "description": "围绕政策、行业或主题运行受控智能选股查询，形成候选清单与研究优先级。",
+  "stages": [
+    "主题边界",
+    "智能选股扫描",
+    "候选去重",
+    "质量门",
+    "主题草稿",
+    "人工复核"
+  ],
+  "required_evidence": [
+    "至少一个查询有结果",
+    "去重候选>=3",
+    "候选保留来源"
+  ],
+  "quota_budget": {
+    "smart_stock_picking": 3
+  },
+  "deliverables": [
+    "theme_note",
+    "candidate_shortlist",
+    "query_summary"
+  ],
+  "review_required": true
+}

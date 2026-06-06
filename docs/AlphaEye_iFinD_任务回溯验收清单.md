@@ -1,6 +1,6 @@
 # AlphaEye iFinD 投研工作台任务回溯验收清单
 
-更新时间：2026-06-05
+更新时间：2026-06-06
 
 本清单用于防止目标漂移。后续升级必须先回看这里，再决定是否继续写代码。
 
@@ -42,6 +42,19 @@ AlphaEye 要升级为 iFinD 驱动的小型个人投研工作台：
 | 轻量策略探索与指纹去重 | 已落地 | `src/research/strategy.py::StrategyExplorer` |
 | 策略加减停四档机制 | 已落地 | `src/research/strategy.py::StrategyGovernor` |
 | 周一盘前计划入口 | 已落地 | `src/pages/ai_chat.py::_quick_tasks` |
+| 文件化金融研究 SOP | 已落地 | `src/research/workflow.py`、`src/research/playbooks/*.json` |
+| 单公司、财报、主题三套工作流 | 已落地 | `company_diligence`、`earnings_review`、`thematic_market` |
+| SOP 来源账本与 `[S1]` 引用 | 已落地 | `ResearchWorkflowRunner::_source_ledger` |
+| SOP 质量门与证据不足阻断 | 已落地 | `ResearchWorkflowRunner::_quality_gate` |
+| SOP iFinD 调用预算强制校验 | 已落地 | `ResearchWorkflowRunner::_quota_assessment` |
+| 财报无原文链接禁止通过 | 已落地 | `earnings_review` 质量门 |
+| AI 可运行 SOP 但不能签核 | 已落地 | `src/ai/tools.py`、`src/ai/prompts.py` |
+| UI 人工复核且阻断草稿不能批准 | 已落地 | `src/pages/research.py`、`WorkflowRunStore::review` |
+| 无效股票代码在 iFinD 调用前阻断 | 已落地 | `ResearchWorkflowRunner::_normalize_code` |
+| SOP 运行记录并发写入保护 | 已落地 | `WorkflowRunStore::_LOCK` |
+| 无股票代码也可启动主题研究 | 已落地 | `src/pages/research.py::_workflow_panel` |
+| 缓存命中时重算摘要与质量 | 已落地 | `src/research/harness.py::company_research` |
+| 最新四根 K 线与不可用指标过滤 | 已落地 | `src/pages/research.py::_evidence_panel` |
 | 白色背景与可读 UI | 持续约束 | `src/pages/*`、`tests/test_regression_ui_ai.py` |
 
 ## 仍需持续遵守
@@ -59,3 +72,19 @@ PYTHONPATH=. ./venv/bin/pytest tests/test_upgrade_safety_architecture.py -q
 PYTHONPATH=. ./venv/bin/pytest -q
 ```
 
+2026-06-06 本轮最终结果：
+
+```text
+全量测试：78 passed in 8.79s
+Python compileall：通过
+git diff --check：通过
+JSON Playbook 校验：通过
+HTTP 健康检查：200 / ok
+真实页面链路：研究页 -> 独立主题 SOP，以及 600900 -> SOP -> 来源账本/质量门/人工复核，通过
+SOP 复用当前研究底稿：iFinD 实际调用增量 0
+```
+
+官方设计参考：
+
+- <https://www.anthropic.com/news/finance-agents>
+- <https://github.com/anthropics/financial-services>

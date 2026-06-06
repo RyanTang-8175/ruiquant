@@ -1,0 +1,34 @@
+{
+  "id": "company_diligence",
+  "name": "单公司深度研究",
+  "version": "1.0",
+  "kind": "company",
+  "description": "聚合行情、K线、基本面、公告、智能选股、评分与情景，形成可审计研究草稿。",
+  "stages": [
+    "范围确认",
+    "证据收集",
+    "质量门",
+    "研究草稿",
+    "人工复核"
+  ],
+  "required_evidence": [
+    "可靠行情",
+    "K线",
+    "基础指标>=2",
+    "公告或智能选股"
+  ],
+  "quota_budget": {
+    "real_time_quotation": 1,
+    "cmd_history_quotation": 1,
+    "report_query": 1,
+    "basic_data_service": 5,
+    "smart_stock_picking": 1
+  },
+  "deliverables": [
+    "research_note",
+    "evidence_table",
+    "scenario_report",
+    "risk_flags"
+  ],
+  "review_required": true
+}

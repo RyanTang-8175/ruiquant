@@ -28,6 +28,7 @@ def render_research_page():
         _render_research(code)
     else:
         _empty_state()
+        _workflow_panel("", {}, allowed_ids={"thematic_market"})
 
 
 def _provider_hint():
@@ -98,7 +99,9 @@ def _render_research(code: str):
     _summary_cards(summary_cards, research)
     _action_bar(code, research, score)
 
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(["证据", "评分", "情景", "管理", "记忆", "审计", "原始"])
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs(
+        ["证据", "评分", "情景", "SOP", "管理", "记忆", "审计", "原始"]
+    )
     with tab1:
         _evidence_panel(evidence)
     with tab2:
@@ -106,12 +109,14 @@ def _render_research(code: str):
     with tab3:
         _scenario_panel(research.get("scenario_report") or [])
     with tab4:
-        _strategy_management_panel(score, research)
+        _workflow_panel(code, research)
     with tab5:
-        _memory_panel()
+        _strategy_management_panel(score, research)
     with tab6:
-        _audit_panel(research, score)
+        _memory_panel()
     with tab7:
+        _audit_panel(research, score)
+    with tab8:
         _raw_panel(research)
 
 
@@ -188,7 +193,14 @@ def _evidence_panel(evidence: dict):
     quote = evidence.get("行情") or {}
     bars = evidence.get("K线") or []
     announcements = evidence.get("公告") or []
-    basics = evidence.get("基础数据") or {}
+    raw_basics = evidence.get("基础数据") or {}
+    basics = {
+        key: value
+        for key, value in raw_basics.items()
+        if not str(key).startswith("_")
+        and value not in (None, "", 0, "--")
+        and not str(value).startswith("unavailable")
+    }
     smart = evidence.get("智能选股") or []
 
     st.markdown('<div class="sec-h">行情与基础证据</div>', unsafe_allow_html=True)
@@ -233,12 +245,12 @@ def _evidence_panel(evidence: dict):
 
     st.markdown('<div class="sec-h">K线摘要</div>', unsafe_allow_html=True)
     if bars:
-        recent = bars[-8:]
+        recent = bars[-4:]
         cols = st.columns(min(4, len(recent)))
-        for idx, item in enumerate(recent[:4]):
+        for idx, item in enumerate(recent):
             with cols[idx]:
                 st.metric(
-                    item.get("date", ""),
+                    item.get("date") or f"最近{len(recent) - idx}日",
                     f"{float(item.get('close') or 0):.2f}",
                     f"{float(item.get('change_pct') or 0):+.2f}%",
                 )
@@ -253,6 +265,20 @@ def _evidence_panel(evidence: dict):
                 st.metric(str(key), str(value))
     else:
         st.info("暂无基础数据")
+    warnings = [
+        str(value)
+        for key, value in raw_basics.items()
+        if str(key).startswith("_") and value
+    ]
+    unavailable = sum(
+        1
+        for value in raw_basics.values()
+        if str(value).startswith("unavailable")
+    )
+    if unavailable:
+        st.caption(f"{unavailable} 个基础指标本次未取得，已从可用指标中排除。")
+    for warning in warnings[:2]:
+        st.warning(warning)
 
 
 def _score_panel(score: dict, research: dict):
@@ -323,6 +349,243 @@ def _scenario_panel(scenarios: list):
             f'</div>',
             unsafe_allow_html=True,
         )
+
+
+def _workflow_panel(
+    code: str,
+    research: dict,
+    allowed_ids: set[str] | None = None,
+):
+    """运行文件化金融研究 SOP；只有明确点击才会调用 Harness/iFinD。"""
+    from src.research.workflow import ResearchWorkflowRunner
+
+    st.markdown('<div class="sec-h">金融研究 SOP</div>', unsafe_allow_html=True)
+    st.caption("工作流负责阶段、来源、质量门和草稿；所有产物必须人工复核，不会自动交易或发布。")
+
+    try:
+        runner = ResearchWorkflowRunner()
+        workflows = runner.registry.list()
+        if allowed_ids is not None:
+            workflows = [
+                item for item in workflows if item.get("id") in allowed_ids
+            ]
+    except Exception as exc:
+        st.error(f"研究工作流加载失败: {exc}")
+        return
+
+    if not workflows:
+        st.info("暂无可用研究工作流")
+        return
+
+    options = [item["id"] for item in workflows]
+    by_id = {item["id"]: item for item in workflows}
+    selected = st.selectbox(
+        "研究流程",
+        options=options,
+        format_func=lambda value: by_id[value]["name"],
+        key=(
+            "research_workflow_id_theme"
+            if allowed_ids is not None
+            else "research_workflow_id"
+        ),
+    )
+    default_subject = (
+        f"{code} 最新财报"
+        if selected == "earnings_review"
+        else f"{code} 深度研究"
+        if selected == "company_diligence"
+        else st.session_state.get("research_workflow_theme", "")
+    )
+    subject = st.text_input(
+        "研究主题 / 报告期",
+        value=default_subject,
+        placeholder="例如：电力央企改革 / 600900 2025年报",
+        key=f"research_workflow_subject_{selected}",
+    )
+    if selected == "thematic_market":
+        st.session_state["research_workflow_theme"] = subject
+
+    preview = runner.preview(selected)
+    _workflow_preview(preview)
+
+    run_clicked = st.button(
+        "运行 SOP",
+        key=f"run_workflow_{selected}",
+        use_container_width=True,
+        disabled=not bool(subject.strip()),
+    )
+    if run_clicked:
+        with st.spinner("正在执行研究 SOP，并核对来源与质量门…"):
+            try:
+                result = runner.run(
+                    workflow_id=selected,
+                    subject=subject,
+                    code="" if selected == "thematic_market" else code,
+                    seed=research if selected in {"company_diligence", "earnings_review"} else None,
+                )
+                st.session_state["research_workflow_last"] = result
+            except Exception as exc:
+                st.error(f"研究 SOP 执行失败: {exc}")
+                return
+
+    result = st.session_state.get("research_workflow_last") or {}
+    if result and result.get("workflow_id") == selected:
+        _render_workflow_result(runner, result)
+
+
+def _workflow_preview(preview: dict):
+    st.markdown(
+        f'<div class="card" style="margin:8px 0 10px;padding:12px">'
+        f'<div style="font-weight:750;color:var(--text)">{html.escape(str(preview.get("name", "")))}</div>'
+        f'<div style="font-size:12px;color:var(--muted);line-height:1.55;margin-top:4px">'
+        f'{html.escape(str(preview.get("description", "")))}</div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+    budget = preview.get("quota_budget") or {}
+    if budget:
+        st.caption(
+            "本次最大调用预算：" +
+            " · ".join(f"{key} ≤ {value}" for key, value in budget.items())
+        )
+    st.caption("阶段：" + " → ".join(preview.get("stages") or []))
+
+
+def _render_workflow_result(runner, result: dict):
+    passed = bool((result.get("quality_gate") or {}).get("passed"))
+    status_label = {
+        "draft": "待人工复核",
+        "blocked_quota_overrun": "额度超限，已阻断",
+        "blocked_missing_evidence": "证据不足，已阻断",
+    }.get(result.get("status"), str(result.get("status") or "待检查"))
+    status_color = "var(--green)" if passed else "var(--red)"
+    review = result.get("review") or {}
+
+    st.markdown(
+        f'<div class="card" style="margin:10px 0;border-left:3px solid {status_color}">'
+        f'<div style="display:flex;justify-content:space-between;gap:12px">'
+        f'<div><div style="font-size:16px;font-weight:800;color:var(--text)">'
+        f'{html.escape(str(result.get("workflow_name", "")))}</div>'
+        f'<div style="font-size:11px;color:var(--muted);margin-top:3px">'
+        f'{html.escape(str(result.get("run_id", "")))}</div></div>'
+        f'<div style="font-weight:750;color:{status_color}">{status_label}</div>'
+        f'</div></div>',
+        unsafe_allow_html=True,
+    )
+
+    st.markdown('<div class="sec-h">执行阶段</div>', unsafe_allow_html=True)
+    stages = result.get("stages") or []
+    for start in range(0, len(stages), 3):
+        stage_row = stages[start:start + 3]
+        stage_cols = st.columns(len(stage_row))
+        for index, stage in enumerate(stage_row):
+            with stage_cols[index]:
+                st.metric(stage.get("name", ""), stage.get("status", "pending"))
+
+    st.markdown('<div class="sec-h">质量门</div>', unsafe_allow_html=True)
+    quality = result.get("quality_gate") or {}
+    for item in quality.get("checks") or []:
+        mark = "通过" if item.get("passed") else "缺失"
+        st.markdown(f'- **{mark}** · {html.escape(str(item.get("name", "")))}')
+    if quality.get("missing"):
+        st.error("证据缺口：" + "、".join(str(item) for item in quality["missing"]))
+
+    st.markdown('<div class="sec-h">来源账本</div>', unsafe_allow_html=True)
+    sources = result.get("source_ledger") or []
+    if sources:
+        st.dataframe(
+            [
+                {
+                    "编号": item.get("source_id"),
+                    "类型": item.get("category"),
+                    "证据": item.get("title"),
+                    "来源": item.get("source"),
+                    "时间": item.get("published_at"),
+                    "状态": item.get("status"),
+                    "链接": item.get("url"),
+                }
+                for item in sources
+            ],
+            use_container_width=True,
+            hide_index=True,
+        )
+    else:
+        st.warning("当前没有可追溯来源")
+
+    quota = result.get("quota") or {}
+    st.markdown('<div class="sec-h">iFinD 额度</div>', unsafe_allow_html=True)
+    delta = quota.get("delta") or {}
+    st.caption(
+        "实际调用增量：" +
+        (json.dumps(delta, ensure_ascii=False) if any(delta.values()) else "0（复用缓存或输入底稿）")
+    )
+    if not quota.get("within_budget", True):
+        violations = quota.get("violations") or []
+        st.error(
+            "本次调用超过工作流预算："
+            + "；".join(
+                f"{item.get('endpoint')} 实际 {item.get('actual')} / 预算 {item.get('budget')}"
+                for item in violations
+            )
+        )
+
+    st.markdown('<div class="sec-h">研究草稿</div>', unsafe_allow_html=True)
+    artifacts = result.get("artifacts") or {}
+    for key, value in artifacts.items():
+        with st.expander(str(key), expanded=key.endswith("note")):
+            if isinstance(value, str):
+                st.markdown(value)
+            else:
+                st.json(value)
+
+    st.markdown('<div class="sec-h">人工复核</div>', unsafe_allow_html=True)
+    st.caption(f"当前状态：{review.get('status', 'pending')}。只有这里的明确操作可以改变签核状态。")
+    notes = st.text_input(
+        "复核备注",
+        value=str(review.get("notes") or ""),
+        key=f"workflow_review_notes_{result.get('run_id')}",
+    )
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        if st.button(
+            "标记通过",
+            key=f"workflow_approve_{result.get('run_id')}",
+            use_container_width=True,
+            disabled=not passed,
+        ):
+            updated = runner.review(result["run_id"], "approved", notes)
+            st.session_state["research_workflow_last"] = updated
+            st.rerun()
+    with c2:
+        if st.button(
+            "退回补证据",
+            key=f"workflow_reject_{result.get('run_id')}",
+            use_container_width=True,
+        ):
+            updated = runner.review(result["run_id"], "rejected", notes)
+            st.session_state["research_workflow_last"] = updated
+            st.rerun()
+    with c3:
+        if st.button(
+            "发送给 AI",
+            key=f"workflow_ai_{result.get('run_id')}",
+            use_container_width=True,
+        ):
+            compact = {
+                "workflow_id": result.get("workflow_id"),
+                "subject": result.get("subject"),
+                "status": result.get("status"),
+                "quality_gate": result.get("quality_gate"),
+                "source_ledger": sources[:12],
+                "artifacts": artifacts,
+            }
+            st.session_state["qq"] = (
+                "请基于以下已经运行的金融研究SOP草稿继续分析。必须引用来源编号，"
+                "质量门未通过时只说明证据缺口，不得补猜，也不得声称已经人工批准：\n"
+                + json.dumps(compact, ensure_ascii=False, default=str)[:9000]
+            )
+            st.session_state["current_page"] = "ai_chat"
+            st.rerun()
 
 
 def _strategy_management_panel(score: dict, research: dict):

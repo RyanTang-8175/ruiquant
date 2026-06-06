@@ -223,6 +223,7 @@ class IFindProvider(MarketDataProvider):
             "source": "ifind",
             "quality_level": "professional",
             "is_delayed": False,
+            "retrieved_at": datetime.now().isoformat(),
             "_quality": {
                 "source": "ifind",
                 "quality_level": "professional",

@@ -38,6 +38,11 @@ class ResearchHarness:
             # 关键：缓存命中时强制刷新行情字段为实时，慢变数据(公告/基本面/K线)仍走缓存省额度
             # 否则 AI 会拿到几小时前的旧价格，回答数据全错
             self._refresh_live_quote(cached, code)
+            evidence = cached.get("evidence") or {}
+            cached["summary_cards"] = self._summary_cards(evidence)
+            cached["quality"] = self._quality(evidence)
+            cached["updated_at"] = datetime.now().isoformat()
+            self._write_cache(fp, cached)
             return cached
 
         quote = self._safe(lambda: self.provider.get_realtime_quote(code), {})
@@ -194,8 +199,25 @@ class ResearchHarness:
     def _compact_quote(quote: dict) -> dict:
         if not isinstance(quote, dict):
             return {}
-        keys = ["code", "name", "price", "change_pct", "turnover", "amount", "source", "quality_level"]
-        return {k: quote.get(k) for k in keys if k in quote}
+        keys = [
+            "code",
+            "name",
+            "price",
+            "change_pct",
+            "turnover",
+            "amount",
+            "source",
+            "quality_level",
+            "is_delayed",
+            "_fallback",
+        ]
+        compact = {k: quote.get(k) for k in keys if k in quote}
+        compact["retrieved_at"] = (
+            quote.get("retrieved_at")
+            or quote.get("quote_time")
+            or datetime.now().isoformat()
+        )
+        return compact
 
     @staticmethod
     def _summary_cards(evidence: dict) -> list:
@@ -203,10 +225,17 @@ class ResearchHarness:
         announcements = evidence.get("公告") or []
         basics = evidence.get("基础数据") or {}
         smart = evidence.get("智能选股") or []
+        usable_basics = [
+            value
+            for key, value in basics.items()
+            if not str(key).startswith("_")
+            and value not in (None, "", 0, "--")
+            and not str(value).startswith("unavailable")
+        ]
         return [
             {"title": "行情", "value": f"{quote.get('price', 0) or 0:.2f}", "note": f"{quote.get('change_pct', 0) or 0:+.2f}%"},
             {"title": "公告", "value": len(announcements), "note": "近90天"},
-            {"title": "基础数据", "value": sum(1 for v in basics.values() if v not in (None, "", 0)), "note": "可用指标"},
+            {"title": "基础数据", "value": len(usable_basics), "note": "可用指标"},
             {"title": "智能选股", "value": len(smart), "note": "问财命中"},
         ]
 

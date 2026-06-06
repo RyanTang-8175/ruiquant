@@ -10,6 +10,24 @@
 
 ---
 
+## Completion Record
+
+Completed on 2026-06-06.
+
+- Registry, three playbooks, deterministic runner and atomic run store implemented.
+- Source ledger, evidence gates, enforced quota budgets and UI-only human review implemented.
+- DeepSeek can list/run workflows but has no review/approval tool.
+- Research workbench SOP tab implemented and exercised against a real cached iFinD company research result.
+- Additional defects found during UI smoke were fixed: stale cached summary counts, unavailable basics shown as usable, old K-line slice, empty metric labels, and the declared news category argument mismatch.
+- Verification: `78 passed`, compileall passed, JSON playbooks passed,
+  `git diff --check` passed, HTTP health passed, and the Streamlit interaction
+  path passed.
+- Final hardening: invalid stock codes are blocked before any iFinD call,
+  workflow persistence is protected against concurrent Streamlit sessions, and
+  thematic research is available without first generating a company report.
+
+---
+
 ### Task 1: Playbook Registry
 
 **Files:**

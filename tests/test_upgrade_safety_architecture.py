@@ -254,6 +254,524 @@ def test_tool_executor_exposes_ifind_research_harness(monkeypatch, tmp_path):
     assert market["queries"] == ["主力资金流入"]
 
 
+def test_research_workflow_registry_loads_three_sops():
+    from src.research.workflow import ResearchWorkflowRegistry
+
+    registry = ResearchWorkflowRegistry()
+    workflows = registry.list()
+    ids = {item["id"] for item in workflows}
+
+    assert ids == {"company_diligence", "earnings_review", "thematic_market"}
+    assert all(item["review_required"] is True for item in workflows)
+    assert all(item["stages"] for item in workflows)
+    assert registry.get("earnings_review")["quota_budget"]["smart_stock_picking"] <= 1
+
+
+def test_research_workflow_runner_builds_sources_quality_and_quota(tmp_path):
+    from src.research.workflow import ResearchWorkflowRunner
+
+    class FakeProvider:
+        source_name = "ifind"
+
+        def usage_stats(self):
+            return {
+                "today_by_endpoint": {"real_time_quotation": 4, "report_query": 2},
+                "month_by_endpoint": {"real_time_quotation": 40, "report_query": 20},
+            }
+
+    class FakeHarness:
+        provider = FakeProvider()
+        knowledge = SimpleNamespace(record_run=lambda payload: None)
+
+        def company_research(self, code, profile="quick", force=False):
+            return {
+                "kind": "company_research",
+                "code": code,
+                "title": "长江电力研究底稿",
+                "quality": "high",
+                "source": "ifind",
+                "evidence": {
+                    "行情": {
+                        "code": code,
+                        "name": "长江电力",
+                        "price": 25.0,
+                        "change_pct": 1.2,
+                        "turnover": 1.5,
+                        "amount": 2_000_000_000,
+                        "source": "ifind",
+                        "quality_level": "professional",
+                        "retrieved_at": "2026-06-06T15:20:00",
+                    },
+                    "K线": [
+                        {"date": "2026-06-04", "close": 24.7, "change_pct": 0.2, "source": "ifind"},
+                        {"date": "2026-06-05", "close": 25.0, "change_pct": 1.2, "source": "ifind"},
+                    ],
+                    "公告": [
+                        {
+                            "title": "长江电力2025年年度报告",
+                            "published_at": "2026-04-30",
+                            "source": "iFinD公告",
+                            "url": "https://example.com/report.pdf",
+                        }
+                    ],
+                    "基础数据": {"市盈率TTM": 18.5, "净利润": 123.4, "每股收益TTM": 1.2},
+                    "智能选股": [{"code": code, "name": "长江电力", "source": "ifind_wencai"}],
+                },
+                "scenario_report": [{"name": "基准情景", "possibility": "50%", "evidence": "行情稳定"}],
+            }
+
+    runner = ResearchWorkflowRunner(
+        harness=FakeHarness(),
+        store_path=tmp_path / "workflow_runs.json",
+    )
+    run = runner.run("company_diligence", subject="长江电力深度研究", code="600900")
+
+    assert run["status"] == "draft"
+    assert run["review_required"] is True
+    assert run["review"]["status"] == "pending"
+    assert run["quality_gate"]["passed"] is True
+    assert run["source_ledger"]
+    assert {item["source_id"] for item in run["source_ledger"]} >= {"S1", "S2"}
+    assert run["source_ledger"][0]["published_at"] == "2026-06-06T15:20:00"
+    assert run["artifacts"]["research_note"].startswith("# 长江电力")
+    assert "[S1]" in run["artifacts"]["research_note"]
+    assert run["quota"]["budget"]["smart_stock_picking"] == 1
+    assert run["quota"]["delta"]["today"] == {}
+    assert runner.list_runs(limit=5)[0]["run_id"] == run["run_id"]
+
+
+def test_earnings_workflow_blocks_without_financial_filing(tmp_path):
+    import json
+
+    from src.research.workflow import ResearchWorkflowRunner
+
+    class FakeProvider:
+        source_name = "ifind"
+
+        def usage_stats(self):
+            return {"today_by_endpoint": {}, "month_by_endpoint": {}}
+
+    class FakeHarness:
+        provider = FakeProvider()
+        knowledge = SimpleNamespace(record_run=lambda payload: None)
+
+        def company_research(self, code, profile="quick", force=False):
+            return {
+                "code": code,
+                "quality": "medium",
+                "source": "ifind",
+                "evidence": {
+                    "行情": {"code": code, "name": "测试公司", "price": 10.0, "source": "ifind"},
+                    "K线": [{"date": "2026-06-05", "close": 10.0, "source": "ifind"}],
+                    "公告": [{"title": "关于召开股东大会的公告", "source": "iFinD公告"}],
+                    "基础数据": {"市盈率TTM": 20.0, "净利润": 3.2},
+                    "智能选股": [],
+                },
+                "scenario_report": [],
+            }
+
+    runner = ResearchWorkflowRunner(
+        harness=FakeHarness(),
+        store_path=tmp_path / "workflow_runs.json",
+    )
+    run = runner.run("earnings_review", subject="测试公司最新财报", code="600001")
+    artifact_text = json.dumps(run["artifacts"], ensure_ascii=False).lower()
+
+    assert run["status"] == "blocked_missing_evidence"
+    assert run["quality_gate"]["passed"] is False
+    assert "财报事件公告" in run["quality_gate"]["missing"]
+    assert "beat" not in artifact_text
+    assert "miss" not in artifact_text
+    assert "超预期" not in artifact_text
+    assert "低于预期" not in artifact_text
+
+
+def test_thematic_workflow_deduplicates_candidates_and_requires_three(tmp_path):
+    from src.research.workflow import ResearchWorkflowRunner
+
+    class FakeProvider:
+        source_name = "ifind"
+
+        def usage_stats(self):
+            return {"today_by_endpoint": {"smart_stock_picking": 3}, "month_by_endpoint": {"smart_stock_picking": 30}}
+
+    class FakeHarness:
+        provider = FakeProvider()
+        knowledge = SimpleNamespace(record_run=lambda payload: None)
+
+        def market_radar(self, queries=None):
+            return {
+                "kind": "market_radar",
+                "themes": [
+                    {
+                        "query": queries[0],
+                        "rows": [
+                            {"code": "600900", "name": "长江电力", "source": "ifind_wencai"},
+                            {"code": "600900", "name": "长江电力", "source": "ifind_wencai"},
+                        ],
+                    },
+                    {
+                        "query": queries[1],
+                        "rows": [
+                            {"code": "600011", "name": "华能国际", "source": "ifind_wencai"},
+                            {"code": "600886", "name": "国投电力", "source": "ifind_wencai"},
+                        ],
+                    },
+                ],
+                "quality": "ok",
+            }
+
+    runner = ResearchWorkflowRunner(
+        harness=FakeHarness(),
+        store_path=tmp_path / "workflow_runs.json",
+    )
+    run = runner.run("thematic_market", subject="电力央企改革")
+
+    assert run["quality_gate"]["passed"] is True
+    assert len(run["artifacts"]["candidate_shortlist"]) == 3
+    assert run["artifacts"]["candidate_shortlist"][0]["code"] == "600900"
+    assert len(run["source_ledger"]) >= 3
+
+
+def test_workflow_review_requires_explicit_human_action(tmp_path):
+    from src.research.workflow import WorkflowRunStore
+
+    store = WorkflowRunStore(tmp_path / "workflow_runs.json")
+    store.save({
+        "run_id": "r1",
+        "workflow_id": "company_diligence",
+        "review": {"status": "pending", "notes": ""},
+        "quality_gate": {"passed": True, "missing": []},
+    })
+
+    approved = store.review("r1", "approved", "数据已人工复核")
+
+    assert approved["review"]["status"] == "approved"
+    assert approved["review"]["notes"] == "数据已人工复核"
+    assert approved["review"]["reviewed_at"]
+    assert store.list(limit=1)[0]["run_id"] == "r1"
+
+
+def test_workflow_store_rejects_missing_run_id(tmp_path):
+    import pytest
+
+    from src.research.workflow import WorkflowRunStore
+
+    store = WorkflowRunStore(tmp_path / "workflow_runs.json")
+
+    with pytest.raises(ValueError, match="run_id"):
+        store.save({"workflow_id": "company_diligence"})
+
+
+def test_workflow_store_preserves_concurrent_runs(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+
+    from src.research.workflow import WorkflowRunStore
+
+    store = WorkflowRunStore(tmp_path / "workflow_runs.json")
+
+    def save(index):
+        return store.save({
+            "run_id": f"run-{index}",
+            "workflow_id": "company_diligence",
+            "quality_gate": {"passed": True},
+        })
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        list(executor.map(save, range(20)))
+
+    run_ids = {item["run_id"] for item in store.list(limit=30)}
+    assert run_ids == {f"run-{index}" for index in range(20)}
+
+
+def test_workflow_review_cannot_approve_blocked_run(tmp_path):
+    import pytest
+
+    from src.research.workflow import WorkflowRunStore
+
+    store = WorkflowRunStore(tmp_path / "workflow_runs.json")
+    store.save({
+        "run_id": "blocked",
+        "workflow_id": "earnings_review",
+        "review": {"status": "pending", "notes": ""},
+        "quality_gate": {"passed": False, "missing": ["财报原文链接"]},
+    })
+
+    with pytest.raises(ValueError, match="质量门"):
+        store.review("blocked", "approved", "忽略证据缺口")
+
+    rejected = store.review("blocked", "rejected", "补齐原文后重跑")
+    assert rejected["review"]["status"] == "rejected"
+
+
+def test_earnings_workflow_requires_original_document_link(tmp_path):
+    from src.research.workflow import ResearchWorkflowRunner
+
+    class FakeProvider:
+        source_name = "ifind"
+
+        def usage_stats(self):
+            return {"today_by_endpoint": {}, "month_by_endpoint": {}}
+
+    class FakeHarness:
+        provider = FakeProvider()
+        knowledge = SimpleNamespace(record_run=lambda payload: None)
+
+        def company_research(self, code, profile="quick", force=False):
+            return {
+                "code": code,
+                "source": "ifind",
+                "evidence": {
+                    "行情": {
+                        "code": code,
+                        "name": "测试公司",
+                        "price": 10.0,
+                        "source": "ifind",
+                        "quality_level": "professional",
+                        "retrieved_at": "2026-06-06T15:20:00",
+                    },
+                    "公告": [{
+                        "title": "测试公司2025年年度报告",
+                        "published_at": "2026-04-30",
+                        "source": "iFinD公告",
+                        "url": "",
+                    }],
+                    "基础数据": {"市盈率TTM": 20.0, "净利润": 3.2},
+                },
+            }
+
+    runner = ResearchWorkflowRunner(
+        harness=FakeHarness(),
+        store_path=tmp_path / "workflow_runs.json",
+    )
+    run = runner.run("earnings_review", subject="测试公司2025年报", code="600001")
+
+    assert run["status"] == "blocked_missing_evidence"
+    assert "财报原文链接" in run["quality_gate"]["missing"]
+
+
+def test_workflow_quota_overrun_blocks_draft(tmp_path):
+    from src.research.workflow import ResearchWorkflowRunner
+
+    class FakeProvider:
+        source_name = "ifind"
+
+        def __init__(self):
+            self.calls = 0
+
+        def usage_stats(self):
+            return {
+                "today_by_endpoint": {"real_time_quotation": self.calls},
+                "month_by_endpoint": {"real_time_quotation": self.calls},
+            }
+
+    provider = FakeProvider()
+
+    class FakeHarness:
+        knowledge = SimpleNamespace(record_run=lambda payload: None)
+
+        def __init__(self):
+            self.provider = provider
+
+        def company_research(self, code, profile="quick", force=False):
+            provider.calls = 2
+            return {
+                "code": code,
+                "source": "ifind",
+                "evidence": {
+                    "行情": {
+                        "code": code,
+                        "name": "测试公司",
+                        "price": 10.0,
+                        "source": "ifind",
+                        "quality_level": "professional",
+                    },
+                    "K线": [{"date": "2026-06-05", "close": 10.0, "source": "ifind"}],
+                    "公告": [{"title": "测试公告", "source": "iFinD公告"}],
+                    "基础数据": {"市盈率TTM": 20.0, "净利润": 3.2},
+                },
+            }
+
+    runner = ResearchWorkflowRunner(
+        harness=FakeHarness(),
+        store_path=tmp_path / "workflow_runs.json",
+    )
+    run = runner.run("company_diligence", subject="测试公司", code="600001")
+
+    assert run["status"] == "blocked_quota_overrun"
+    assert run["quota"]["within_budget"] is False
+    assert run["quota"]["violations"][0]["endpoint"] == "real_time_quotation"
+    assert "额度预算" in run["quality_gate"]["missing"]
+
+
+def test_company_workflow_invalid_code_is_blocked_without_data_call(tmp_path):
+    from src.research.workflow import ResearchWorkflowRunner
+
+    class FakeProvider:
+        source_name = "ifind"
+
+        def usage_stats(self):
+            return {"today_by_endpoint": {}, "month_by_endpoint": {}}
+
+    class FakeHarness:
+        provider = FakeProvider()
+        knowledge = SimpleNamespace(record_run=lambda payload: None)
+
+        def __init__(self):
+            self.calls = 0
+
+        def company_research(self, code, profile="quick", force=False):
+            self.calls += 1
+            raise AssertionError("无效股票代码不应调用 iFinD")
+
+    harness = FakeHarness()
+    runner = ResearchWorkflowRunner(
+        harness=harness,
+        store_path=tmp_path / "workflow_runs.json",
+    )
+    run = runner.run("company_diligence", subject="无效标的", code="not-a-code")
+
+    assert harness.calls == 0
+    assert run["status"] == "blocked_missing_evidence"
+    assert "有效股票代码" in run["quality_gate"]["missing"]
+    assert run["code"] == ""
+
+
+def test_ai_tools_expose_research_sops_without_review_tool():
+    from src.ai.tools import TOOLS
+
+    names = {tool["function"]["name"] for tool in TOOLS}
+
+    assert "list_research_workflows" in names
+    assert "run_research_workflow" in names
+    assert "review_research_workflow" not in names
+
+
+def test_tool_executor_runs_research_workflow(monkeypatch):
+    class FakeRunner:
+        def __init__(self):
+            self.registry = SimpleNamespace(list=lambda: [{"id": "company_diligence"}])
+
+        def run(self, workflow_id, subject, code=""):
+            return {"workflow_id": workflow_id, "subject": subject, "code": code, "status": "draft"}
+
+    monkeypatch.setattr("src.ai.tool_executor.ResearchWorkflowRunner", FakeRunner)
+
+    from src.ai.tool_executor import ToolExecutor
+
+    executor = ToolExecutor()
+    listed = executor._list_research_workflows()
+    run = executor._run_research_workflow("company_diligence", "长江电力", "600900")
+
+    assert listed["workflows"] == [{"id": "company_diligence"}]
+    assert run["status"] == "draft"
+    assert run["code"] == "600900"
+
+
+def test_research_page_exposes_sop_quality_sources_and_human_review():
+    source = Path("src/pages/research.py").read_text(encoding="utf-8")
+
+    assert "_workflow_panel" in source
+    assert "runner.preview" in source
+    assert "runner.run" in source
+    assert "runner.review" in source
+    assert "来源账本" in source
+    assert "质量门" in source
+    assert "人工复核" in source
+    assert "[:5]" not in source
+
+
+def test_research_page_exposes_standalone_thematic_sop():
+    source = Path("src/pages/research.py").read_text(encoding="utf-8")
+
+    assert '_workflow_panel("", {}, allowed_ids={"thematic_market"})' in source
+    assert 'result.get("workflow_id") == selected' in source
+
+
+def test_news_tool_accepts_declared_category_argument():
+    import inspect
+
+    from src.ai.tool_executor import ToolExecutor
+
+    parameters = inspect.signature(ToolExecutor._get_news).parameters
+    assert "category" in parameters
+
+
+def test_research_summary_excludes_unavailable_basic_values():
+    from src.research.harness import ResearchHarness
+
+    cards = ResearchHarness._summary_cards({
+        "行情": {"price": 10.0, "change_pct": 1.0},
+        "公告": [],
+        "基础数据": {
+            "市盈率TTM": 20.0,
+            "净利润": 0,
+            "流通市值": "unavailable: endpoint failed",
+            "_warning": "缓存值",
+        },
+        "智能选股": [],
+    })
+    basic_card = next(item for item in cards if item["title"] == "基础数据")
+
+    assert basic_card["value"] == 1
+
+
+def test_cached_company_research_recomputes_summary_cards(tmp_path):
+    from datetime import datetime
+
+    from src.research.harness import ResearchHarness
+
+    class FakeProvider:
+        source_name = "ifind"
+
+        def get_realtime_quote(self, code):
+            return {
+                "code": code,
+                "name": "测试公司",
+                "price": 10.2,
+                "change_pct": 2.0,
+                "source": "ifind",
+                "quality_level": "professional",
+            }
+
+    harness = ResearchHarness(
+        provider=FakeProvider(),
+        cache_dir=tmp_path / "cache",
+        knowledge_path=tmp_path / "knowledge.json",
+    )
+    fingerprint = harness._fingerprint("company", "600001", "quick")
+    harness._write_cache(fingerprint, {
+        "code": "600001",
+        "created_at": datetime.now().isoformat(),
+        "summary_cards": [{"title": "基础数据", "value": 99, "note": "旧缓存"}],
+        "evidence": {
+            "行情": {"code": "600001", "price": 10.0, "source": "ifind"},
+            "K线": [{"date": "2026-06-05", "close": 10.0}],
+            "公告": [],
+            "基础数据": {
+                "市盈率TTM": 20.0,
+                "流通市值": "unavailable: endpoint failed",
+            },
+            "智能选股": [],
+        },
+    })
+
+    research = harness.company_research("600001", profile="quick")
+    basic_card = next(
+        item for item in research["summary_cards"] if item["title"] == "基础数据"
+    )
+
+    assert research["cached"] is True
+    assert basic_card["value"] == 1
+
+
+def test_research_page_uses_latest_four_kline_bars():
+    source = Path("src/pages/research.py").read_text(encoding="utf-8")
+
+    assert "recent = bars[-4:]" in source
+    assert 'item.get("date") or f"最近{len(recent) - idx}日"' in source
+
+
 def test_ifind_evidence_score_combines_opportunity_risk_and_confidence():
     from src.scoring.evidence import IFindEvidenceScorer
 

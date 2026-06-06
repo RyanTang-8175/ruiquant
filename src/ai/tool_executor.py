@@ -4,6 +4,7 @@ import json, logging
 from src.research.harness import ResearchHarness
 from src.research.evaluator import ResearchEvaluator
 from src.research.strategy import StrategyExplorer, StrategyGovernor
+from src.research.workflow import ResearchWorkflowRunner
 from src.scoring.evidence import IFindEvidenceScorer
 
 logger = logging.getLogger(__name__)
@@ -40,6 +41,8 @@ class ToolExecutor:
             "get_research_score_comparison": self._get_research_score_comparison,
             "govern_strategy_tier": self._govern_strategy_tier,
             "sweep_strategy_values": self._sweep_strategy_values,
+            "list_research_workflows": self._list_research_workflows,
+            "run_research_workflow": self._run_research_workflow,
         }
         handler = handlers.get(tool_name)
         if not handler:
@@ -262,9 +265,21 @@ class ToolExecutor:
             return "低吸验证"
         return "等待实时确认"
 
-    def _get_news(self, code: str = None, limit: int = 10) -> dict:
+    def _get_news(self, code: str = None, category: str = None, limit: int = 10) -> dict:
         from src.news.fetcher import fetch_all_news, fetch_stock_news
         news = fetch_stock_news(code, limit) if code else fetch_all_news(limit)
+        if category:
+            category_key = str(category).strip().lower()
+            filtered = [
+                item for item in news
+                if category_key in str(
+                    item.get("category")
+                    or item.get("type")
+                    or item.get("source")
+                    or ""
+                ).lower()
+            ]
+            news = filtered or news
         return {"count":len(news),"news":news[:15]}
 
     def _get_financial_data(self, code: str) -> dict:
@@ -388,3 +403,30 @@ class ToolExecutor:
             return StrategyExplorer().sweep_filter_values(base_config or {"universe": "A股", "holding": "1-2天"}, dimension, values)
         except Exception as e:
             return {"executed": 0, "skipped_duplicates": 0, "error": f"策略探索失败: {str(e)[:100]}"}
+
+    def _list_research_workflows(self) -> dict:
+        try:
+            runner = ResearchWorkflowRunner()
+            return {
+                "workflows": runner.registry.list(),
+                "rule": "所有工作流只生成待人工复核草稿，AI不能代替用户批准。",
+            }
+        except Exception as e:
+            return {"workflows": [], "error": f"研究工作流读取失败: {str(e)[:100]}"}
+
+    def _run_research_workflow(self, workflow_id: str, subject: str, code: str = "") -> dict:
+        try:
+            return ResearchWorkflowRunner().run(
+                workflow_id=workflow_id,
+                subject=subject,
+                code=code,
+            )
+        except Exception as e:
+            return {
+                "workflow_id": workflow_id,
+                "subject": subject,
+                "code": code,
+                "status": "error",
+                "review_required": True,
+                "error": f"研究工作流执行失败: {str(e)[:120]}",
+            }

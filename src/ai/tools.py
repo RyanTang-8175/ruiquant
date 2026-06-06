@@ -263,4 +263,38 @@ TOOLS = [
             }
         }
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_research_workflows",
+            "description": "列出 AlphaEye 可运行的金融研究 SOP，包括阶段、必需证据、iFinD 调用预算和交付物。",
+            "parameters": {"type": "object", "properties": {}}
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "run_research_workflow",
+            "description": "运行文件化金融研究 SOP，返回阶段状态、来源账本、质量门、额度变化和待人工复核草稿。工作流不能自动批准或发布。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "workflow_id": {
+                        "type": "string",
+                        "enum": ["company_diligence", "earnings_review", "thematic_market"],
+                        "description": "研究工作流 ID"
+                    },
+                    "subject": {
+                        "type": "string",
+                        "description": "研究主题、公司名称或报告期"
+                    },
+                    "code": {
+                        "type": "string",
+                        "description": "股票代码；主题研究可留空"
+                    }
+                },
+                "required": ["workflow_id", "subject"]
+            }
+        }
+    },
 ]
