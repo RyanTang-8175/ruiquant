@@ -77,32 +77,55 @@ class ResearchHarness:
         return result
 
     def _refresh_live_quote(self, cached: dict, code: str) -> None:
-        """缓存命中时，把研究底稿里的行情字段强制刷新为实时。
+        """缓存命中时，把研究底稿里的行情和K线强制刷新为实时。
 
-        慢变数据（公告/基本面/K线历史）保留缓存以省 iFinD 额度，
-        但价格/涨跌幅/换手/成交额必须是当前实时值——否则 AI 拿到旧价格回答全错。
+        之前只刷行情字段，但缓存里的K线数据仍是几天前的旧价格，
+        AI看到30根旧K线 vs 一行实时行情，会信K线而忽略实时价。
+        现在：行情刷新 + K线最后一根更新 + 价格偏差超2%时标记数据冲突。
         """
         try:
             live = self._safe(lambda: self.provider.get_realtime_quote(code), {})
             if not live or not live.get("price"):
                 return
+            live_price = live.get("price", 0)
             compact = self._compact_quote(live)
-            # 刷新 evidence.行情
+
             evidence = cached.get("evidence")
             if isinstance(evidence, dict):
+                old_quote = evidence.get("行情") or {}
+                old_price = float(old_quote.get("price") or 0)
+
                 evidence["行情"] = compact
-                # K线最后一根的收盘价也同步到实时，避免均线参照漂移误导
-            # 刷新 summary_cards 里的行情卡
+
+                # 刷新K线最后一根：旧K线严重过期时标记不可靠
+                klines = evidence.get("K线") or []
+                if klines and old_price > 0 and abs(live_price - old_price) / old_price > 0.02:
+                    evidence["_kline_stale"] = True
+                    evidence["_kline_warning"] = (
+                        f"缓存K线基于旧价{old_price:.2f}，与实时{live_price:.2f}偏差"
+                        f"超2%。K线不可靠，请以实时行情为准。"
+                    )
+                    if klines:
+                        klines[-1]["close"] = live_price
+                        klines[-1]["_adjusted_from_cache"] = True
+
+                # PE等基于旧价，标记可能不准确
+                basics = evidence.get("基础数据") or {}
+                if isinstance(basics, dict) and old_price > 0 and abs(live_price - old_price) / old_price > 0.02:
+                    basics["_stale_from_cache"] = True
+                    basics["_warning"] = f"基于旧价{old_price:.2f}计算，现价{live_price:.2f}已有显著变化"
+
             for card in cached.get("summary_cards") or []:
                 if isinstance(card, dict) and card.get("title") == "行情":
-                    card["value"] = f"{live.get('price', 0) or 0:.2f}"
+                    card["value"] = f"{live_price:.2f}"
                     card["note"] = f"{live.get('change_pct', 0) or 0:+.2f}%"
-            # 重新生成情景报告（依赖实时涨跌幅/换手）
+
             if isinstance(evidence, dict):
                 cached["scenario_report"] = self._scenario_report(evidence)
-            # 标注：行情已刷新为实时，其余为缓存
+
             cached["live_refreshed"] = True
             cached["live_quote"] = compact
+            cached["live_price"] = live_price
         except Exception:
             pass
 

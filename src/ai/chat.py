@@ -1215,12 +1215,16 @@ class AIChat:
             src = q.get("source", "")
             ts = datetime.now().strftime("%Y-%m-%d %H:%M")
             return (
-                f"[实时行情护栏 · 最高优先级 · {ts}]\n"
-                f"{name}({stock_code}) 当前真实行情：\n"
-                f"现价 {price:.2f} 元 | 涨跌 {pct:+.2f}% | 换手 {turnover:.2f}% | 成交额 {amount:.1f}亿 | 来源 {src}\n"
-                f"⚠️ 铁律：本条是此刻真实行情。你的对话历史、研究底稿、记忆里可能有这只股票的旧价格，"
-                f"那些全部作废。本次回答的价格、涨跌幅、换手、成交额必须用上面这条，绝不允许使用历史里的旧数字。"
-                f"不许说'复用研究底稿'来沿用旧价格。如果历史价格与此处不同，以此处为准。"
+                f"[实时行情护栏 · 最高优先级 · 来源 {src} · {ts}]\n"
+                f"{name}({stock_code}) 此刻实时行情：\n"
+                f"现价={price:.2f}元 | 涨跌幅={pct:+.2f}% | 换手率={turnover:.2f}% | 成交额={amount:.1f}亿\n"
+                f"\n"
+                f"铁律（违反会导致回答数据错误）：\n"
+                f"1. 你调工具后可能返回旧缓存里的K线/PE数据，那些基于几天前的旧价——已被本条护栏作废。"
+                f"如果工具返回的K线价与本条 {price:.2f}元 明显不同，以护栏为准。\n"
+                f"2. 回答中的价格只能是 {price:.2f}元。\n"
+                f"3. 绝不说'复用缓存/复用底稿'来沿用旧价。\n"
+                f"4. 护栏(新) > 工具缓存(旧)，护栏优先。"
             )
         except Exception as e:
             logger.warning(f"live_quote_guard 失败 {stock_code}: {e}")
