@@ -9,7 +9,7 @@ def render_profile_page():
     try:
         from src.trading.engine import TradingEngine
         with TradingEngine() as e: s = e.get_stats()
-    except: s = {}
+    except Exception: s = {}
     c1, c2, c3 = st.columns(3)
     c1.metric("交易", s.get("total_trades", 0))
     wr = s.get("win_rate", 0)
@@ -36,7 +36,7 @@ def render_profile_page():
         top = p.top_stocks(5)
         if top:
             st.caption("常看: " + " | ".join(f"{n}({c})" for c, n, _ in top))
-    except: pass
+    except Exception: pass
 
     st.markdown('<div class="sec-h">AI / 数据源配置</div>', unsafe_allow_html=True)
     cur_k = get_setting("api_key","DEEPSEEK_API_KEY","")

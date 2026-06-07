@@ -35,7 +35,7 @@ class ScoringEngine:
 
     def close(self):
         try: self.db.close()
-        except: pass
+        except Exception: pass
 
     def __enter__(self): return self
     def __exit__(self, *a): self.close(); return False
@@ -224,7 +224,7 @@ class ScoringEngine:
             results = self.score_all_stocks(limit=max(limit * 3, 80))
             if results:
                 try: self.save_scores(results)
-                except: pass
+                except Exception: pass
             return [r for r in results if r['total_score'] >= min_score][:limit]
         except Exception as e:
             logger.error(f"watchlist: {e}")
@@ -244,7 +244,7 @@ class V6ScoringEngine:
 
     def close(self):
         try: self.db.close()
-        except: pass
+        except Exception: pass
 
     def __enter__(self): return self
     def __exit__(self, *a): self.close(); return False

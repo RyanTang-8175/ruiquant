@@ -28,7 +28,7 @@ def _parse_gtimg(raw: str) -> Optional[Dict]:
                 "change_pct":v(32),"turnover":v(38),"pe_ratio":v(39),
                 "volume_ratio":v(49),"amplitude":v(43),
                 "high_limit":v(47),"low_limit":v(48)}
-    except: return None
+    except Exception: return None
 
 import time as _t
 _QCACHE = {}

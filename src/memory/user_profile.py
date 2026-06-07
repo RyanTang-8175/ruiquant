@@ -16,7 +16,7 @@ class UserProfile:
         try:
             if PROFILE_FILE.exists():
                 return json.loads(PROFILE_FILE.read_text(encoding="utf-8"))
-        except: pass
+        except Exception: pass
         return {"preferences": {}, "top_stocks": [], "top_sectors": [],
                 "trading_style": "", "stats": {"chats": 0, "analyses": 0, "compares": 0},
                 "created_at": datetime.now().isoformat()}

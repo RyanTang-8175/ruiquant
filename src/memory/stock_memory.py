@@ -25,7 +25,7 @@ class StockMemory:
 
     def close(self):
         try: self.db.close()
-        except: pass
+        except Exception: pass
 
     def get_profile(self, code: str) -> Optional[dict]:
         row = self.db.query(Stock).filter(Stock.code == code).first()

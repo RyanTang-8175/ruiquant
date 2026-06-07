@@ -132,7 +132,7 @@ class ToolExecutor:
         try:
             from src.data.realtime import get_realtime_quote
             quo = get_realtime_quote(code)
-        except: pass
+        except Exception: pass
         quality = quo.get("_quality", {}) if quo else {}
         d = r.to_dict()
         return {

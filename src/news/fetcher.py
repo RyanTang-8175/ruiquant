@@ -31,7 +31,7 @@ def fetch_sina_news(limit: int = 20) -> List[Dict]:
                                  "source":"新浪","published_at":dt,"url":item.get('url',''),
                                  "keywords":item.get('keywords','')})
             if news: break
-        except: continue
+        except Exception: continue
     return _dedup(news, limit)
 
 
@@ -102,7 +102,7 @@ def fetch_tencent_news(limit: int = 15) -> List[Dict]:
             if title:
                 ts = item.get('publish_time','')
                 try: dt = datetime.fromtimestamp(int(ts)).strftime('%m-%d %H:%M') if ts else ''
-                except: dt = ''
+                except Exception: dt = ''
                 news.append({"title":title.strip(),
                              "content":item.get('abstract','') or item.get('nlp_abstract',''),
                              "source":"腾讯","published_at":dt,
@@ -186,7 +186,7 @@ def fetch_stock_news(code: str, limit: int = 8) -> List[Dict]:
             for url, title in re.findall(r'<a[^>]*href="([^"]*)"[^>]*target="_blank"[^>]*>([^<]+)</a>', r.text)[:limit]:
                 t = re.sub(r'\s+','',title).strip()
                 if t and len(t)>8: news.append({"title":t,"content":"","source":"新浪","url":url,"published_at":""})
-        except: pass
+        except Exception: pass
         for item in fetch_all_news(50):
             if code in (item.get("title","")+item.get("content","")+item.get("keywords","")):
                 news.append(item)

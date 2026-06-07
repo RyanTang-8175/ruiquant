@@ -268,7 +268,7 @@ def fetch_all_stocks() -> list:
                 age = datetime.now().timestamp() - cache.get('ts', 0)
                 if age < 86400:  # 24小时内
                     return cache.get('stocks', [])
-        except: pass
+        except Exception: pass
 
     # 从新浪分页拉取
     stocks = []
@@ -298,7 +298,7 @@ def fetch_all_stocks() -> list:
             with open(CACHE_FILE, 'w') as f:
                 json.dump({'ts': datetime.now().timestamp(), 'stocks': stocks}, f, ensure_ascii=False)
             logger.info(f"缓存{len(stocks)}只股票")
-        except: pass
+        except Exception: pass
     return stocks
 
 def search_stocks(keyword: str, stocks: list = None) -> list:

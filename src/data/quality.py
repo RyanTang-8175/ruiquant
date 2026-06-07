@@ -107,15 +107,17 @@ def log_data_quality(source: str, endpoint: str, status: str,
         from src.data.models_v6 import DataQualityLog
 
         db = SessionLocal()
-        entry = DataQualityLog(
-            source=source, endpoint=endpoint,
-            check_time=datetime.now(), status=status,
-            latency_ms=latency_ms,
-            error_message=error_message,
-        )
-        db.add(entry)
-        db.commit()
-        db.close()
+        try:
+            entry = DataQualityLog(
+                source=source, endpoint=endpoint,
+                check_time=datetime.now(), status=status,
+                latency_ms=latency_ms,
+                error_message=error_message,
+            )
+            db.add(entry)
+            db.commit()
+        finally:
+            db.close()
     except Exception as e:
         logger.debug(f"QualityLog skipped: {e}")
 
@@ -128,10 +130,12 @@ def get_quality_summary() -> dict:
         from sqlalchemy import desc
 
         db = SessionLocal()
-        recent = (db.query(DataQualityLog)
-                  .order_by(desc(DataQualityLog.check_time))
-                  .limit(50).all())
-        db.close()
+        try:
+            recent = (db.query(DataQualityLog)
+                      .order_by(desc(DataQualityLog.check_time))
+                      .limit(50).all())
+        finally:
+            db.close()
 
         if not recent:
             return {"status": "no_data", "sources": {}}

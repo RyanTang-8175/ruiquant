@@ -19,17 +19,17 @@ class AIContextBuilder:
             try:
                 ctx = self.scoring.build_ai_context(code)
                 if ctx: lines.append(ctx)
-            except: pass
+            except Exception: pass
         if self.stock_memory:
             try:
                 mem = self.stock_memory.get_recent_memory_summary(code)
                 if mem: lines.append(mem)
-            except: pass
+            except Exception: pass
             try:
                 risk = self.stock_memory.get_risk_profile(code)
                 if risk and risk.get("avg_risk", 0) > 0:
                     lines.append(f"历史反量化风险: {risk['avg_risk']}/100 ({risk['risk_level']})")
-            except: pass
+            except Exception: pass
         if self.analysis:
             try:
                 analyses = self.analysis.get_analyses(code, limit=3)
@@ -37,5 +37,5 @@ class AIContextBuilder:
                     lines.append("最近AI分析:")
                     for a in analyses:
                         lines.append(f"- [{a['type']}] 风险{a['risk_level']} ({a['created_at'][:10]})")
-            except: pass
+            except Exception: pass
         return "\n".join(lines)

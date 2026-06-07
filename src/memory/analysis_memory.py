@@ -30,7 +30,7 @@ class AnalysisMemory:
 
     def close(self):
         try: self.db.close()
-        except: pass
+        except Exception: pass
 
     def save_analysis(self, stock_code: str, analysis_type: str,
                       data: dict, message_id: int = None) -> int:

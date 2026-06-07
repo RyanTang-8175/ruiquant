@@ -264,7 +264,7 @@ def parse_structured_output(text: str) -> dict:
     if m:
         try:
             return _validate_legacy(json.loads(m.group(1)))
-        except:
+        except Exception:
             pass
 
     # 尝试裸 JSON（含 risk_level 字段）
@@ -272,7 +272,7 @@ def parse_structured_output(text: str) -> dict:
     if m:
         try:
             return _validate_legacy(json.loads(m.group(0)))
-        except:
+        except Exception:
             pass
 
     return _extract_from_text(text)

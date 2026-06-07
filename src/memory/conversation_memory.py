@@ -23,7 +23,7 @@ class ConversationMemory:
 
     def close(self):
         try: self.db.close()
-        except: pass
+        except Exception: pass
 
     def create_session(self, session_type: str = "free_chat",
                        title: str = "") -> int:
