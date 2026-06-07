@@ -44,14 +44,26 @@ def render_profile_page():
     cur_m = get_setting("model","DEEPSEEK_MODEL","deepseek-chat")
     cur_dp = get_setting("data_provider","ALPHAEYE_DATA_PROVIDER","open")
     cur_ifind_refresh = get_setting("ifind_refresh_token","IFIND_REFRESH_TOKEN","")
+    cur_mimo_key = get_setting("mimo_api_key","MIMO_API_KEY","")
+    cur_mimo_url = get_setting("mimo_base_url","MIMO_BASE_URL","")
+    cur_mimo_model = get_setting("mimo_model","MIMO_MODEL","")
     with st.form("cfg"):
+        st.markdown("**主模型（DeepSeek）**")
         nk = st.text_input("API Key", value=cur_k, type="password", placeholder="sk-...")
         nu = st.text_input("Base URL", value=cur_u)
         nm = st.text_input("Model", value=cur_m)
+        st.markdown("---")
+        st.markdown("**备选模型（Mimo）**")
+        st.caption("DeepSeek 不可用时自动切换。地址 https://token-plan-cn.xiaomimimo.com/anthropic，模型 mimo-v2.5-pro")
+        nmk = st.text_input("Mimo API Key", value=cur_mimo_key, type="password")
+        nmu = st.text_input("Mimo Base URL", value=cur_mimo_url, placeholder="https://token-plan-cn.xiaomimimo.com/anthropic")
+        nmm = st.text_input("Mimo Model", value=cur_mimo_model, placeholder="mimo-v2.5-pro")
+        st.markdown("---")
         ndp = st.selectbox("数据源", ["open", "ifind"], index=0 if cur_dp != "ifind" else 1)
         ifr = st.text_input("iFinD refresh_token", value=cur_ifind_refresh, type="password")
         if st.form_submit_button("保存", use_container_width=True, type="primary"):
             save_settings({"api_key":nk,"base_url":nu,"model":nm,
+                           "mimo_api_key": nmk, "mimo_base_url": nmu, "mimo_model": nmm,
                            "data_provider":ndp,
                            "ifind_refresh_token":ifr,
                            "phone":get_setting("phone","","")})
@@ -64,19 +76,21 @@ def render_profile_page():
             st.success("已保存"); st.rerun()
 
     if st.button("退出登录", use_container_width=True):
-        save_settings({"phone":"","api_key":"","base_url":"","model":""})
+        save_settings({"phone":"","api_key":"","base_url":"","model":"","mimo_api_key":"","mimo_base_url":"","mimo_model":""})
         st.session_state["logged_in"] = False; st.rerun()
 
 
 def _system_status():
     try:
         from src.ai.chat import AIChat
+        from src.config import MIMO_API_KEY, MIMO_BASE_URL, MIMO_MODEL
 
         ai_status = AIChat.provider_status()
-        c0, c00 = st.columns(2)
-        c0.metric("AI模型", "DeepSeek" if ai_status.get("ready") else "本地兜底")
+        c0, c00, c01 = st.columns(3)
+        c0.metric("主模型", "DeepSeek" if ai_status.get("ready") else "本地兜底")
         c00.metric("模型名", ai_status.get("model") or "-")
-        st.caption(f"AI状态：{ai_status.get('base_url', '-')} · {ai_status.get('message', '')}")
+        c01.metric("备选择", "Mimo ✓" if (MIMO_API_KEY and MIMO_BASE_URL and MIMO_MODEL) else "未配置")
+        st.caption(f"主模型：{ai_status.get('base_url', '-')} · {ai_status.get('message', '')}")
     except Exception as exc:
         st.caption(f"AI状态不可用: {exc}")
 
