@@ -52,7 +52,12 @@ class ResearchWorkflowRegistry:
         raise KeyError(f"未知研究工作流: {workflow_id}")
 
     def _load(self, path: Path) -> dict:
-        payload = json.loads(path.read_text(encoding="utf-8"))
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError) as e:
+            raise ValueError(f"{path.name} JSON 损坏或不可读: {e}") from e
+        if not isinstance(payload, dict):
+            raise ValueError(f"{path.name} 内容格式错误，应为 JSON 对象")
         missing = sorted(self.REQUIRED - set(payload))
         if missing:
             raise ValueError(f"{path.name} 缺少字段: {', '.join(missing)}")
