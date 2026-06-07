@@ -3,7 +3,12 @@
 """
 
 import streamlit as st
-from src.data.stock_list import fetch_all_stocks
+from src.data.stock_list import (
+    fetch_all_stocks,
+    normalize_stock_code,
+    normalize_stock_text,
+    resolve_stock_query,
+)
 
 
 @st.cache_data(ttl=3600)
@@ -17,11 +22,11 @@ def fuzzy_search(keyword: str, limit: int = 20) -> list:
     if not keyword or not keyword.strip():
         return []
 
-    kw = keyword.strip().upper()
+    kw = normalize_stock_text(keyword)
     scored = []
     for s in stocks:
-        code = s.get("code", "")
-        name = s.get("name", "")
+        code = normalize_stock_code(s.get("code", ""))
+        name = normalize_stock_text(s.get("name", ""))
         score = 0
 
         if kw == code:
@@ -42,11 +47,25 @@ def fuzzy_search(keyword: str, limit: int = 20) -> list:
         if len(kw) >= 2 and all(c in name for c in kw):
             score = max(score, 50)
 
+        if len(kw) >= 4 and len(kw) == len(name):
+            mismatches = sum(a != b for a, b in zip(kw, name))
+            if mismatches == 1:
+                score = max(score, 60)
+
         if score > 0:
             scored.append((score, s))
 
     scored.sort(key=lambda x: x[0], reverse=True)
     return [s for _, s in scored[:limit]]
+
+
+def resolve_search_code(query: str) -> str:
+    """只返回已验证代码，禁止把原始搜索文本直接送进数据源。"""
+    direct = normalize_stock_code(query)
+    if direct:
+        return direct
+    result = resolve_stock_query(query, stocks=_load_all_stocks(), fuzzy=True)
+    return normalize_stock_code((result or {}).get("code", ""))
 
 
 def render_search_bar(placeholder: str = "搜索代码或名称 如 茅台 / 600519",
@@ -100,9 +119,12 @@ def render_search_bar(placeholder: str = "搜索代码或名称 如 茅台 / 600
 
     if go and query and query.strip():
         try:
-            results = fuzzy_search(query.strip(), limit=1)
-            return results[0]["code"] if results else query.strip()
+            code = resolve_search_code(query.strip())
+            if not code:
+                st.warning("未识别到有效 A 股代码或名称，请从搜索结果中选择。")
+            return code
         except Exception:
-            return query.strip()
+            st.warning("股票目录暂不可用，请输入有效的 6 位 A 股代码。")
+            return ""
 
     return ""

@@ -59,6 +59,12 @@ def _provider_or_none():
 def get_realtime_quote(code: str) -> Optional[Dict]:
     """单股行情 — iFinD优先；失败时腾讯→新浪兜底，30秒内存缓存，自动标记质量"""
     import time as _time
+    from src.data.stock_list import normalize_stock_code
+
+    code = normalize_stock_code(code)
+    if not code:
+        logger.warning("拒绝非法股票标识，未调用行情源")
+        return None
     provider = _provider_or_none()
     if provider and provider.source_name != "open":
         try:
@@ -77,9 +83,11 @@ def get_realtime_quote(code: str) -> Optional[Dict]:
 
 def _open_realtime_quote(code: str) -> Optional[Dict]:
     """单股公开行情 — 腾讯→新浪，30秒内存缓存，自动标记质量"""
-    from src.data.stock_list import resolve_stock_name
+    from src.data.stock_list import normalize_stock_code, resolve_stock_name
     from src.data.quality import assess_quote_quality, log_data_quality
-    code = str(code or "")
+    code = normalize_stock_code(code)
+    if not code:
+        return None
     n = _t.time()
     if code in _QCACHE and n - _QCACHE[code][1] < 30:
         return _QCACHE[code][0]
@@ -205,6 +213,11 @@ def _open_top_stocks(sort_field: str = "changepercent", asc: bool = False, limit
 
 def get_kline(code: str, period: str = "101", count: int = 100) -> List[Dict]:
     """K线 — 日线优先 iFinD；失败时东财→新浪→腾讯兜底"""
+    from src.data.stock_list import normalize_stock_code
+
+    code = normalize_stock_code(code)
+    if not code:
+        return []
     provider = _provider_or_none()
     if provider and provider.source_name != "open" and period in {"101", "102"}:
         try:

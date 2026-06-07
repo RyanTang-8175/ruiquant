@@ -61,12 +61,22 @@ def _query_bar() -> tuple[str, bool]:
         run = st.button("生成", use_container_width=True)
 
     if run and code.strip():
-        st.session_state["research_code"] = code.strip()[:6]
+        from src.data.stock_list import normalize_stock_code, resolve_stock_query
+
+        matched = resolve_stock_query(code.strip(), fuzzy=True)
+        resolved_code = normalize_stock_code((matched or {}).get("code", "") or code.strip())
+        if not resolved_code:
+            st.warning("未识别到有效 A 股代码或名称，研究任务没有调用 iFinD。")
+            st.session_state["research_requested"] = False
+            return "", False
+        st.session_state["research_code"] = resolved_code
         st.session_state["research_profile"] = profile
         st.session_state["research_requested"] = True
         st.rerun()
 
-    st.session_state["research_code"] = code.strip()[:6]
+    from src.data.stock_list import normalize_stock_code
+
+    st.session_state["research_code"] = normalize_stock_code(code.strip())
     st.session_state["research_profile"] = profile
 
     return st.session_state.get("research_code", ""), bool(st.session_state.get("research_requested"))
@@ -82,6 +92,10 @@ def _render_research(code: str):
             try:
                 harness = ResearchHarness()
                 research = harness.company_research(code, profile=profile, force=force_refresh)
+                if research.get("error"):
+                    st.warning(research.get("message") or "研究任务未执行。")
+                    st.session_state["research_last"] = research
+                    return
                 score = IFindEvidenceScorer().score(research)
                 research["evidence_score"] = score
                 research["legacy_score"] = _legacy_score(code)

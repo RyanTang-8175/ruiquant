@@ -29,8 +29,20 @@ class ResearchHarness:
         self.knowledge = ResearchKnowledge(knowledge_path)
 
     def company_research(self, code: str, profile: str = "quick", force: bool = False) -> dict:
-        code = str(code or "").strip()[:6]
+        from src.data.stock_list import normalize_stock_code
+
+        code = normalize_stock_code(code)
         profile = profile or "quick"
+        if not code:
+            return {
+                "kind": "company_research",
+                "code": "",
+                "profile": profile,
+                "error": "invalid_stock_code",
+                "message": "未识别到有效 A 股代码，研究任务未调用 iFinD。",
+                "quality": "invalid",
+                "cached": False,
+            }
         fp = self._fingerprint("company", code, profile)
         cached = None if force else self._read_cache(fp, ttl=6 * 3600)
         if cached:

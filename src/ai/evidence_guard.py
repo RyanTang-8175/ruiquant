@@ -64,6 +64,13 @@ class AnswerEvidenceGuard:
         turnover = self._num(quote.get("turnover"))
         amount = self._num(quote.get("amount"))
 
+        text = self._correct_stock_identity(
+            text,
+            stock_code=stock_code,
+            quote=quote,
+            issues=issues,
+        )
+
         if price > 0:
             text = self._replace_numeric_fact(
                 text,
@@ -153,6 +160,40 @@ class AnswerEvidenceGuard:
             "validated_at": checked_at.isoformat(),
         }
         return text, report
+
+    @staticmethod
+    def _correct_stock_identity(
+        text: str,
+        stock_code: str,
+        quote: dict,
+        issues: list[str],
+    ) -> str:
+        """纠正“错误股票名(本轮代码)”这类跨标的串线。"""
+        if not stock_code:
+            return text
+        try:
+            from src.data.stock_list import cached_stock_catalog, resolve_stock_name
+
+            correct_name = resolve_stock_name(stock_code, quote.get("name", ""))
+            if not correct_name or correct_name == stock_code:
+                return text
+            names = {
+                str(item.get("name") or "").strip()
+                for item in cached_stock_catalog()
+                if item.get("name")
+            }
+            for name in sorted(names, key=len, reverse=True):
+                if not name or name == correct_name:
+                    continue
+                pattern = re.compile(
+                    rf"{re.escape(name)}\s*[（(]\s*{re.escape(stock_code)}\s*[）)]"
+                )
+                if pattern.search(text):
+                    text = pattern.sub(f"{correct_name}({stock_code})", text)
+                    issues.append(f"股票名称由 {name} 纠正为 {correct_name}")
+            return text
+        except Exception:
+            return text
 
     @classmethod
     def _replace_numeric_fact(

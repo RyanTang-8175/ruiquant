@@ -37,8 +37,8 @@ def _quick_tasks(code: str) -> list:
 
 def render_ai_chat_page():
     ai = _get_ai()
-    history = ai.get_history()
     selected_code = st.session_state.get("selected_stock", "")
+    history = _history_for_view(ai.get_history(), selected_code)
 
     # ── Hero ──
     st.markdown(
@@ -346,6 +346,24 @@ def _get_ai() -> AIChat:
     return st.session_state["aic"]
 
 
+def _history_for_view(history: list[dict], selected_stock: str = "") -> list[dict]:
+    """当前标的只展示同标的记录；未选标的时只展示市场类记录。"""
+    from src.data.stock_list import normalize_stock_code
+
+    selected = normalize_stock_code(selected_stock)
+    visible = []
+    for item in history or []:
+        item_code = normalize_stock_code(item.get("stock_code", ""))
+        if not item_code:
+            item_code = _extract_code(item.get("question", ""))
+        if selected:
+            if item_code == selected:
+                visible.append(item)
+        elif not item_code:
+            visible.append(item)
+    return visible
+
+
 def _market_label() -> str:
     try:
         from src.data.realtime import get_market_overview
@@ -362,7 +380,10 @@ def _market_label() -> str:
 
 
 def _with_context(text: str) -> str:
-    stock_code = _extract_code(text) or st.session_state.get("selected_stock", "")
+    selected_stock = st.session_state.get("selected_stock", "")
+    stock_code = _resolve_context_stock(text, selected_stock)
+    if stock_code and stock_code != selected_stock:
+        st.session_state["selected_stock"] = stock_code
     parts = [text]
 
     try:
@@ -469,8 +490,35 @@ def _build_group_context(text: str) -> str:
 
 
 def _extract_code(text: str) -> str:
-    m = re.search(r"\b(\d{6})\b", text)
-    return m.group(1) if m else ""
+    from src.data.stock_list import extract_stock_references
+
+    references = extract_stock_references(text)
+    return references[0] if references else ""
+
+
+def _resolve_context_stock(text: str, selected_stock: str = "") -> str:
+    """明确名称/代码优先；一般问题不继承陈旧的页面标的。"""
+    from src.data.stock_list import extract_stock_references, normalize_stock_code
+
+    explicit = extract_stock_references(text)
+    if explicit:
+        return explicit[0]
+
+    selected = normalize_stock_code(selected_stock)
+    if not selected:
+        return ""
+
+    message = str(text or "")
+    pronouns = ("它", "他", "这只", "该股", "这股", "这票", "这个票")
+    if any(word in message for word in pronouns):
+        return selected
+    if any(word in message for word in ("大盘", "市场", "板块", "行业", "概念", "选股", "推荐", "候选")):
+        return ""
+    stock_followup = (
+        "风险", "走势", "价格", "换手", "承接", "持有", "止损", "止盈",
+        "加仓", "减仓", "买入", "卖出", "能买", "能买吗", "适合隔夜",
+    )
+    return selected if any(word in message for word in stock_followup) else ""
 
 
 def _fmt(text: str) -> str:

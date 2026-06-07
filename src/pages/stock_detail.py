@@ -9,10 +9,14 @@ from src.data.quality import render_quality_html, FALLBACK_WARNING
 
 
 def render_stock_detail_page(code: str | None = None):
-    code = code or st.session_state.get("selected_stock", "")
+    from src.data.stock_list import normalize_stock_code
+
+    raw_code = code or st.session_state.get("selected_stock", "")
+    code = normalize_stock_code(raw_code)
     if not code:
-        st.warning("请先选择股票")
+        st.error("未识别到有效 A 股代码，请返回后重新搜索。")
         _back(); return
+    st.session_state["selected_stock"] = code
 
     quote = get_realtime_quote(code)
     if not quote:

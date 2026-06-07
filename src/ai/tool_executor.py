@@ -10,6 +10,17 @@ from src.scoring.evidence import IFindEvidenceScorer
 logger = logging.getLogger(__name__)
 
 class ToolExecutor:
+    _STOCK_CODE_TOOLS = {
+        "get_stock_quote",
+        "get_technical_analysis",
+        "get_scoring_result",
+        "get_financial_data",
+        "get_kline_data",
+        "get_info_radar",
+        "ifind_company_research",
+        "ifind_evidence_score",
+    }
+
     def __init__(self): pass
     def close(self): pass
 
@@ -47,6 +58,17 @@ class ToolExecutor:
         handler = handlers.get(tool_name)
         if not handler:
             return json.dumps({"error": f"未知工具: {tool_name}"}, ensure_ascii=False)
+        arguments = dict(arguments or {})
+        if tool_name in self._STOCK_CODE_TOOLS:
+            from src.data.stock_list import normalize_stock_code
+
+            code = normalize_stock_code(arguments.get("code", ""))
+            if not code:
+                return json.dumps({
+                    "error": "invalid_stock_code",
+                    "message": "未识别到有效 A 股代码，工具未执行。",
+                }, ensure_ascii=False)
+            arguments["code"] = code
         try:
             return json.dumps(handler(**arguments), ensure_ascii=False, default=str)
         except Exception as e:

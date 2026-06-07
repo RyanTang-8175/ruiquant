@@ -173,6 +173,18 @@ class IFindProvider(MarketDataProvider):
         return str(ths_code or "").split(".")[0]
 
     @staticmethod
+    def _clean_stock_codes(codes) -> list[str]:
+        from src.data.stock_list import normalize_stock_code
+
+        clean = []
+        values = codes if isinstance(codes, (list, tuple, set)) else str(codes or "").split(",")
+        for value in values:
+            code = normalize_stock_code(value)
+            if code and code not in clean:
+                clean.append(code)
+        return clean
+
+    @staticmethod
     def _first(value, default=None):
         if isinstance(value, list):
             return value[0] if value else default
@@ -259,7 +271,7 @@ class IFindProvider(MarketDataProvider):
         return rows[0] if rows else None
 
     def get_realtime_quotes(self, codes: list) -> list:
-        clean_codes = [str(code or "").strip()[:6] for code in codes if str(code or "").strip()]
+        clean_codes = self._clean_stock_codes(codes)
         if not clean_codes:
             return []
         key = ("rq", tuple(clean_codes))
@@ -279,6 +291,10 @@ class IFindProvider(MarketDataProvider):
         return self._ttl_set(key, [row for row in rows if row.get("price", 0) > 0])
 
     def get_intraday_bars(self, code: str, trade_date: str = None) -> list:
+        clean_codes = self._clean_stock_codes([code])
+        if not clean_codes:
+            return []
+        code = clean_codes[0]
         day = trade_date or datetime.now().strftime("%Y-%m-%d")
         key = ("hf", code, day)
         cached = self._ttl_get(key, 90)
@@ -294,6 +310,10 @@ class IFindProvider(MarketDataProvider):
         return self._ttl_set(key, self._normalize_bar_tables(data))
 
     def get_daily_bars(self, code: str, start: str, end: str) -> list:
+        clean_codes = self._clean_stock_codes([code])
+        if not clean_codes:
+            return []
+        code = clean_codes[0]
         key = ("daily", code, start, end)
         # 历史区间（end不是今天）：6小时缓存；含今日数据：5分钟缓存（盘中K线需要更新）
         from datetime import date
@@ -560,6 +580,10 @@ class IFindProvider(MarketDataProvider):
         }
 
     def report_query(self, code: str, days: int = 30, limit: int = 20) -> list:
+        clean_codes = self._clean_stock_codes([code])
+        if not clean_codes:
+            return []
+        code = clean_codes[0]
         end = datetime.now().date()
         start = end - timedelta(days=max(1, int(days or 30)))
         key = ("report", code, days, limit)
@@ -594,16 +618,22 @@ class IFindProvider(MarketDataProvider):
         return self._ttl_set(key, rows[:limit])
 
     def basic_data(self, codes: str, indicator: str, params: list | None = None) -> dict:
+        clean_codes = self._clean_stock_codes(codes)
+        if not clean_codes:
+            return {"tables": [], "error": "invalid_stock_code"}
         return self._post("basic_data_service", {
-            "codes": ",".join(self._ths_code(code.strip()) for code in str(codes).split(",") if code.strip()),
+            "codes": ",".join(self._ths_code(code) for code in clean_codes),
             "indipara": [{"indicator": indicator, "indiparams": params or [""]}],
         })
 
     def date_sequence(self, codes: str, indicator: str, params: list | None,
                       start: str, end: str, fill: str = "Blank") -> dict:
         """日期序列接口：用于财务/估值/日频指标跨日期查询。"""
+        clean_codes = self._clean_stock_codes(codes)
+        if not clean_codes:
+            return {"tables": [], "error": "invalid_stock_code"}
         return self._post("date_sequence", {
-            "codes": ",".join(self._ths_code(code.strip()) for code in str(codes).split(",") if code.strip()),
+            "codes": ",".join(self._ths_code(code) for code in clean_codes),
             "startdate": start,
             "enddate": end,
             "functionpara": {"Fill": fill},

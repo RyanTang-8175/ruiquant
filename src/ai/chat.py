@@ -90,14 +90,20 @@ class AIChat:
     def chat(self, user_message: str, context: dict = None) -> str:
         # 每轮独立保存已取得证据，最终回答校验时复用，避免重复消耗 iFinD 额度。
         self._request_evidence = self._empty_request_evidence()
+        display_message = self._user_query_segment(user_message)
+        model_message = user_message
         if not self.client:
-            scene = self.detect_scene(user_message)
-            stock_code = self._extract_stock_code(user_message)
-            run_id, scratchpad = self._start_audit(user_message, scene)
-            session_id = self._save_user_message(user_message, scene, stock_code)
-            local_answer = self._fallback_answer(user_message)
+            scene = self.detect_scene(display_message)
+            stock_code = self._extract_stock_code(display_message)
+            resolved_query = self._resolve_pronouns(display_message, stock_code)
+            if resolved_query != display_message:
+                model_message = resolved_query + model_message[len(display_message):]
+                stock_code = self._extract_stock_code(resolved_query)
+            run_id, scratchpad = self._start_audit(display_message, scene)
+            session_id = self._save_user_message(display_message, scene, stock_code)
+            local_answer = self._fallback_answer(resolved_query)
             return self._finalize_response(
-                user_message,
+                display_message,
                 self._api_down_fallback_message(local_answer, "API Key 未配置"),
                 session_id,
                 stock_code,
@@ -107,19 +113,26 @@ class AIChat:
             )
 
         try:
-            scene = self.detect_scene(user_message)
-            stock_code = self._extract_stock_code(user_message)
-            # Phase 4.1: 代词解析 — "它/他/这只/该股"自动补全为上轮股票
-            user_message = self._resolve_pronouns(user_message, stock_code)
+            scene = self.detect_scene(display_message)
+            stock_code = self._extract_stock_code(display_message)
+            resolved_query = self._resolve_pronouns(display_message, stock_code)
+            if resolved_query != display_message:
+                model_message = resolved_query + model_message[len(display_message):]
             if not stock_code:
-                stock_code = self._extract_stock_code(user_message)
-            run_id, scratchpad = self._start_audit(user_message, scene)
-            session_id = self._save_user_message(user_message, scene, stock_code)
-            messages = [{"role":"system","content":self.build_system_prompt(scene, user_message)}]
-            for h in self.history[-HISTORY_LEN:]:
+                stock_code = self._extract_stock_code(resolved_query)
+            from src.data.stock_list import extract_stock_references
+
+            allowed_stock_codes = extract_stock_references(resolved_query)
+            run_id, scratchpad = self._start_audit(display_message, scene)
+            session_id = self._save_user_message(display_message, scene, stock_code)
+            messages = [{"role":"system","content":self.build_system_prompt(scene, display_message)}]
+            subject_lock = self._subject_lock(stock_code)
+            if subject_lock:
+                messages.append({"role": "system", "content": subject_lock})
+            for h in self._history_for_request(stock_code, display_message):
                 messages.append({"role":"user","content":h["question"]})
                 messages.append({"role":"assistant","content":h["answer"]})
-            messages.append({"role":"user","content":user_message})
+            messages.append({"role":"user","content":model_message})
 
             # 实时行情护栏：紧贴当前问题注入最新行情，权重压过历史里的旧价格
             # 解决"AI照抄自己历史回答里的旧价格"问题
@@ -130,6 +143,7 @@ class AIChat:
 
             self._tools_used = []
             answer = ""
+            tool_result_cache: dict[str, str] = {}
 
             for rnd in range(TOOL_ROUNDS):
                 try:
@@ -143,7 +157,7 @@ class AIChat:
                     # Fallback: if we already have partial answer, return it
                     if answer:
                         return self._finalize_response(
-                            user_message,
+                            display_message,
                             answer + f"\n\n*(部分工具调用失败: {err_msg})*",
                             session_id,
                             stock_code,
@@ -160,7 +174,7 @@ class AIChat:
                         fb = fallback.choices[0].message.content or ""
                         if fb:
                             return self._finalize_response(
-                                user_message,
+                                display_message,
                                 fb + "\n\n*(部分工具不可用，基于存量知识回答)*",
                                 session_id,
                                 stock_code,
@@ -170,9 +184,9 @@ class AIChat:
                             )
                     except Exception:
                         pass
-                    local_answer = self._fallback_answer(user_message)
+                    local_answer = self._fallback_answer(resolved_query)
                     return self._finalize_response(
-                        user_message,
+                        display_message,
                         self._api_down_fallback_message(local_answer, err_msg),
                         session_id,
                         stock_code,
@@ -196,27 +210,40 @@ class AIChat:
                         args = {}
 
                     self._tools_used.append(nm)
-                    try:
-                        result = self.tool_executor.execute(nm, args)
-                    except Exception:
-                        result = json.dumps({"error": f"工具 {nm} 执行失败"}, ensure_ascii=False)
+                    args, guard_error = self._guard_tool_arguments(
+                        nm,
+                        args,
+                        allowed_stock_codes=allowed_stock_codes,
+                    )
+                    if guard_error:
+                        result = json.dumps({"error": guard_error}, ensure_ascii=False)
+                    else:
+                        cache_key = json.dumps([nm, args], ensure_ascii=False, sort_keys=True, default=str)
+                        if cache_key in tool_result_cache:
+                            result = tool_result_cache[cache_key]
+                        else:
+                            try:
+                                result = self.tool_executor.execute(nm, args)
+                            except Exception:
+                                result = json.dumps({"error": f"工具 {nm} 执行失败"}, ensure_ascii=False)
+                            tool_result_cache[cache_key] = result
                     self._capture_tool_evidence(nm, result)
                     self._log_audit_tool(scratchpad, run_id, nm, args, result)
 
                     messages.append({"role":"tool","tool_call_id":tc.id,"content":result})
             else:
                 if not answer:
-                    answer = self._fallback_answer(user_message)
+                    answer = self._fallback_answer(resolved_query)
 
             if not answer:
-                answer = self._fallback_answer(user_message)
+                answer = self._fallback_answer(resolved_query)
 
             # Phase 1.1-opt: 结构化输出增强 — 对个股分析尝试格式化渲染
             if stock_code and answer and scene in ("deep_analysis", "quick_judge", "general"):
                 answer = self._enrich_structured_output(answer, stock_code, scene, messages)
 
             return self._finalize_response(
-                user_message, answer, session_id, stock_code, scene, scratchpad, run_id
+                display_message, answer, session_id, stock_code, scene, scratchpad, run_id
             )
 
         except Exception as e:
@@ -696,8 +723,22 @@ class AIChat:
 
     @staticmethod
     def _extract_stock_code(text: str) -> str:
-        m = re.search(r"\b(\d{6})\b", text or "")
-        return m.group(1) if m else ""
+        from src.data.stock_list import extract_stock_references
+
+        references = extract_stock_references(text)
+        return references[0] if references else ""
+
+    @staticmethod
+    def _user_query_segment(message: str) -> str:
+        """取页面注入系统上下文之前的用户原始问题。"""
+        text = str(message or "")
+        markers = ("\n[系统:", "\n[新闻]", "\n[用户画像]")
+        cut = len(text)
+        for marker in markers:
+            pos = text.find(marker)
+            if pos >= 0:
+                cut = min(cut, pos)
+        return text[:cut].strip()
 
     def _resolve_pronouns(self, user_message: str, current_stock_code: str) -> str:
         """Phase 4.1: 代词解析 — 把"它的风险呢"补全为"300033 它的风险呢"
@@ -710,15 +751,77 @@ class AIChat:
 
         pronouns = ("它", "他", "她", "这只", "该股", "这股", "这票", "这个票")
         has_pronoun = any(p in msg for p in pronouns)
-        if not has_pronoun and len(msg) < 15:
-            # 短消息可能是追问（如"风险呢""换手率多少"），也尝试补全
-            has_pronoun = True
 
         if has_pronoun:
-            from src.data.stock_list import resolve_stock_name
-            name = resolve_stock_name(self._last_stock, self._last_stock)
-            return f"{name}({self._last_stock}) {msg}"
+            from src.data.stock_list import normalize_stock_code, resolve_stock_name
+
+            code = normalize_stock_code(self._last_stock)
+            if code:
+                name = resolve_stock_name(code, code)
+                return f"{name}({code}) {msg}"
         return user_message or ""
+
+    def _history_for_request(self, stock_code: str, user_message: str) -> list[dict]:
+        """只带入同一标的的历史，避免跨股票回答串线。"""
+        from src.data.stock_list import normalize_stock_code
+
+        target = normalize_stock_code(stock_code)
+        scoped = []
+        for item in self.history[-HISTORY_LEN:]:
+            item_code = normalize_stock_code(item.get("stock_code", ""))
+            if not item_code:
+                item_code = self._extract_stock_code(item.get("question", ""))
+            if target:
+                if item_code == target:
+                    scoped.append(item)
+            elif not item_code:
+                scoped.append(item)
+        return scoped
+
+    @staticmethod
+    def _guard_tool_arguments(
+        tool_name: str,
+        arguments: dict,
+        allowed_stock_codes: list[str],
+    ) -> tuple[dict, str]:
+        """把个股工具锁定到本轮用户明确提到的标的。"""
+        args = dict(arguments or {})
+        if tool_name not in ToolExecutor._STOCK_CODE_TOOLS:
+            return args, ""
+
+        from src.data.stock_list import normalize_stock_code
+
+        allowed = []
+        for value in allowed_stock_codes or []:
+            code = normalize_stock_code(value)
+            if code and code not in allowed:
+                allowed.append(code)
+        if not allowed:
+            return {}, "当前问题没有明确股票，已阻止随机个股工具调用"
+        if len(allowed) == 1:
+            args["code"] = allowed[0]
+            return args, ""
+
+        requested = normalize_stock_code(args.get("code", ""))
+        if requested not in allowed:
+            return {}, "工具请求的股票不在本轮明确标的中，已阻止调用"
+        args["code"] = requested
+        return args, ""
+
+    @staticmethod
+    def _subject_lock(stock_code: str) -> str:
+        from src.data.stock_list import normalize_stock_code, resolve_stock_name
+
+        code = normalize_stock_code(stock_code)
+        if not code:
+            return ""
+        name = resolve_stock_name(code, code)
+        return (
+            "[本轮股票身份锁 · 最高优先级]\n"
+            f"本轮唯一研究标的是 {name}({code})。\n"
+            "不得把其他股票的名称、代码、行情、持仓、历史结论或工具结果混入回答。"
+            "若历史内容与本标的不一致，必须忽略；所有个股工具只能查询该代码。"
+        )
 
     def _get_memory(self):
         if self._memory is not None:
@@ -947,15 +1050,8 @@ class AIChat:
         return ""
 
     def _enrich_structured_output(self, answer: str, stock_code: str, scene: str, messages: list) -> str:
-        """Phase 1.1-opt: 尝试将 AI 回答格式化为结构化表格。
-
-        策略：
-        1. 先从文本中提取 JSON（DeepSeek 可能在回答里嵌了 json 块）
-        2. 如果提取成功，用 format_structured_analysis() 渲染表格
-        3. 如果没提取到且 API 可用，发一次轻量 json_schema 调用做格式化
-        4. 将格式化结果附加到原文后面（不替换原文，保留完整分析）
-        """
-        from src.ai.structured_output import parse_structured_output, format_structured_analysis, STRUCTURED_ANALYSIS_SCHEMA
+        """用本地解析结果渲染结构化表格，不额外消耗一次模型 API。"""
+        from src.ai.structured_output import parse_structured_output, format_structured_analysis
 
         # 步骤1：尝试从已有回答中提取结构化数据
         structured = parse_structured_output(answer)
@@ -986,35 +1082,7 @@ class AIChat:
                     "invalidation_conditions": [],
                 }
 
-        # 步骤3：如果结构化数据完整，尝试用 API 做 json_schema 格式化
-        if self.client and has_full_structure:
-            try:
-                from src.data.stock_list import resolve_stock_name
-                name = resolve_stock_name(stock_code, stock_code)
-                format_prompt = (
-                    f"请将以下对 {name}({stock_code}) 的分析整理成标准 JSON 格式。"
-                    f"确保每个数字都有白话解释，每个风险都有散户亏钱场景说明。\n\n"
-                    f"原始分析：\n{answer[:3000]}"
-                )
-                resp = self.client.chat.completions.create(
-                    model=self.model,
-                    messages=[
-                        {"role": "system", "content": "你是金融数据格式化助手。输出必须严格符合 JSON Schema。"},
-                        {"role": "user", "content": format_prompt},
-                    ],
-                    response_format={"type": "json_schema", "json_schema": STRUCTURED_ANALYSIS_SCHEMA},
-                    temperature=0.1,
-                    max_tokens=3000,
-                    timeout=25,
-                )
-                formatted_json = json.loads(resp.choices[0].message.content)
-                formatted_md = format_structured_analysis(formatted_json)
-                # 将格式化表格放在最前面，原文附后
-                return formatted_md + "\n\n---\n## 📝 AI 完整分析原文\n\n" + answer
-            except Exception as e:
-                logger.debug(f"结构化格式化失败，使用文本提取: {e}")
-
-        # 步骤4：用 parse_structured_output 的结果做基本表格渲染
+        # 用 parse_structured_output 的结果做基本表格渲染
         if structured and structured.get("opportunity_score") is not None:
             try:
                 # 补充股票名称
@@ -1057,6 +1125,8 @@ class AIChat:
             "answer": answer,
             "timestamp": datetime.now().isoformat(),
             "tools_used": self._tools_used.copy(),
+            "stock_code": stock_code or "",
+            "scene": scene,
         })
         self.save_to_disk()
         self._save_ai_message(

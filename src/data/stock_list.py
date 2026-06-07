@@ -2,7 +2,8 @@
 全A股列表缓存 + 申万行业 + 概念板块
 """
 
-import json, logging, os, requests
+import difflib
+import json, logging, os, re, requests, unicodedata
 from datetime import datetime
 from pathlib import Path
 
@@ -83,7 +84,7 @@ STANDARD_STOCK_NAMES = {
     "002475": "立讯精密", "688981": "中芯国际", "688036": "传音控股",
     "603501": "豪威集团", "600703": "三安光电", "688256": "寒武纪",
     "688008": "澜起科技", "688012": "中微公司", "688396": "华润微",
-    "300782": "卓胜微",
+    "300782": "卓胜微", "000725": "京东方A",
 }
 
 GROUP_ALIASES = {
@@ -96,11 +97,139 @@ GROUP_ALIASES = {
 }
 
 
+_CATALOG_CACHE: list[dict] | None = None
+_A_SHARE_PREFIXES = (
+    "000", "001", "002", "003",
+    "300", "301", "302",
+    "600", "601", "603", "605",
+    "688", "689", "920",
+)
+
+
+def normalize_stock_text(value: str) -> str:
+    """统一全角/半角、大小写和空白。"""
+    normalized = unicodedata.normalize("NFKC", str(value or ""))
+    return re.sub(r"\s+", "", normalized).upper()
+
+
+def normalize_stock_code(value: str) -> str:
+    """从纯代码或带交易所后缀的值中提取合法 6 位 A 股代码。"""
+    normalized = normalize_stock_text(value)
+    normalized = re.sub(r"^(SH|SZ|BJ)", "", normalized)
+    normalized = re.sub(r"\.(SH|SZ|BJ)$", "", normalized)
+    return normalized if is_valid_stock_code(normalized) else ""
+
+
+def is_valid_stock_code(value: str) -> bool:
+    code = str(value or "").strip()
+    if not re.fullmatch(r"\d{6}", code):
+        return False
+    return code.startswith(_A_SHARE_PREFIXES) or code.startswith(("4", "8"))
+
+
+def cached_stock_catalog() -> list[dict]:
+    """读取本地股票目录，不触发外部网络。"""
+    global _CATALOG_CACHE
+    if _CATALOG_CACHE is not None:
+        return _CATALOG_CACHE
+
+    rows: list[dict] = []
+    if CACHE_FILE.exists():
+        try:
+            payload = json.loads(CACHE_FILE.read_text(encoding="utf-8"))
+            rows = payload.get("stocks", []) if isinstance(payload, dict) else []
+        except Exception:
+            rows = []
+
+    by_code = {}
+    for item in rows:
+        code = normalize_stock_code(item.get("code", ""))
+        name = str(item.get("name") or "").strip()
+        if code and name:
+            by_code[code] = {**item, "code": code, "name": name}
+    for code, name in STANDARD_STOCK_NAMES.items():
+        by_code.setdefault(code, {"code": code, "name": name, "price": 0, "change_pct": 0})
+
+    _CATALOG_CACHE = list(by_code.values())
+    return _CATALOG_CACHE
+
+
+def resolve_stock_query(query: str, stocks: list | None = None, fuzzy: bool = True) -> dict | None:
+    """把代码或股票名称解析成唯一标的，只使用本地目录。"""
+    raw = str(query or "").strip()
+    direct_code = normalize_stock_code(raw)
+    catalog = stocks if stocks is not None else cached_stock_catalog()
+    if direct_code:
+        match = next((item for item in catalog if normalize_stock_code(item.get("code")) == direct_code), None)
+        return dict(match) if match else {
+            "code": direct_code,
+            "name": STANDARD_STOCK_NAMES.get(direct_code, direct_code),
+            "price": 0,
+            "change_pct": 0,
+        }
+
+    needle = normalize_stock_text(raw)
+    if not needle:
+        return None
+
+    for item in catalog:
+        code = normalize_stock_code(item.get("code", ""))
+        name = normalize_stock_text(item.get("name", ""))
+        if code and needle == name:
+            return dict(item)
+
+    if not fuzzy or len(needle) < 4:
+        return None
+
+    best = None
+    best_ratio = 0.0
+    for item in catalog:
+        name = normalize_stock_text(item.get("name", ""))
+        if len(name) != len(needle):
+            continue
+        mismatches = sum(a != b for a, b in zip(needle, name))
+        if mismatches > 1:
+            continue
+        ratio = difflib.SequenceMatcher(None, needle, name).ratio()
+        if ratio >= 0.75 and ratio > best_ratio:
+            best = item
+            best_ratio = ratio
+    return dict(best) if best else None
+
+
+def extract_stock_references(text: str, stocks: list | None = None, limit: int = 4) -> list[str]:
+    """从自然语言中识别明确出现的代码或股票名称，不根据旧会话猜标的。"""
+    raw = str(text or "")
+    found = []
+    for match in re.findall(r"(?<!\d)(\d{6})(?!\d)", normalize_stock_text(raw)):
+        code = normalize_stock_code(match)
+        if code and code not in found:
+            found.append(code)
+
+    normalized = normalize_stock_text(raw)
+    catalog = stocks if stocks is not None else cached_stock_catalog()
+    named = []
+    for item in catalog:
+        code = normalize_stock_code(item.get("code", ""))
+        name = normalize_stock_text(item.get("name", ""))
+        if code and len(name) >= 3 and name in normalized:
+            named.append((len(name), code))
+    for _, code in sorted(named, reverse=True):
+        if code not in found:
+            found.append(code)
+        if len(found) >= limit:
+            break
+    return found[:limit]
+
+
 def resolve_stock_name(code: str, fallback: str = "") -> str:
-    """用标准代码表解析股票名；fallback 只用于未知代码。"""
-    code = str(code or "")
+    """用标准代码表和本地股票目录解析股票名。"""
+    code = normalize_stock_code(code) or str(code or "")
     if code in STANDARD_STOCK_NAMES:
         return STANDARD_STOCK_NAMES[code]
+    for item in cached_stock_catalog():
+        if item.get("code") == code and item.get("name"):
+            return unicodedata.normalize("NFKC", str(item["name"]))
     return str(fallback or "") or code
 
 
