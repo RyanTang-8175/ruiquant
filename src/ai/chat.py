@@ -28,13 +28,34 @@ class AIChat:
         base_url = get_setting("base_url","DEEPSEEK_BASE_URL","https://api.deepseek.com")
         self.model = get_setting("model","DEEPSEEK_MODEL","deepseek-chat")
         self.client = None
+        self.client_label = ""  # "deepseek" / "mimo" / ""
+        self._fallback_client = None  # 备选：Mimo
+        self._fallback_model = ""
+        self._fallback_label = ""
+
         status = self.provider_status(api_key=api_key, base_url=base_url, model=self.model)
         if status.get("ready"):
             try:
                 from openai import OpenAI
                 self.client = OpenAI(api_key=api_key, base_url=base_url, timeout=30)
+                self.client_label = "deepseek"
             except Exception as e:
                 logger.error(f"AI init: {e}")
+
+        # 初始化备选 AI 客户端（DeepSeek 失败时自动切换）
+        from src.config import MIMO_API_KEY, MIMO_BASE_URL, MIMO_MODEL
+        mimo_key = MIMO_API_KEY or os.getenv("MIMO_API_KEY", "")
+        mimo_url = MIMO_BASE_URL or os.getenv("MIMO_BASE_URL", "")
+        mimo_model = MIMO_MODEL or os.getenv("MIMO_MODEL", "")
+        if mimo_key and mimo_url and mimo_model:
+            try:
+                from openai import OpenAI
+                self._fallback_client = OpenAI(api_key=mimo_key, base_url=mimo_url, timeout=30)
+                self._fallback_model = mimo_model
+                self._fallback_label = "mimo"
+                logger.info("Mimo 备选 AI 客户端已就绪")
+            except Exception as e:
+                logger.warning(f"Mimo 备选客户端初始化失败: {e}")
         self.history = []
         self.tool_executor = ToolExecutor()
         self._tools_used = []
@@ -165,6 +186,25 @@ class AIChat:
                             scratchpad,
                             run_id,
                         )
+                    # Fallback: 第一轮 DeepSeek 失败 → 尝试切换到 Mimo 备选
+                    if rnd == 0 and self._fallback_client:
+                        try:
+                            fb_resp = self._fallback_client.chat.completions.create(
+                                model=self._fallback_model,
+                                messages=messages + [{"role":"user","content":"请基于已有信息直接回答，不需要调用工具。"}],
+                                temperature=0.35, max_tokens=MAX_TOKENS, timeout=30)
+                            fb = fb_resp.choices[0].message.content or ""
+                            if fb:
+                                self.client = self._fallback_client
+                                self.model = self._fallback_model
+                                self.client_label = self._fallback_label
+                                logger.info(f"DeepSeek 不可用，已切换到 {self._fallback_label} 备选模型")
+                                return self._finalize_response(
+                                    display_message,
+                                    fb + f"\n\n*(DeepSeek 暂不可用，已自动切换至 {self._fallback_label.upper()} 备选模型)*",
+                                    session_id, stock_code, scene, scratchpad, run_id)
+                        except Exception as fb_err:
+                            logger.warning(f"Mimo 备选也失败: {fb_err}")
                     # Fallback: try without tools
                     try:
                         fallback = self.client.chat.completions.create(

@@ -60,6 +60,11 @@ DEEPSEEK_API_KEY = get_setting("api_key", "DEEPSEEK_API_KEY", "")
 DEEPSEEK_BASE_URL = get_setting("base_url", "DEEPSEEK_BASE_URL", "https://api.deepseek.com")
 DEEPSEEK_MODEL = get_setting("model", "DEEPSEEK_MODEL", "deepseek-chat")
 
+# 备选 AI 提供商（DeepSeek 不可用时自动切换）
+MIMO_API_KEY = get_setting("mimo_api_key", "MIMO_API_KEY", "")
+MIMO_BASE_URL = get_setting("mimo_base_url", "MIMO_BASE_URL", "")
+MIMO_MODEL = get_setting("mimo_model", "MIMO_MODEL", "")
+
 # 模拟盘配置
 INITIAL_CAPITAL = float(get_setting("initial_capital", "INITIAL_CAPITAL", "100000"))
 
