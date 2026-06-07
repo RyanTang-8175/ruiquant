@@ -725,7 +725,9 @@ class AIChat:
     def _extract_stock_code(text: str) -> str:
         from src.data.stock_list import extract_stock_references
 
-        references = extract_stock_references(text)
+        # 只从用户原始问题提取，系统注入的上下文（用户画像600900等）会串线
+        query = AIChat._user_query_segment(text)
+        references = extract_stock_references(query)
         return references[0] if references else ""
 
     @staticmethod
