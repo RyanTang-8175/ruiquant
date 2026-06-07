@@ -33,7 +33,7 @@ def test_ifind_provider_normalizes_realtime_quote(monkeypatch):
         def json(self):
             return self._payload
 
-    def fake_post(url, headers=None, json=None, timeout=None):
+    def fake_post(url, headers=None, json=None, timeout=None, **kwargs):
         calls.append((url, headers or {}, json or {}))
         if url.endswith("/get_access_token"):
             return FakeResponse({"data": {"access_token": "access-token"}})
@@ -85,7 +85,7 @@ def test_ifind_smart_stock_picking_uses_low_limit_and_normalizes_rows(monkeypatc
         def json(self):
             return self._payload
 
-    def fake_post(url, headers=None, json=None, timeout=None):
+    def fake_post(url, headers=None, json=None, timeout=None, **kwargs):
         if url.endswith("/get_access_token"):
             return FakeResponse({"data": {"access_token": "access-token"}})
         assert url.endswith("/smart_stock_picking")
@@ -126,7 +126,7 @@ def test_ifind_provider_exposes_more_http_endpoints(monkeypatch):
         def json(self):
             return self._payload
 
-    def fake_post(url, headers=None, json=None, timeout=None):
+    def fake_post(url, headers=None, json=None, timeout=None, **kwargs):
         seen.append((url.rsplit("/", 1)[-1], json or {}))
         if url.endswith("/get_access_token"):
             return FakeResponse({"data": {"access_token": "access-token"}})
@@ -160,7 +160,7 @@ def test_ifind_usage_stats_persist_daily_and_monthly_counts(monkeypatch, tmp_pat
         def json(self):
             return self._payload
 
-    def fake_post(url, headers=None, json=None, timeout=None):
+    def fake_post(url, headers=None, json=None, timeout=None, **kwargs):
         if url.endswith("/get_access_token"):
             return FakeResponse({"data": {"access_token": "access-token"}})
         return FakeResponse({"tables": []})
