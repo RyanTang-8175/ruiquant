@@ -223,29 +223,104 @@ def _kline_chart(code):
             f'<div style="font-size:11px;display:flex;gap:12px;margin-bottom:6px">' + "  ".join(ma_parts) + '</div>',
             unsafe_allow_html=True)
 
-    # Plotly K线图 + MA 均线
+    # Plotly K线图 + MA 均线 + 成交量 + MACD + RSI 多副图
     try:
+        from plotly.subplots import make_subplots
         import plotly.graph_objects as go
-        fig = go.Figure()
+
+        # 副图指标
+        df["volume_ma5"] = df["volume"].rolling(5).mean()
+        ema12 = df["close"].ewm(span=12, adjust=False).mean()
+        ema26 = df["close"].ewm(span=26, adjust=False).mean()
+        df["macd_dif"] = ema12 - ema26
+        df["macd_dea"] = df["macd_dif"].ewm(span=9, adjust=False).mean()
+        df["macd_bar"] = 2 * (df["macd_dif"] - df["macd_dea"])
+        delta = df["close"].diff()
+        gain = delta.clip(lower=0)
+        loss = (-delta).clip(lower=0)
+        avg_gain = gain.ewm(alpha=1/14, adjust=False).mean()
+        avg_loss = loss.ewm(alpha=1/14, adjust=False).mean()
+        rs = avg_gain / avg_loss.replace(0, 1e-10)
+        df["rsi"] = 100 - (100 / (1 + rs))
+
+        fig = make_subplots(
+            rows=4, cols=1,
+            shared_xaxes=True,
+            vertical_spacing=0.03,
+            row_heights=[0.45, 0.18, 0.18, 0.19],
+        )
+
+        # Row 1: K线 + MA
         fig.add_trace(go.Candlestick(
             x=df["date"], open=df["open"], high=df["high"], low=df["low"], close=df["close"],
-            increasing_line_color="#E53935", decreasing_line_color="#0A9B66",
-            name="K线", showlegend=False))
-        # MA 均线
-        for col, color, name in [("ma5", "#002FA7", "MA5"), ("ma10", "#C74E00", "MA10"), ("ma20", "#9AA4B2", "MA20")]:
+            increasing_line_color="#CF0011", decreasing_line_color="#007348",
+            name="K线", showlegend=False,
+        ), row=1, col=1)
+        for col, color, name in [("ma5", "#002FA7", "MA5"), ("ma10", "#C74E00", "MA10"), ("ma20", "#6B6B6B", "MA20")]:
             valid = df[col].dropna()
             if not valid.empty:
                 fig.add_trace(go.Scatter(
-                    x=df["date"][valid.index], y=valid,
-                    mode="lines", line=dict(color=color, width=1.2),
-                    name=name, showlegend=False, hovertemplate=f"{name}: %{{y:.2f}}<extra></extra>"))
+                    x=df["date"][valid.index], y=valid, mode="lines",
+                    line=dict(color=color, width=1), name=name, showlegend=False,
+                    hovertemplate=f"{name}: %{{y:.2f}}<extra></extra>",
+                ), row=1, col=1)
+
+        # Row 2: 成交量 (红涨绿跌)
+        vol_colors = ["#CF0011" if c >= o else "#007348" for c, o in zip(df["close"], df["open"])]
+        fig.add_trace(go.Bar(
+            x=df["date"], y=df["volume"], marker_color=vol_colors, marker_line_width=0,
+            name="成交量", showlegend=False,
+        ), row=2, col=1)
+        vma5 = df["volume_ma5"].dropna()
+        if not vma5.empty:
+            fig.add_trace(go.Scatter(
+                x=df["date"][vma5.index], y=vma5, mode="lines",
+                line=dict(color="#9AA4B2", width=0.8), name="量MA5", showlegend=False,
+            ), row=2, col=1)
+
+        # Row 3: MACD (DIF + DEA + 柱)
+        macd_colors = ["#CF0011" if v >= 0 else "#007348" for v in df["macd_bar"]]
+        fig.add_trace(go.Bar(
+            x=df["date"], y=df["macd_bar"], marker_color=macd_colors, marker_line_width=0,
+            name="MACD柱", showlegend=False,
+        ), row=3, col=1)
+        fig.add_trace(go.Scatter(
+            x=df["date"], y=df["macd_dif"], mode="lines",
+            line=dict(color="#002FA7", width=1), name="DIF",
+        ), row=3, col=1)
+        fig.add_trace(go.Scatter(
+            x=df["date"], y=df["macd_dea"], mode="lines",
+            line=dict(color="#C74E00", width=1), name="DEA",
+        ), row=3, col=1)
+
+        # Row 4: RSI
+        fig.add_trace(go.Scatter(
+            x=df["date"], y=df["rsi"], mode="lines",
+            line=dict(color="#002FA7", width=1.2), name="RSI",
+        ), row=4, col=1)
+        fig.add_hline(y=70, line_dash="dash", line_color="#CF0011", opacity=0.4, row=4, col=1)
+        fig.add_hline(y=30, line_dash="dash", line_color="#007348", opacity=0.4, row=4, col=1)
+
         fig.update_layout(
-            height=260, margin=dict(l=0, r=0, t=0, b=0),
+            height=560,
+            margin=dict(l=0, r=10, t=0, b=0),
             paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-            xaxis=dict(showgrid=False, visible=False, rangeslider=dict(visible=False)),
-            yaxis=dict(showgrid=True, gridcolor="#E7EEF6", tickfont=dict(size=10, color="#5D6B7C")),
-            showlegend=False)
-        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+            showlegend=False, dragmode="pan",
+        )
+        fig.update_xaxes(showgrid=False, visible=False, row=1, col=1)
+        fig.update_xaxes(showgrid=False, visible=False, row=2, col=1)
+        fig.update_xaxes(showgrid=False, visible=False, row=3, col=1)
+        fig.update_xaxes(showgrid=True, gridcolor="#E7EEF6", tickfont=dict(size=9, color="#5D6B7C"), row=4, col=1)
+        fig.update_yaxes(showgrid=True, gridcolor="#E7EEF6", tickfont=dict(size=9, color="#5D6B7C"), row=1, col=1)
+        fig.update_yaxes(title_text="量", title_font_size=9, showgrid=False, tickfont=dict(size=8, color="#9AA4B2"), row=2, col=1)
+        fig.update_yaxes(showgrid=True, gridcolor="#E7EEF6", tickfont=dict(size=8, color="#5D6B7C"), row=3, col=1)
+        fig.update_yaxes(range=[0, 100], tickvals=[30, 50, 70], showgrid=True, gridcolor="#E7EEF6", tickfont=dict(size=8, color="#5D6B7C"), row=4, col=1)
+
+        st.plotly_chart(fig, use_container_width=True, config={
+            "displayModeBar": True,
+            "modeBarButtonsToRemove": ["lasso2d", "select2d"],
+            "displaylogo": False,
+        })
     except Exception:
         last5 = df.tail(5)
         lines = [f"{r['date'].strftime('%m/%d')} O{r['open']:.2f} H{r['high']:.2f} L{r['low']:.2f} C{r['close']:.2f} {r['change_pct']:+.1f}%" for _, r in last5.iterrows()]
