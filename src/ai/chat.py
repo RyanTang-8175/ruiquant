@@ -7,7 +7,7 @@ from datetime import datetime, date
 from src.config import get_setting
 from src.ai.tools import TOOLS
 from src.ai.tool_executor import ToolExecutor
-from src.ai.prompts import STYLE_CONTRACT, V6_SYSTEM_PROMPT, scene_prompt
+from src.ai.prompts import STYLE_CONTRACT, V6_SYSTEM_PROMPT, scene_prompt, AGENT_SPECIALISTS
 from src.ai.roles import ROLES, ROLE_SUFFIXES
 
 logger = logging.getLogger(__name__)
@@ -20,6 +20,46 @@ SYSTEM_PROMPT = V6_SYSTEM_PROMPT
 MAX_TOKENS = 7000
 TOOL_ROUNDS = 6
 HISTORY_LEN = 20
+
+
+def _build_specialist_context(user_message: str, stock_code: str) -> str:
+    """从主流程注入的完整上下文中裁剪出四个专精 Agent 都能读懂的数据段落。
+
+    原则：不额外调 API，只复用主流程已经注入的 [精准报价]/[六维评分]/[反量化] 部分。
+    """
+    text = str(user_message or "")
+    lines = text.split("\n")
+    relevant: list[str] = []
+    capture = False
+    for line in lines:
+        if "[精准报价]" in line or f"({stock_code})" in line:
+            capture = True
+        if capture:
+            relevant.append(line)
+        # 捕获到 --- 或下一个 [ 标记就停
+        if capture and (line.startswith("[新闻]") or line.startswith("[系统: 用户")):
+            break
+    if not relevant:
+        # 降级：取全文本后 3000 字符
+        relevant = text[-3000:].split("\n")
+    return "\n".join(relevant[-60:])  # 最多 60 行
+
+
+def _append_specialist_reports(answer: str, reports: dict[str, str]) -> str:
+    """将四个专精 Agent 的报告以折叠卡片形式附加到主回答末尾，不修改主回答结构。"""
+    from src.ai.prompts import AGENT_SPECIALISTS
+
+    sections = []
+    for key, spec in AGENT_SPECIALISTS.items():
+        text = reports.get(key, "")
+        if not text or "暂不可用" in text:
+            continue
+        sections.append(
+            f"\n<details><summary>{spec['icon']} {spec['name']}专精分析</summary>\n\n{text}\n</details>\n"
+        )
+    if not sections:
+        return answer
+    return answer + "\n\n---\n## 🔬 多维度交叉分析\n" + "\n".join(sections)
 
 
 class AIChat:
@@ -277,6 +317,15 @@ class AIChat:
 
             if not answer:
                 answer = self._fallback_answer(resolved_query)
+
+            # 多 Agent 并行分析：个股场景时四个专精 Agent 同时跑，基于系统上下文交叉分析
+            if stock_code and answer and scene in ("deep_analysis", "quick_judge", "general"):
+                specialist_reports = self._run_specialist_agents(
+                    stock_code,
+                    _build_specialist_context(model_message, stock_code),
+                )
+                if specialist_reports:
+                    answer = _append_specialist_reports(answer, specialist_reports)
 
             # Phase 1.1-opt: 结构化输出增强 — 对个股分析尝试格式化渲染
             if stock_code and answer and scene in ("deep_analysis", "quick_judge", "general"):
@@ -1252,6 +1301,43 @@ class AIChat:
         except Exception as exc:
             logger.warning(f"answer evidence guard failed {stock_code}: {exc}")
             return answer, {"error": str(exc)[:120], "stock_code": stock_code}
+
+    def _run_specialist_agents(self, stock_code: str, context: str) -> dict[str, str]:
+        """并行调用 4 个分角色 Agent，只分析系统注入的上下文，不调工具。
+
+        返回 {"technical": "...", "fundamental": "...", "capital": "...", "risk": "..."}
+        """
+        results: dict[str, str] = {}
+        if not self.client:
+            return results
+
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        def _ask_specialist(key: str, spec: dict) -> tuple[str, str]:
+            try:
+                resp = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[
+                        {"role": "system", "content": f"你是 AlphaEye {spec['name']}专精分析师。\n\n{spec['prompt']}"},
+                        {"role": "user", "content": f"以下是 {spec['name']} 相关的行情和评分数据，请基于这些数据分析，不要编造数据。\n\n{context}"},
+                    ],
+                    temperature=0.3, max_tokens=600, timeout=20,
+                )
+                return key, resp.choices[0].message.content or ""
+            except Exception as e:
+                logger.warning(f"Agent {spec['name']} 失败: {e}")
+                return key, f"*{spec['name']}分析暂不可用*"
+
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            futures = {
+                executor.submit(_ask_specialist, key, spec): key
+                for key, spec in AGENT_SPECIALISTS.items()
+            }
+            for future in as_completed(futures):
+                key, text = future.result()
+                results[key] = text
+
+        return results
 
     @staticmethod
     def _load_local_trade_evidence(stock_code: str) -> tuple[dict, list]:
