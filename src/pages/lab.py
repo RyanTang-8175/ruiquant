@@ -19,7 +19,9 @@ def render_lab_page():
     _risk_banner()
     _stats_bar()
 
-    tab2, tab3, tab5, tab6, tab7, tab4, tab1 = st.tabs(["待审计", "审计结果", "归因画像", "评分对比", "策略探索", "一键反馈", "手动补录"])
+    tab2, tab3, tab5, tab6, tab7, tab4, tab1, tab8 = st.tabs(
+        ["待审计", "审计结果", "归因画像", "评分对比", "策略探索", "一键反馈", "手动补录", "仓位计算"]
+    )
     with tab2:
         _pending_panel()
     with tab3:
@@ -34,6 +36,8 @@ def render_lab_page():
         _feedback_panel()
     with tab1:
         _create_plan()
+    with tab8:
+        _kelly_calculator()
 
 
 def _risk_banner():
@@ -360,3 +364,100 @@ def _parse_value(value: str):
             return float(value)
         except Exception:
             return value
+
+
+def _kelly_calculator():
+    """凯利公式仓位计算器 — 输入胜率/盈亏比/本金，输出建议仓位和资金曲线"""
+    st.markdown(
+        '<div class="page-kicker">凯利公式: f = p - q/r，其中 p=胜率 q=1-p r=盈亏比。'
+        '半凯利(f/2)更保守，适合实盘。记住：盈亏比远比胜率重要，仓位管理远比单次收益重要。</div>',
+        unsafe_allow_html=True,
+    )
+
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        win_rate = st.number_input("胜率", 0.0, 1.0, 0.55, 0.01, help="你过去盈利交易的比例，0.55=55%")
+        profit_ratio = st.number_input("预期收益率", 0.01, 2.0, 0.10, 0.01, help="单笔盈利的预期收益比例，0.10=10%")
+    with c2:
+        loss_ratio = st.number_input("止损比例", 0.01, 1.0, 0.05, 0.01, help="单笔亏损的最大止损比例，0.05=5%")
+        capital = st.number_input("初始本金", 1000, 100000000, 100000, 1000)
+    with c3:
+        kelly_coef = st.selectbox("凯利系数", [0.25, 0.5, 0.75, 1.0], index=1,
+                                   help="半凯利(0.5)更保守，适合实盘")
+        max_pos = st.number_input("最大仓位上限", 0.1, 1.0, 0.3, 0.05, help="单票最大仓位占本金比例")
+        n_trades = st.number_input("模拟交易次数", 10, 500, 100, 10)
+
+    # 计算
+    q = 1 - win_rate
+    r = profit_ratio / loss_ratio if loss_ratio > 0 else 0
+    raw_f = (win_rate * r - q) / r if r > 0 else 0
+    raw_f = max(raw_f, 0)
+    kelly_position = min(raw_f * kelly_coef, max_pos)
+
+    # 资金曲线模拟
+    import random
+    random.seed(42)
+    balance = capital
+    curve = [capital]
+    for _ in range(n_trades):
+        bet = balance * kelly_position
+        if random.random() < win_rate:
+            balance += bet * profit_ratio
+        else:
+            balance -= bet * loss_ratio
+        curve.append(balance)
+
+    final_capital = balance
+    total_return = (final_capital / capital - 1) * 100 if capital > 0 else 0
+    max_dd = 0
+    peak = capital
+    for v in curve:
+        if v > peak:
+            peak = v
+        dd = (peak - v) / peak * 100 if peak > 0 else 0
+        if dd > max_dd:
+            max_dd = dd
+
+    st.markdown("---")
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("原始凯利仓位", f"{raw_f*100:.1f}%")
+    col2.metric("建议仓位", f"{kelly_position*100:.1f}%",
+                f"系数×{kelly_coef}" if kelly_coef < 1 else None)
+    col3.metric("最终资金", f"{final_capital:,.0f}",
+                f"{total_return:+.1f}%")
+    col4.metric("最大回撤", f"{max_dd:.1f}%")
+
+    # 资金曲线图
+    st.markdown('<div class="page-kicker">资金曲线模拟（随机种子42，每次结果相同）</div>', unsafe_allow_html=True)
+    try:
+        import plotly.graph_objects as go
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+            y=curve, mode="lines",
+            line=dict(color="#002FA7", width=1.5),
+            fill="tozeroy", fillcolor="rgba(0,47,167,0.06)",
+            name="资金曲线",
+        ))
+        fig.add_hline(y=capital, line_dash="dash", line_color="#9AA4B2", opacity=0.5,
+                       annotation_text=f"初始 {capital:,.0f}")
+        fig.update_layout(
+            height=240, margin=dict(l=0, r=0, t=0, b=0),
+            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+            xaxis=dict(showgrid=False, title="交易次数"),
+            yaxis=dict(showgrid=True, gridcolor="#E7EEF6", title="资金"),
+            showlegend=False,
+        )
+        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+    except Exception:
+        st.line_chart(curve, height=200)
+
+    # 白话结论
+    if kelly_position <= 0:
+        advice = "当前参数下凯利仓位为0或负——说明你的策略没有正期望值。除非提高胜率或盈亏比，否则不应该下注。"
+    elif kelly_position < 0.1:
+        advice = f"建议仓位 {kelly_position*100:.1f}%，偏保守。小仓位试错，先验证胜率和盈亏比是否真实。"
+    elif kelly_position < 0.25:
+        advice = f"建议仓位 {kelly_position*100:.1f}%，适中。仓位合理，严格执行止损纪律是关键。"
+    else:
+        advice = f"建议仓位 {kelly_position*100:.1f}%，偏高。虽然数学上合理，但注意最大回撤 {max_dd:.1f}%，实盘时建议减半执行。"
+    st.info(f"📊 {advice}")
