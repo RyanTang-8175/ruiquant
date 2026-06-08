@@ -34,6 +34,7 @@ def render_stock_detail_page(code: str | None = None):
     else:
         st.info("六维评分暂不可用")
     _kline_chart(code)
+    _intraday_chart(code)
     if result:
         _summary_card(code, quote, result)
     _ai_bar(code, quote, result)
@@ -325,6 +326,58 @@ def _kline_chart(code):
         last5 = df.tail(5)
         lines = [f"{r['date'].strftime('%m/%d')} O{r['open']:.2f} H{r['high']:.2f} L{r['low']:.2f} C{r['close']:.2f} {r['change_pct']:+.1f}%" for _, r in last5.iterrows()]
         st.code("\n".join(lines), language=None)
+
+
+def _intraday_chart(code):
+    """分时图 — 1分钟K线，当日盘中走势"""
+    st.markdown('<div class="sec-h">分时走势</div>', unsafe_allow_html=True)
+    try:
+        bars = get_kline(code, period="1", count=240)
+    except Exception:
+        bars = []
+    if not bars or len(bars) < 5:
+        st.caption("分时数据暂不可用")
+        return
+
+    import pandas as pd
+    df = pd.DataFrame(bars)
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    df = df.dropna(subset=["date", "close", "open"]).sort_values("date")
+    if df.empty:
+        st.caption("分时数据暂不可用")
+        return
+
+    prev_close = df.iloc[0].get("open", 0) or df.iloc[0].get("close", 0)
+    if prev_close <= 0:
+        prev_close = df["close"].iloc[0]
+
+    try:
+        from plotly.subplots import make_subplots
+        import plotly.graph_objects as go
+
+        fig = make_subplots(rows=2, cols=1, shared_xaxes=True,
+                            vertical_spacing=0.02, row_heights=[0.7, 0.3])
+
+        color = "#CF0011" if df["close"].iloc[-1] >= prev_close else "#007348"
+        fig.add_trace(go.Scatter(x=df["date"], y=df["close"], mode="lines",
+                                  line=dict(color=color, width=1.2),
+                                  fill="tozeroy", fillcolor=f"rgba({207},{1},{17},0.04)" if color == "#CF0011" else "rgba(0,115,72,0.04)"), row=1, col=1)
+        fig.add_hline(y=prev_close, line_dash="dash", line_color="#9AA4B2", opacity=0.5, row=1, col=1)
+
+        vol_colors = ["#CF0011" if c >= prev_close else "#007348" for c in df["close"]]
+        fig.add_trace(go.Bar(x=df["date"], y=df["volume"], marker_color=vol_colors,
+                              marker_line_width=0), row=2, col=1)
+
+        fig.update_layout(height=260, margin=dict(l=0, r=10, t=0, b=0),
+                          paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                          showlegend=False, dragmode="pan")
+        fig.update_xaxes(showgrid=False, visible=False, row=1, col=1)
+        fig.update_xaxes(showgrid=True, gridcolor="#E7EEF6", tickfont=dict(size=8, color="#5D6B7C"), row=2, col=1)
+        fig.update_yaxes(showgrid=True, gridcolor="#E7EEF6", tickfont=dict(size=9, color="#5D6B7C"), row=1, col=1)
+        fig.update_yaxes(title_text="量", title_font_size=9, showgrid=False, tickfont=dict(size=8, color="#9AA4B2"), row=2, col=1)
+        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+    except Exception:
+        st.caption("分时图渲染失败")
 
 
 def _ai_bar(code, quote, result=None):
