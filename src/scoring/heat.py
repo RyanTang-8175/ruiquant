@@ -10,23 +10,23 @@ def compute_heat(quote: dict, daily_bars: list = None) -> dict:
     sub = {}
     chg = quote.get("change_pct", 0)
 
-    # 涨幅状态 (25%)
+    # 涨幅状态 (25%) — 拉伸区间拉开差距
     if chg > 7:
-        sub["涨幅"] = 85
+        sub["涨幅"] = 95
     elif chg > 5:
-        sub["涨幅"] = 75
+        sub["涨幅"] = 85
     elif chg > 3:
-        sub["涨幅"] = 70
+        sub["涨幅"] = 75
     elif chg > 1:
         sub["涨幅"] = 60
     elif chg > 0:
         sub["涨幅"] = 50
     elif chg > -2:
-        sub["涨幅"] = 40
+        sub["涨幅"] = 35
     elif chg > -5:
-        sub["涨幅"] = 25
+        sub["涨幅"] = 20
     else:
-        sub["涨幅"] = 10
+        sub["涨幅"] = 5
 
     # 量比 (20%)
     vol_ratio = quote.get("volume_ratio", 1.0)

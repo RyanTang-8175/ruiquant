@@ -355,8 +355,8 @@ class AIChat:
         if is_group_question or has_injected_context:
             groups = self._sector_candidate_groups(text)
             candidate_text = self._format_sector_candidate_table(groups)
-            primary = self._first_candidate(groups, "电力") or "长江电力(600900)"
-            chip = self._first_candidate(groups, "半导体") or "中芯国际(688981)"
+            primary = AIChat._dynamic_top_sector_picks(groups)[0]
+            chip = AIChat._dynamic_top_sector_picks(groups)[1]
 
             return (
                 f"### 人话结论\n"
@@ -724,6 +724,40 @@ class AIChat:
                 action = item.get("action") or ("低吸验证" if risk in ("低", "中") else "等待实时确认")
                 rows.append(f"| {name} | {stock} | {role} | {score_text} / {status} / 风险{risk} | {action} |")
         return "\n".join(rows)
+
+    @staticmethod
+    def _extract_capital_from_message(text: str) -> str:
+        """从用户消息中提取真实资金量，不再硬写1万。"""
+        import re
+        m = re.search(r'(\d+[\d,.]*)\s*万', str(text or ""))
+        if m:
+            return f"{m.group(1)}万"
+        m = re.search(r'(\d{4,})\s*元', str(text or ""))
+        if m:
+            val = int(m.group(1))
+            if val >= 10000:
+                return f"{val/10000:.0f}万"
+            return f"{val}元"
+        return ""
+
+    @staticmethod
+    def _dynamic_top_sector_picks(groups: list) -> tuple:
+        """从实时行业候选中取前两名，替代硬编码的'长江电力/中芯国际'。
+        如果实时数据不可用，开空窗让AI诚实说'暂无'而不编造。
+        """
+        first_name = "暂无实时数据"
+        second_name = "暂无实时数据"
+        for i, group in enumerate(groups or []):
+            candidates = group.get("candidates", [])
+            if candidates:
+                c = candidates[0]
+                name = f"{c.get('name', c.get('code', ''))}({c.get('code', '')})"
+                if i == 0:
+                    first_name = f"{group.get('name', '')} {name}"
+                elif i == 1:
+                    second_name = f"{group.get('name', '')} {name}"
+                    break
+        return first_name, second_name
 
     @staticmethod
     def _first_candidate(groups: list, keyword: str) -> str:
