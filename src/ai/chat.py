@@ -388,27 +388,24 @@ class AIChat:
                 "1 万元建议最多拆成 2 个观察计划：主候选和备选分别写清触发条件、失效条件和止损规则。第一笔验证错了，不加码摊平；第一笔验证对了，也要等第二个确认点再行动。"
             )
 
+        # 通用兜底 - 带今日大盘和领涨样本
+        overview = AIChat._safe_market_overview()
+        hot = AIChat._safe_top_stocks("changepercent", False, 5)
+        idx_rows = "\n".join(
+            f"| {i.get('name','')} | {i.get('price',0):.2f} | {i.get('change_pct',0):+.2f}% |"
+            for i in (overview.get("indices") or [])[:3]
+        ) or "| 暂无 | 0.00 | 0.00% |"
+        hot_rows = "\n".join(AIChat._format_stock_row(s) for s in hot[:5]) or "| 暂无 | 0.00 | 0.00% | 0.0% | 0.0亿 |"
         return (
-            "## 结论摘要\n"
-            "机会分 0（机会分=值得研究的上涨条件），风险分 70（风险分=数据缺失时误判的概率），置信度 低（置信度=当前数据不足）。我可以继续做研究，但现在没有拿到足够实时数据，所以不会编造价格、点位或确定结论。正确做法是先把问题拆成数据状态、风险、计划和复盘字段。\n\n"
-            "## 数据状态\n"
-            "| 数据 | 是否可用 | 你怎么用 | 局限 |\n"
-            "|---|---|---|---|\n"
-            "| 行情/评分 | 暂缺 | 需要判断热度、承接、反量化 | 当前不能给确定触发 |\n"
-            "| 新闻/题材 | 暂缺 | 判断是否有催化 | 不能臆测利好 |\n"
-            "| 历史记忆 | 可继续检索 | 找过往判断是否失效 | 需要具体股票或主题 |\n\n"
-            "## 我会怎么做\n"
-            "| 步骤 | 要检查什么 | 为什么重要 |\n"
-            "|---|---|---|\n"
-            "| 1 | 先看大盘和板块是否退潮 | 环境差时个股信号容易失真 |\n"
-            "| 2 | 再看个股热度、承接和量价 | 防止追在量化收割点 |\n"
-            "| 3 | 最后写入实验室验证 | 不靠感觉，靠 T+1/T+2/T+3 复盘 |\n\n"
-            "## 你可以这样问\n"
-            "- 分析 600900 的短线风险和反量化风险\n"
-            "- 今天电力和半导体哪个更值得观察\n"
-            "- 把这只票加入实验室验证需要写哪些条件\n\n"
-            "## 复盘入库\n"
-            "下一步请至少给我股票代码、观察周期和你的假设，我会输出：研究假设、触发条件、失效条件、止损规则、T+1/T+2/T+3 观察点。"
+            "## 今日大盘\n\n| 指数 | 点位 | 涨跌幅 |\n|---|---|---|\n"
+            f"{idx_rows}\n\n"
+            "## 今日领涨\n\n| 股票 | 价格 | 涨跌幅 | 换手 | 成交额 |\n|---|---:|---:|---:|---:|\n"
+            f"{hot_rows}\n\n"
+            "## 下一步\n\n"
+            "AI模型暂不可用，以上行情来自腾讯/新浪实时接口。你可以:\n"
+            "- 输入股票代码(如601600)查看个股详情和K线\n"
+            "- 到雷达页查看今日候选池\n"
+            "- 等模型恢复后重新提问获取完整分析\n"
         )
 
     @staticmethod
@@ -649,48 +646,86 @@ class AIChat:
 
     @staticmethod
     def _fallback_stock_report(code: str, user_message: str) -> str:
-        return (
-            f"## 结论摘要\n"
-            f"机会分 0（机会分=上涨条件是否充足），风险分 70（风险分=追高被套或误判概率），置信度 低（置信度=当前工具/实时数据不足）。{code} 这次先按“研究/观察”处理，不给实盘买入结论。原因是当前工具或实时数据不足，我不能假装已经验证过价格、量比、板块联动和新闻催化。\n\n"
-            "## 数据状态\n"
-            "| 数据 | 是否可用 | 你怎么用 | 局限 |\n"
-            "|---|---|---|---|\n"
-            f"| 个股 {code} 行情 | 暂缺或不完整 | 判断涨跌幅、量比、换手、位置 | 不能编造实时价 |\n"
-            "| 六维评分 | 待工具返回 | 判断热度、承接、题材、延续、策略匹配 | 分数缺失时只能给框架 |\n"
-            "| 反量化扫描 | 待工具返回 | 排查诱多、接盘、脉冲、滞涨、背离 | 不能替代盘中观察 |\n"
-            "| 新闻/题材 | 待工具返回 | 判断催化是否真实 | 不能把传闻当依据 |\n\n"
-            "## 证据表\n"
-            "| 维度 | 现在能判断什么 | 白话解释 | 对结论的影响 |\n"
-            "|---|---|---|---|\n"
-            "| 价格位置 | 暂不能确认 | 没有可靠实时价就不知道是否追高 | 不给参与结论 |\n"
-            "| 承接 | 暂不能确认 | 要看回踩均价线是否有人接 | 只能列观察条件 |\n"
-            "| 板块联动 | 暂不能确认 | 单票硬拉容易坑人 | 必须等同板块确认 |\n"
-            "| 风险 | 默认按中性偏谨慎 | 数据缺失时风险要上调 | 只允许模拟验证 |\n\n"
-            "## 反量化风险表\n"
-            "| 风险项 | 当前判断 | 触发证据 | 散户容易怎么亏 | 应对 |\n"
-            "|---|---|---|---|---|\n"
-            "| 尾盘诱多 | 待确认 | 14:30 后急拉但无回踩 | 追高隔夜，次日低开 | 只记录不追 |\n"
-            "| 高位接盘 | 待确认 | 高开冲高后量价背离 | 买在情绪顶 | 等二次承接 |\n"
-            "| 分时脉冲 | 待确认 | 直线拉升后快速回落 | 被短线资金收割 | 不追第一波 |\n"
-            "| 放量滞涨 | 待确认 | 成交放大但价格推不动 | 主力出货时接盘 | 出现则放弃 |\n"
-            "| 板块背离 | 待确认 | 个股涨、板块不跟 | 孤立拉升难持续 | 必须看联动 |\n\n"
-            "## 交易计划表\n"
-            "| 动作 | 触发条件 | 禁止条件 | 仓位/验证方式 | 复盘记录 |\n"
-            "|---|---|---|---|---|\n"
-            "| 加入观察 | 回踩不破均价线，板块同步走强 | 高开急冲无回踩 | 只观察或模拟 | 记录触发时间 |\n"
-            "| 模拟验证 | 评分和反量化风险都可接受 | 风险升至高/极高 | 小样本模拟 | 记录 T+1/T+2/T+3 |\n"
-            "| 暂停 | 大盘弱、板块退潮 | 无 | 不做动作 | 记录为什么放弃 |\n"
-            "| 退出假设 | 跌破昨日低点或放量滞涨 | 无 | 验证失败 | 写入实验室 |\n\n"
-            "## 反证与失效条件\n"
-            "1. 开盘高冲后 10 分钟内跌回均价线下方。\n"
-            "2. 放量但价格无法继续上推。\n"
-            "3. 同板块核心股没有联动。\n"
-            "4. 大盘和情绪转弱，短线资金退潮。\n"
-            "5. 新闻催化无法被公告、互动平台或板块表现验证。\n\n"
-            "## 复盘入库\n"
-            f"建议把 {code} 加入实验室时写入：假设、触发条件、失效条件、止损规则、T+1 高点/低点、T+2 是否延续、T+3 是否回撤。"
-        )
+        """个股兜底 - 永远带实时行情+K线数据"""
+        from src.data.realtime import get_realtime_quote, get_kline, get_market_overview
+        from src.data.stock_list import resolve_stock_name
 
+        q = get_realtime_quote(code) or {}
+        price = q.get("price", 0) or 0
+        chg = q.get("change_pct", 0) or 0
+        chg_dir = "上涨" if chg > 0 else "下跌" if chg < 0 else "平盘"
+        name = q.get("name") or resolve_stock_name(code, code)
+        turnover = q.get("turnover", 0) or 0
+        amount = (q.get("amount", 0) or 0) / 1e8
+        vol_ratio = q.get("volume_ratio", 1.0) or 1.0
+        open_p = q.get("open", 0) or 0
+        high = q.get("high", 0) or 0
+        low = q.get("low", 0) or 0
+        pre_close = q.get("pre_close", 0) or 0
+        src = q.get("source", "公开")
+
+        kls, ma5, ma10, ma20, trend = [], "", "", "", ""
+        supports, resistances = [], []
+        try:
+            kls = get_kline(code, period="101", count=20) or []
+            if kls and len(kls) >= 5:
+                closes = [k["close"] for k in kls]
+                highs_k = [k["high"] for k in kls]
+                lows_k = [k["low"] for k in kls]
+                if len(closes) >= 5:
+                    ma5 = f"{sum(closes[-5:])/5:.2f}"
+                if len(closes) >= 10:
+                    ma10 = f"{sum(closes[-10:])/10:.2f}"
+                if len(closes) >= 20:
+                    ma20 = f"{sum(closes[-20:])/20:.2f}"
+                trend = "上升" if closes[-1] > closes[-5] else "下降" if closes[-1] < closes[-5] else "横盘"
+                supports = sorted(set(round(x, 2) for x in lows_k[-10:] if x < price), reverse=True)[:3]
+                resistances = sorted(set(round(x, 2) for x in highs_k[-10:] if x > price))[:3]
+        except Exception:
+            pass
+
+        support_str = "、".join(str(s) for s in supports) if supports else "近期无明显支撑"
+        resist_str = "、".join(str(r) for r in resistances) if resistances else "近期无明显阻力"
+
+        market_note = ""
+        try:
+            ov = get_market_overview()
+            for idx_item in (ov.get("indices") or [])[:1]:
+                market_note = f"上证 {idx_item.get('price',0):.2f}（{idx_item.get('change_pct',0):+.2f}%）"
+        except Exception:
+            pass
+
+        return (
+            f"## {name}({code})\n\n"
+            f"| 项目 | 数值 | 白话 |\n"
+            f"|---|---|---|\n"
+            f"| 现价 | **{price:.2f}元** | 今日{chg_dir}{abs(chg):.2f}% |\n"
+            f"| 开盘/最高/最低 | {open_p:.2f}/{high:.2f}/{low:.2f} | 昨收 {pre_close:.2f} |\n"
+            f"| 换手率 | {turnover:.2f}% | {'交投活跃' if turnover > 3 else '正常换手' if turnover > 1 else '低换手'} |\n"
+            f"| 成交额 | {amount:.1f}亿 | {'放量' if vol_ratio > 1.2 else '缩量' if vol_ratio < 0.8 else '正常'}(量比{vol_ratio:.2f}) |\n"
+            + (f"| MA5/MA10/MA20 | {ma5}/{ma10}/{ma20} | 短期趋势{trend} |\n" if ma5 else "")
+            + (f"| 市场环境 | {market_note} |\n" if market_note else "")
+            + f"| 数据质量 | 公开源({src}) | 腾讯/新浪免费行情 |\n\n"
+            f"## 技术位参考\n\n"
+            f"| 类型 | 价格区间 | 如何用 |\n"
+            f"|---|---|---|\n"
+            f"| 支撑位 | {support_str} | 观察回踩此处是否缩量企稳 |\n"
+            f"| 阻力位 | {resist_str} | 反弹至此若放量滞涨需警惕 |\n\n"
+            f"**注意**: 以上技术位来自近10日K线高低点，非买卖建议。AI模型暂不可用，此为本地规则计算，置信度较低。\n\n"
+            f"## 反量化风险表\n\n"
+            f"| 风险项 | 快速判断 | 应对 |\n"
+            f"|---|---|---|\n"
+            f"| 尾盘诱多 | {'⚠ 今日涨幅>5%需警惕' if chg > 5 else '✓ 未触发'} | 14:30后急拉不追 |\n"
+            f"| 高位接盘 | {'⚠ 价格在近期阻力上方' if resistances and price > resistances[0] else '✓ 价格在阻力下方'} | 等回踩二次确认 |\n"
+            f"| 分时脉冲 | 无法检测（缺少分时数据） | 不追第一波急拉 |\n"
+            f"| 放量滞涨 | {'⚠ 量比>1.2但涨幅<1%，注意' if vol_ratio > 1.2 and abs(chg) < 1 else '✓ 未触发'} | 出现则放弃追高 |\n"
+            f"| 板块背离 | 无法检测（缺少板块数据） | 同板块至少2只联动 |\n\n"
+            f"## 操作建议\n\n"
+            f"当前AI模型不可用，不能给出深度分析。基于现有数据建议:\n"
+            f"1. 仅做观察/模拟验证，不实盘操作\n"
+            f"2. 等模型恢复后重新请求完整分析\n"
+            f"3. 手动检查板块联动和新闻催化\n"
+        )
     @staticmethod
     def _sector_candidate_groups(text: str) -> list:
         try:
