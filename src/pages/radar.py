@@ -289,11 +289,11 @@ def _render_candidate_pool_card(row: dict, index: int = 0):
         f'<div style="font-family:var(--mono);font-size:12px;color:{chg_c}">{chg:+.2f}%</div>'
         f'</div></div>'
         f'<div class="score-row">'
-        f'<span class="score-pill">旧{float(row.get("legacy_score") or 0):.0f}</span>'
-        f'<span class="score-pill">iFinD{float(row.get("ifind_score") or 0):.0f}</span>'
-        f'<span class="score-pill">风险{float(row.get("risk_score") or 0):.0f}</span>'
-        f'<span class="score-pill">排序{float(row.get("rank_score") or 0):.0f}</span>'
-        f'</div>'
+        + f'<span class="score-pill" style="color:{chg_c};font-weight:700">{chg:+.1f}%</span>'
+        + f'<span class="score-pill">{html.escape(str(row.get("risk_level") or "中"))}风险</span>'
+        + (f'<span class="score-pill" style="color:var(--ai)">iFinD{float(row["ifind_score"]):.0f}</span>' if float(row.get("ifind_score") or 0) > 0 else "")
+        + f'<span class="score-pill">{html.escape(str(row.get("confidence") or "中"))}置信度</span>'
+        + f'</div>'
         f'<div style="font-size:12px;color:var(--text);line-height:1.55;margin-top:7px">{reason}</div>'
         f'<div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px">'
         f'<div style="font-size:12px;color:var(--muted)">{html.escape(chain)}</div>'
@@ -953,7 +953,7 @@ def _daily_sectors():
         '<div style="font-size:11px;color:var(--muted);margin-bottom:8px">综合涨跌幅、成交额、龙头强度筛选</div>',
         unsafe_allow_html=True)
 
-    if "daily_recs" not in st.session_state:
+    if "daily_recs" not in st.session_state or st.button("刷新板块推荐", key="refresh_daily_recs", use_container_width=True):
         st.session_state["daily_recs"] = _compute_daily_recs()
     recs = st.session_state["daily_recs"]
 
