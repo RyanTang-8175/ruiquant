@@ -36,6 +36,9 @@ def _quick_tasks(code: str) -> list:
 
 
 def render_ai_chat_page():
+    if st.session_state.pop("_nav_pending", False):
+        st.rerun()
+
     ai = _get_ai()
     selected_code = st.session_state.get("selected_stock", "")
     history = _history_for_view(ai.get_history(), selected_code)
@@ -55,7 +58,7 @@ def render_ai_chat_page():
     if code:
         st.session_state["selected_stock"] = code
         st.session_state["previous_page"] = "ai_chat"
-        st.session_state["current_page"] = "stock_detail"; st.rerun()
+        st.session_state["current_page"] = "stock_detail"; st.session_state['_nav_pending'] = True
 
     # ── 状态条 ──
     env = _market_label()
@@ -102,7 +105,7 @@ def render_ai_chat_page():
                 btn_label = f"{icon} {title}\n{subtitle}"
                 if st.button(btn_label, key=f"qt_{row}_{i}", use_container_width=True):
                     st.session_state["qq"] = tasks[t_idx][2]
-                    st.rerun()
+                    st.session_state['_nav_pending'] = True
 
     st.markdown("---")
 
@@ -111,7 +114,7 @@ def render_ai_chat_page():
         q = st.session_state.pop("qq")
         with st.spinner("分析中..."):
             ai.chat(_with_context(q))
-        st.rerun()
+        st.session_state['_nav_pending'] = True
 
     # ── 对话记录 ──
     if history:
@@ -134,7 +137,7 @@ def render_ai_chat_page():
     if u:
         with st.spinner("分析中..."):
             ai.chat(_with_context(u))
-        st.rerun()
+        st.session_state['_nav_pending'] = True
 
     # ── 工具箱 ──
     st.markdown('<div class="sec-h">工具箱</div>', unsafe_allow_html=True)
@@ -154,7 +157,7 @@ def render_ai_chat_page():
             with cols[i]:
                 if st.button(name, key=f"tool_{kid}", use_container_width=True, help=hint):
                     if name == "对比分析":
-                        st.session_state["ai_compare"] = True; st.rerun()
+                        st.session_state["ai_compare"] = True; st.session_state['_nav_pending'] = True
                     else:
                         with st.spinner(f"{name}生成中..."):
                             result = fn()
@@ -165,18 +168,18 @@ def render_ai_chat_page():
                                 "timestamp": datetime.now().isoformat(),
                                 "tools_used": [],
                             })
-                            ai.save_to_disk(); st.rerun()
+                            ai.save_to_disk(); st.session_state['_nav_pending'] = True
 
     # ── 底部操作 ──
     if history:
         c1, c2 = st.columns(2)
         with c1:
             if st.button("清空对话", use_container_width=True):
-                ai.clear_history(); st.rerun()
+                ai.clear_history(); st.session_state['_nav_pending'] = True
         with c2:
             if st.button("逐条管理", use_container_width=True):
                 st.session_state["ai_mgr"] = not st.session_state.get("ai_mgr", False)
-                st.rerun()
+                st.session_state['_nav_pending'] = True
 
     # 对比分析
     if st.session_state.pop("ai_compare", False):
@@ -190,7 +193,7 @@ def render_ai_chat_page():
                 "question": f"对比 {ca} 和 {cb}", "answer": result,
                 "timestamp": datetime.now().isoformat(), "tools_used": [],
             })
-            ai.save_to_disk(); st.rerun()
+            ai.save_to_disk(); st.session_state['_nav_pending'] = True
 
     # 逐条删除
     if st.session_state.get("ai_mgr") and history:
@@ -205,9 +208,9 @@ def render_ai_chat_page():
             if st.button(f"删除 {len(kills)} 条", use_container_width=True):
                 for i in sorted(kills, reverse=True):
                     ai.delete_history_item(i)
-                st.session_state["ai_mgr"] = False; st.rerun()
+                st.session_state["ai_mgr"] = False; st.session_state['_nav_pending'] = True
         if st.button("取消", use_container_width=True):
-            st.session_state["ai_mgr"] = False; st.rerun()
+            st.session_state["ai_mgr"] = False; st.session_state['_nav_pending'] = True
 
 
 # ══════════════════════════════
@@ -249,7 +252,7 @@ def _render_item(item: dict, idx: int, is_recent: bool = False):
             for fu in followups:
                 if st.button(fu, key=f"fu_{idx}_{hash(fu) % 10000}", use_container_width=True):
                     st.session_state["qq"] = fu
-                    st.rerun()
+                    st.session_state['_nav_pending'] = True
 
 
 def _render_memory_panel(selected_code: str):
@@ -305,7 +308,7 @@ def _memory_row(row: dict, prefix: str):
     )
     if content and st.button("带入追问", key=f"mem_{prefix}_{row.get('id', row.get('session_id'))}", use_container_width=True):
         st.session_state["qq"] = f"基于这条历史记录继续分析：{content[:800]}"
-        st.rerun()
+        st.session_state['_nav_pending'] = True
 
 
 def _memory_count() -> int:
