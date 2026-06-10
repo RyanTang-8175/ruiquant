@@ -11,6 +11,10 @@ from pathlib import Path
 def render_radar_page():
     now = datetime.now()
 
+    # ── 待跳转标志：候选池按钮不再直接 rerun，改为设标志，本轮回合顶部统一处理
+    if st.session_state.pop("_nav_pending", False):
+        st.rerun()
+
     # ── 搜索 ──
     from src.ui.search import render_search_bar
     code = render_search_bar(key="radar")
@@ -305,19 +309,19 @@ def _render_candidate_pool_card(row: dict, index: int = 0):
             st.session_state["selected_stock"] = code
             st.session_state["previous_page"] = "radar"
             st.session_state["current_page"] = "stock_detail"
-            st.rerun()
+            st.session_state["_nav_pending"] = True
     with c2:
         if st.button("研究", key=f"{key}_research", use_container_width=True):
             st.session_state["selected_stock"] = code
             st.session_state["research_code"] = code
             st.session_state["current_page"] = "research"
-            st.rerun()
+            st.session_state["_nav_pending"] = True
     with c3:
         if st.button("AI分析", key=f"{key}_ai", use_container_width=True):
             st.session_state["selected_stock"] = code
             st.session_state["current_page"] = "ai_chat"
             st.session_state["qq"] = f"请对 {code} 做 iFinD 证据化研究，先调用 ifind_company_research 和 ifind_evidence_score，再给机会分、风险分、置信度、证据来源、失效条件。"
-            st.rerun()
+            st.session_state["_nav_pending"] = True
     with c4:
         if st.button("入审计", key=f"{key}_audit", use_container_width=True):
             try:
