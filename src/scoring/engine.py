@@ -351,7 +351,19 @@ class V6ScoringEngine:
 
     def get_watchlist_v6(self, min_score: float = 0, limit: int = 30) -> list:
         from src.data.realtime import get_top_stocks
-        stocks = get_top_stocks(sort_field="amount", asc=False, limit=100)
+        # 三维度交叉采样：涨幅+成交额+换手，避免天天推同一批万亿蓝筹
+        seen = set()
+        stocks = []
+        for src in [
+            get_top_stocks(sort_field="changepercent", asc=False, limit=40),
+            get_top_stocks(sort_field="amount", asc=False, limit=30),
+            get_top_stocks(sort_field="turnoverratio", asc=False, limit=30),
+        ]:
+            for s in (src or []):
+                code = s.get("code", "")
+                if code and code not in seen:
+                    seen.add(code)
+                    stocks.append(s)
         results = []
         for s in (stocks or []):
             code = s.get("code", "")

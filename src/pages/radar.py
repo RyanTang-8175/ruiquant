@@ -631,14 +631,20 @@ def _fetch_and_score(filter_type: str, filter_key: str) -> list:
                     "volume_ratio": q.get("volume_ratio", 1.0),
                 })
     else:
-        # 综合
-        for s in (get_top_stocks("amount", False, 40) or []) + (get_top_stocks("changepercent", False, 40) or []):
-            cd = s.get("code", "")
-            if cd and cd not in seen:
-                seen.add(cd)
-                s = dict(s)
-                s["name"] = _resolve_stock_name(cd, s.get("name", cd))
-                stocks.append(s)
+        # 综合候选池：成交额(大盘蓝筹) + 涨幅(今日领涨) + 换手(今日活跃)
+        # 三维度交叉采样，保证候选池日日不同，不会每天推同一批股票
+        for src_stocks in [
+            get_top_stocks("amount", False, 30),
+            get_top_stocks("changepercent", False, 30),
+            get_top_stocks("turnoverratio", False, 30),
+        ]:
+            for s in (src_stocks or []):
+                cd = s.get("code", "")
+                if cd and cd not in seen:
+                    seen.add(cd)
+                    s = dict(s)
+                    s["name"] = _resolve_stock_name(cd, s.get("name", cd))
+                    stocks.append(s)
 
     if not stocks:
         return []
