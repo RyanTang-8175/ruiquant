@@ -19,8 +19,8 @@ def render_lab_page():
     _risk_banner()
     _stats_bar()
 
-    tab2, tab3, tab5, tab6, tab7, tab4, tab1, tab8 = st.tabs(
-        ["待审计", "审计结果", "归因画像", "评分对比", "策略探索", "一键反馈", "手动补录", "仓位计算"]
+    tab2, tab3, tab5, tab6, tab7, tab4, tab1, tab8, tab9 = st.tabs(
+        ["待审计", "审计结果", "归因画像", "评分对比", "策略探索", "一键反馈", "手动补录", "仓位计算", "系统监控"]
     )
     with tab2:
         _pending_panel()
@@ -38,9 +38,94 @@ def render_lab_page():
         _create_plan()
     with tab8:
         _kelly_calculator()
+    with tab9:
+        _system_monitor()
 
 
-def _risk_banner():
+def _system_monitor():
+    """量化系统监控: 数据延迟/信号频率/持仓一致性/API健康"""
+    st.markdown('<div class="page-kicker">实时监控数据管线、信号生成和系统健康状态。异常早发现，问题早介入。</div>', unsafe_allow_html=True)
+
+    # ── 数据源状态 ──
+    st.markdown("### 数据管线")
+    c1, c2, c3, c4 = st.columns(4)
+    try:
+        from src.data.providers.registry import provider_status
+        from src.data.realtime import get_market_overview, get_realtime_quote
+        import time
+
+        ps = provider_status()
+        c1.metric("iFinD", "在线" if ps.get("ready") else "离线",
+                  "已配置" if ps.get("ready") else "待配置")
+
+        t0 = time.time()
+        ov = get_market_overview()
+        t1 = time.time()
+        latency = (t1 - t0) * 1000
+        c2.metric("大盘延迟", f"{latency:.0f}ms",
+                  "正常" if latency < 2000 else "偏高")
+
+        t0 = time.time()
+        q = get_realtime_quote("000001")
+        t1 = time.time()
+        latency2 = (t1 - t0) * 1000
+        c3.metric("行情延迟", f"{latency2:.0f}ms",
+                  "正常" if latency2 < 2000 else "偏高")
+
+        c4.metric("数据质量", "专业级" if ps.get("ready") else "公开源",
+                  "iFinD+公开双源" if ps.get("ready") else "仅腾讯/新浪")
+    except Exception as e:
+        st.warning(f"数据源状态不可用: {e}")
+
+    # ── iFinD 额度 ──
+    st.markdown("### iFinD 额度")
+    try:
+        from src.data.providers.registry import get_provider
+        provider = get_provider()
+        usage = provider.usage_stats() if hasattr(provider, "usage_stats") else {}
+        today = usage.get("today_calls", 0)
+        month = usage.get("month_calls", 0)
+        hit_rate = float(usage.get("cache_hit_rate", 0) or 0) * 100
+        d1, d2, d3, d4 = st.columns(4)
+        d1.metric("今日调用", today)
+        d2.metric("本月调用", month, f"日均{max(month/16,1):.0f}")
+        d3.metric("缓存命中率", f"{hit_rate:.0f}%")
+        d4.metric("智能选股", usage.get("calls", {}).get("smart_stock_picking", 0),
+                  "剩余约" + str(4000 - usage.get("month_by_endpoint", {}).get("smart_stock_picking", 0)) + "次/月"
+                  if usage.get("month_by_endpoint") else "-")
+    except Exception:
+        st.caption("iFinD 额度暂不可用")
+
+    # ── AI 服务 ──
+    st.markdown("### AI 服务")
+    try:
+        from src.ai.chat import AIChat
+        ais = AIChat.provider_status()
+        a1, a2, a3 = st.columns(3)
+        a1.metric("主模型", "DeepSeek ✓" if ais.get("ready") else "离线",
+                  ais.get("model", "-"))
+        from src.config import MIMO_API_KEY, MIMO_BASE_URL, MIMO_MODEL
+        a2.metric("备选模型", "Mimo ✓" if (MIMO_API_KEY and MIMO_BASE_URL and MIMO_MODEL) else "未配置")
+        a3.metric("Base URL", ais.get("base_url", "-")[:30])
+    except Exception:
+        st.caption("AI状态暂不可用")
+
+    # ── 审计健康 ──
+    st.markdown("### 审计健康")
+    try:
+        from src.memory.analysis_memory import AnalysisMemory
+        with AnalysisMemory() as am:
+            stats = am.get_stats()
+        b1, b2, b3 = st.columns(3)
+        b1.metric("待回填", stats.get("pending_backfills", 0))
+        b2.metric("+2%命中率", f"{stats.get('hit_2pct_rate', 0)}%")
+        b3.metric("1日平均收益", f"{stats.get('avg_hold_1d_return', 0)}%")
+    except Exception:
+        st.caption("审计数据暂不可用")
+
+    st.caption(f"刷新时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    if st.button("手动刷新", key="sys_mon_refresh", use_container_width=True):
+        st.rerun()
     try:
         from src.risk.user_state import get_user_risk_state
 

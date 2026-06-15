@@ -261,7 +261,8 @@ def test_research_workflow_registry_loads_three_sops():
     workflows = registry.list()
     ids = {item["id"] for item in workflows}
 
-    assert ids == {"company_diligence", "earnings_review", "thematic_market"}
+    assert ids >= {"company_diligence", "earnings_review", "thematic_market"}
+    assert "supply_chain_chokepoint" in ids
     assert all(item["review_required"] is True for item in workflows)
     assert all(item["stages"] for item in workflows)
     assert registry.get("earnings_review")["quota_budget"]["smart_stock_picking"] <= 1

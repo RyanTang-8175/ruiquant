@@ -1,0 +1,32 @@
+{
+  "id": "supply_chain_chokepoint",
+  "name": "产业链Chokepoint拆解",
+  "version": "1.0",
+  "kind": "supply_chain",
+  "description": "Serenity方法: 拆产业链上下游 → 定位最难扩产/最难替代/供应商最少的环节 → 过滤蹭热点公司 → 财报核实",
+  "stages": [
+    "产业链映射",
+    "Chokepoint识别",
+    "标的筛选",
+    "硬数据验证",
+    "研究清单",
+    "人工复核"
+  ],
+  "required_evidence": [
+    "至少标识3个产业链环节",
+    "每个chokepoint有供应商数量/扩产周期/替代难度",
+    "候选标的排除蹭热点公司(收入<5%来自该业务则排除)",
+    "至少1个财报数据点验证(营收/毛利率/产能/客户集中度)"
+  ],
+  "quota_budget": {
+    "smart_stock_picking": 5,
+    "company_research": 2
+  },
+  "deliverables": [
+    "supply_chain_map",
+    "chokepoint_candidates",
+    "filtered_shortlist",
+    "financial_evidence"
+  ],
+  "review_required": true
+}

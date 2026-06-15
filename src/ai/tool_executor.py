@@ -360,7 +360,18 @@ class ToolExecutor:
 
     def _ifind_company_research(self, code: str, profile: str = "quick") -> dict:
         try:
-            return ResearchHarness().company_research(code, profile=profile or "quick")
+            research = ResearchHarness().company_research(code, profile=profile or "quick")
+            # Block D: 提取研报/公告来源引用供 AI 标注
+            evidence = research.get("evidence") or {}
+            announcements = evidence.get("公告") or []
+            if announcements:
+                research["_citation_sources"] = [
+                    {"type": "公告", "title": a.get("title", "")[:80],
+                     "date": a.get("declaredate") or a.get("date", ""),
+                     "source": a.get("source", "iFinD")}
+                    for a in announcements[:5] if a.get("title")
+                ]
+            return research
         except Exception as e:
             return {
                 "code": code,
