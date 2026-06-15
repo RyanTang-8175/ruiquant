@@ -7,7 +7,7 @@ from datetime import datetime, date
 from src.config import get_setting
 from src.ai.tools import TOOLS
 from src.ai.tool_executor import ToolExecutor
-from src.ai.prompts import STYLE_CONTRACT, V6_SYSTEM_PROMPT, scene_prompt, AGENT_SPECIALISTS
+from src.ai.prompts import STYLE_CONTRACT, V6_SYSTEM_PROMPT, scene_prompt, AGENT_SPECIALISTS, AGENT_BULL, AGENT_BEAR, DEBATE_SUMMARIZER
 from src.ai.roles import ROLES, ROLE_SUFFIXES
 
 logger = logging.getLogger(__name__)
@@ -45,8 +45,8 @@ def _build_specialist_context(user_message: str, stock_code: str) -> str:
     return "\n".join(relevant[-60:])  # 最多 60 行
 
 
-def _append_specialist_reports(answer: str, reports: dict[str, str]) -> str:
-    """将四个专精 Agent 的报告以折叠卡片形式附加到主回答末尾，不修改主回答结构。"""
+def _append_specialist_reports(answer: str, reports: dict[str, str], debate: dict[str, str] | None = None) -> str:
+    """将四个专精Agent报告+多空辩论以折叠卡片附加到回答末尾"""
     from src.ai.prompts import AGENT_SPECIALISTS
 
     sections = []
@@ -57,6 +57,19 @@ def _append_specialist_reports(answer: str, reports: dict[str, str]) -> str:
         sections.append(
             f"\n<details><summary>{spec['icon']} {spec['name']}专精分析</summary>\n\n{text}\n</details>\n"
         )
+
+    # 多空辩论
+    if debate:
+        bull_text = debate.get("bull", "")
+        bear_text = debate.get("bear", "")
+        if bull_text or bear_text:
+            debate_block = ""
+            if bull_text:
+                debate_block += f"\n<details><summary>🐂 多头观点</summary>\n\n{bull_text}\n</details>\n"
+            if bear_text:
+                debate_block += f"\n<details><summary>🐻 空头观点</summary>\n\n{bear_text}\n</details>\n"
+            sections.append(debate_block)
+
     if not sections:
         return answer
     return answer + "\n\n---\n## 🔬 多维度交叉分析\n" + "\n".join(sections)
@@ -325,7 +338,9 @@ class AIChat:
                     _build_specialist_context(model_message, stock_code),
                 )
                 if specialist_reports:
-                    answer = _append_specialist_reports(answer, specialist_reports)
+                    # 多空辩论: bull/bear对抗校验四个专精报告
+                    debate = self._run_debate(specialist_reports)
+                    answer = _append_specialist_reports(answer, specialist_reports, debate)
 
             # Phase 1.1-opt: 结构化输出增强 — 对个股分析尝试格式化渲染
             if stock_code and answer and scene in ("deep_analysis", "quick_judge", "general"):
@@ -1407,6 +1422,38 @@ class AIChat:
                 results[key] = text
 
         return results
+
+    def _run_debate(self, reports: dict[str, str]) -> dict[str, str]:
+        """多空辩论: bull 找积极信号，bear 找风险，裁判汇总矛盾点"""
+        debate: dict[str, str] = {}
+        if not self.client or len(reports) < 4:
+            return debate
+        combined = "".join(f"### {k}\n{v}\n\n" for k, v in reports.items() if v and "暂不可用" not in v)
+        if not combined:
+            return debate
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        def _ask(label: str, prompt: str) -> tuple[str, str]:
+            try:
+                resp = self.client.chat.completions.create(
+                    model=self.model, temperature=0.3, max_tokens=500, timeout=20,
+                    messages=[{"role":"system","content":prompt},
+                              {"role":"user","content":f"四个专精分析报告:\n{combined}"}],
+                )
+                return label, resp.choices[0].message.content or ""
+            except Exception as e:
+                logger.warning(f"辩论{label}失败: {e}")
+                return label, ""
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            for future in as_completed([
+                executor.submit(_ask, "bull", AGENT_BULL),
+                executor.submit(_ask, "bear", AGENT_BEAR),
+            ]):
+                key, text = future.result()
+                if text:
+                    debate[key] = text
+        return debate
 
     @staticmethod
     def _load_local_trade_evidence(stock_code: str) -> tuple[dict, list]:
