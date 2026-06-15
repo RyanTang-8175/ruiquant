@@ -416,7 +416,7 @@ class V6ScoringEngine:
             f"成交额={(quote.get('amount',0) or 0)/1e8:.1f}亿",
             f"",
             f"[{d['name']}({code}) 六维评分]",
-            f"机会分={d['total_score']}/100 | 状态={d['status_label']} | 风险={d['risk_level']}",
+            f"机会分={d['total_score']}/100 | 状态={d['status_label']} | 评级={d.get('trading_rating','持有观察')} | 风险={d['risk_level']}",
             f"热度={d['heat']['score']:.0f} | 承接={d['support']['score']:.0f} | 题材={d['theme']['score']:.0f} | 延续={d['continuation']['score']:.0f} | 策略={d['strategy_match']['score']:.0f}",
             f"",
             f"[热度明细] {result.heat.explanation}",

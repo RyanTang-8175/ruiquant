@@ -70,7 +70,7 @@ def test_ai_scene_prompt_uses_old_hand_style_and_builtin_roles():
 
     assert "先给人话结论" in prompt
     assert "我会怎么做" in prompt
-    assert "候选 / 风险 / 条件" in prompt
+    assert "候选/风险/条件" in prompt
     assert "资金纪律" in prompt
     assert "短线研究员" in prompt
     assert "风险审查员" in prompt

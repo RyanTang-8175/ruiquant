@@ -44,6 +44,7 @@ class SixDimensionResult:
     total_score: float = 50.0
     status_label: str = "可盯盘"
     risk_level: str = "中"
+    trading_rating: str = "持有观察"
 
     matched_strategies: list = field(default_factory=list)
     dimension_details: dict = field(default_factory=dict)
@@ -52,6 +53,23 @@ class SixDimensionResult:
         "heat": 0.20, "support": 0.25, "theme": 0.20,
         "continuation": 0.15, "strategy_match": 0.20,
     }
+
+    def compute_trading_rating(self) -> str:
+        """五档研究评级: 强力研究/偏重研究/持有观察/降低关注/回避"""
+        opp = self.total_score
+        risk = self.anti_quant.total_risk
+        level = self.anti_quant.risk_level
+        if level == "极高" or risk >= 71 or self.status_label in ("不建议参与", "已排除"):
+            return "回避"
+        if opp >= 72 and risk <= 35:
+            return "强力研究"
+        if opp >= 65 and risk <= 45:
+            return "偏重研究"
+        if opp >= 50 and risk <= 55:
+            return "持有观察"
+        if opp < 45 or risk > 65:
+            return "降低关注"
+        return "持有观察"
 
     def compute_total(self):
         base = (
@@ -79,6 +97,7 @@ class SixDimensionResult:
             self.status_label = "可盯盘"
 
         self.risk_level = self.anti_quant.risk_level
+        self.trading_rating = self.compute_trading_rating()
         return self.total_score
 
     def to_dict(self) -> dict:
@@ -86,6 +105,7 @@ class SixDimensionResult:
             "code": self.code, "name": self.name,
             "total_score": round(self.total_score, 1),
             "status_label": self.status_label,
+            "trading_rating": self.trading_rating,
             "risk_level": self.risk_level,
             "heat": {"score": round(self.heat.score, 1), "sub": self.heat.sub_scores},
             "support": {"score": round(self.support.score, 1), "sub": self.support.sub_scores},
