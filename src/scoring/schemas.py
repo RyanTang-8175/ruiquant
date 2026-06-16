@@ -65,8 +65,6 @@ class SixDimensionResult:
             return "强力研究"
         if opp >= 65 and risk <= 45:
             return "偏重研究"
-        if opp >= 50 and risk <= 55:
-            return "持有观察"
         if opp < 45 or risk > 65:
             return "降低关注"
         return "持有观察"
