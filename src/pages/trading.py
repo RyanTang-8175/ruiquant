@@ -3,6 +3,19 @@
 import streamlit as st
 from src.trading.engine import TradingEngine
 from src.data.realtime import get_realtime_quote
+from src.data.market_board import board_label
+
+
+def _discipline_card():
+    st.markdown(
+        '<div class="card" style="border-left:3px solid var(--amber);margin-bottom:12px">'
+        '<div style="font-weight:780;color:var(--text);font-size:15px">模拟交易纪律</div>'
+        '<div style="font-size:12px;color:var(--muted);line-height:1.55;margin-top:4px">'
+        '这里记录研究验证，不等同实盘下单。买入前应先有：最新行情/新闻证据、风险闸门、审计假设、失效条件；'
+        '默认主板优先，创业板/科创板只作为联动参考，除非你主动切换策略范围。</div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
 
 
 def render_trading_page():
@@ -12,6 +25,8 @@ def render_trading_page():
             st.error("无账户"); return
         pos = eng.get_positions()
         trd = eng.get_trades(30)
+
+    _discipline_card()
 
     # ── 资产总览 ──
     pval = 0
@@ -91,6 +106,8 @@ def render_trading_page():
                 else:
                     st.error("无行情")
         st.markdown('</div>', unsafe_allow_html=True)
+    if bc:
+        st.caption(f"板块识别：{board_label(bc)} · 买入前请确认已在研究/审计页形成证据链。")
 
     # ── 持仓 ──
     st.markdown('<div class="sec-h">持仓</div>', unsafe_allow_html=True)
@@ -113,7 +130,7 @@ def render_trading_page():
             with c1:
                 st.markdown(f"**{name}** <span style='font-size:11px;color:var(--muted)'>{code}</span>",
                             unsafe_allow_html=True)
-                st.caption(f"{qty}股 · 成本{cost:.2f} · 市值{mkt_val:,.0f} · 占比{pos_pct:.0f}%")
+                st.caption(f"{board_label(code)} · {qty}股 · 成本{cost:.2f} · 市值{mkt_val:,.0f} · 占比{pos_pct:.0f}%")
             with c2:
                 st.markdown(
                     f'<span style="font-family:var(--mono);font-size:15px;font-weight:700;color:{clr}">{price:.2f}</span>',

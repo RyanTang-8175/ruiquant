@@ -1126,21 +1126,58 @@ def test_radar_market_scope_defaults_to_main_board_candidates():
     assert {row["code"] for row in rows} == {"600900"}
 
 
+def test_a_share_board_classification_matches_current_board_names():
+    from src.data.market_board import classify_a_share_board, is_code_in_market_scope
+
+    assert classify_a_share_board("600900").board == "沪市主板"
+    assert classify_a_share_board("002475").board == "深市主板"
+    assert classify_a_share_board("003816").board == "深市主板"
+    assert classify_a_share_board("300750").board == "创业板"
+    assert classify_a_share_board("301269").board == "创业板"
+    assert classify_a_share_board("688981").board == "科创板"
+    assert classify_a_share_board("920799").board == "北交所"
+
+    assert is_code_in_market_scope("002475", "主板优先") is True
+    assert is_code_in_market_scope("300750", "主板优先") is False
+    assert is_code_in_market_scope("688981", "沪深A股") is True
+    assert is_code_in_market_scope("920799", "沪深A股") is False
+    assert is_code_in_market_scope("920799", "全A含北交所") is True
+
+
 def test_radar_market_scope_can_include_growth_and_star_but_exclude_beijing():
     from src.pages.radar import _build_candidate_pool_rows
 
     rows = _build_candidate_pool_rows(
         scored_results=[],
         ifind_rows=[
-            {"code": "430047", "name": "北交所样本"},
+            {"code": "920799", "name": "北交所样本"},
             {"code": "300750", "name": "宁德时代"},
             {"code": "688981", "name": "中芯国际"},
+            {"code": "002475", "name": "立讯精密"},
             {"code": "600900", "name": "长江电力"},
         ],
         market_scope="沪深A股",
     )
 
-    assert {row["code"] for row in rows} == {"300750", "688981", "600900"}
+    assert {row["code"] for row in rows} == {"300750", "688981", "002475", "600900"}
+
+
+def test_market_page_board_filter_uses_shared_board_classifier():
+    from src.pages.market import _filter_stocks_by_board
+
+    stocks = [
+        {"code": "600900", "name": "长江电力"},
+        {"code": "002475", "name": "立讯精密"},
+        {"code": "300750", "name": "宁德时代"},
+        {"code": "688981", "name": "中芯国际"},
+        {"code": "920799", "name": "北交所样本"},
+    ]
+
+    assert [s["code"] for s in _filter_stocks_by_board(stocks, "沪市主板")] == ["600900"]
+    assert [s["code"] for s in _filter_stocks_by_board(stocks, "深市主板")] == ["002475"]
+    assert [s["code"] for s in _filter_stocks_by_board(stocks, "创业板")] == ["300750"]
+    assert [s["code"] for s in _filter_stocks_by_board(stocks, "科创板")] == ["688981"]
+    assert [s["code"] for s in _filter_stocks_by_board(stocks, "北交所")] == ["920799"]
 
 
 def test_radar_candidate_pool_can_attach_latest_news_evidence():
@@ -1719,6 +1756,41 @@ def test_conversation_memory_indexes_threads_and_search(tmp_path, monkeypatch):
     assert threads[0]["stock_code"] == "600900"
     assert any("均价线" in row["content"] for row in stock_rows)
     assert len(search_rows) >= 2
+
+
+def test_ai_page_can_render_opened_memory_session_pairs():
+    from src.pages.ai_chat import _session_messages_to_pairs
+
+    messages = [
+        {
+            "id": 1,
+            "role": "user",
+            "content": "今天主板有什么股票可以研究",
+            "stock_code": "",
+            "created_at": "2026-06-27T09:30:00",
+        },
+        {
+            "id": 2,
+            "role": "assistant",
+            "content": "主板优先，只能基于最新新闻和风险条件给候选。",
+            "stock_code": "",
+            "tools_used": ["get_market_snapshot"],
+            "created_at": "2026-06-27T09:31:00",
+        },
+    ]
+
+    pairs = _session_messages_to_pairs(messages)
+
+    assert pairs == [
+        {
+            "question": "今天主板有什么股票可以研究",
+            "answer": "主板优先，只能基于最新新闻和风险条件给候选。",
+            "timestamp": "2026-06-27T09:31:00",
+            "tools_used": ["get_market_snapshot"],
+            "stock_code": "",
+            "session_id": None,
+        }
+    ]
 
 
 def test_verification_backfill_stays_partial_until_required_days(tmp_path, monkeypatch):

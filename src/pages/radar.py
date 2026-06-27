@@ -7,6 +7,12 @@ from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
 
+from src.data.market_board import (
+    board_label,
+    classify_a_share_board,
+    is_code_in_market_scope,
+)
+
 
 def render_radar_page():
     now = datetime.now()
@@ -212,25 +218,12 @@ def _fetch_ifind_candidate_rows(nl_query: str = "") -> list[dict]:
 
 
 def _market_scope_label(code: str) -> str:
-    code = str(code or "")[:6]
-    if code.startswith(("8", "4")):
-        return "北交所"
-    if code.startswith(("688", "689")):
-        return "科创板"
-    if code.startswith(("300", "301")):
-        return "创业板"
-    if code.startswith(("600", "601", "603", "605", "000", "001", "002", "003")):
-        return "主板"
-    return "其他"
+    info = classify_a_share_board(code)
+    return info.scope if info.scope != "未知" else "其他"
 
 
 def _is_code_in_market_scope(code: str, market_scope: str) -> bool:
-    label = _market_scope_label(code)
-    if market_scope == "全A含北交所":
-        return label in {"主板", "创业板", "科创板", "北交所"}
-    if market_scope in {"沪深A股", "中国A股"}:
-        return label in {"主板", "创业板", "科创板"}
-    return label == "主板"
+    return is_code_in_market_scope(code, market_scope)
 
 
 def _attach_latest_news_evidence(rows: list[dict], news_fetcher=None, limit: int = 3) -> list[dict]:
@@ -286,7 +279,7 @@ def _build_candidate_pool_rows(scored_results: list, ifind_rows: list, market_sc
             "code": code,
             "name": name,
             "market_scope": market_scope,
-            "board": _market_scope_label(code),
+            "board": board_label(code),
             "price": float(stock.get("price") or 0),
             "change_pct": float(stock.get("change_pct") or 0),
             "legacy_score": round(legacy_score, 1),
@@ -332,7 +325,7 @@ def _build_candidate_pool_rows(scored_results: list, ifind_rows: list, market_sc
             "code": code,
             "name": name,
             "market_scope": market_scope,
-            "board": _market_scope_label(code),
+            "board": board_label(code),
             "price": float(raw.get("price") or 0),
             "change_pct": float(raw.get("change_pct") or 0),
             "legacy_score": 0.0,
@@ -393,7 +386,7 @@ def _render_candidate_pool_card(row: dict, index: int = 0):
     source = html.escape(str(row.get("score_source", "")))
     chain = " · ".join(row.get("source_chain") or [])
     market_scope = html.escape(str(row.get("market_scope") or "主板优先"))
-    board = html.escape(str(row.get("board") or _market_scope_label(code)))
+    board = html.escape(str(row.get("board") or board_label(code)))
     reason = html.escape(str(row.get("reason", ""))[:180])
     news_title = html.escape(str(row.get("latest_news_title") or ""))
     news_source = html.escape(str(row.get("latest_news_source") or ""))

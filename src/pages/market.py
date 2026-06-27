@@ -4,6 +4,7 @@ import streamlit as st
 from datetime import datetime
 from src.data.realtime import get_top_stocks, get_market_overview
 from src.data.quality import get_quality_badge, fmt_freshness, render_quality_html, FALLBACK_WARNING
+from src.data.market_board import BOARD_FILTERS, board_label, is_code_in_board_filter
 
 
 def _c(v):
@@ -56,6 +57,10 @@ def _sentiment_bar(stocks_up: list, stocks_dn: list):
     )
 
 
+def _filter_stocks_by_board(stocks: list[dict], board_filter: str) -> list[dict]:
+    return [s for s in stocks or [] if is_code_in_board_filter(s.get("code", ""), board_filter)]
+
+
 def render_market_page():
     # ── 全局模糊搜索 ──
     from src.ui.search import render_search_bar
@@ -103,12 +108,36 @@ def render_market_page():
         if st.button("刷新", key="mkt_refresh", use_container_width=True):
             st.rerun()
 
+    st.session_state.setdefault("market_board_filter", "全A")
+    st.markdown('<div class="sec-h">板块行情</div>', unsafe_allow_html=True)
+    board_cols = st.columns(3)
+    for idx, option in enumerate(BOARD_FILTERS):
+        with board_cols[idx % 3]:
+            if st.button(
+                option,
+                key=f"market_board_{option}",
+                use_container_width=True,
+                type="primary" if st.session_state["market_board_filter"] == option else "secondary",
+            ):
+                st.session_state["market_board_filter"] = option
+                st.rerun()
+    board_filter = st.session_state["market_board_filter"]
+    st.caption(
+        "行情榜单按板块过滤；默认全A。主板拆成沪市主板/深市主板，创业板、科创板、北交所独立查看。"
+    )
+
     # ── 四大榜单（一次性获取，避免重复消耗额度）──
     with st.spinner("加载榜单..."):
         stocks_up = get_top_stocks("changepercent", False, 20)
         stocks_dn = get_top_stocks("changepercent", True, 20)
         stocks_amt = get_top_stocks("amount", False, 20)
         stocks_tr = get_top_stocks("turnoverratio", False, 20)
+
+    if board_filter != "全A":
+        stocks_up = _filter_stocks_by_board(stocks_up, board_filter)
+        stocks_dn = _filter_stocks_by_board(stocks_dn, board_filter)
+        stocks_amt = _filter_stocks_by_board(stocks_amt, board_filter)
+        stocks_tr = _filter_stocks_by_board(stocks_tr, board_filter)
 
     # ── 情绪条（用已获取数据，不额外调用）──
     if stocks_up or stocks_dn:
@@ -127,6 +156,7 @@ def render_market_page():
             cl = _c(p)
             nm = s.get("name") or s.get("code", "")
             cd = s.get("code", "")
+            bd = board_label(cd)
             pr = s.get("price", 0) or 0
             amt = s.get("amount", 0) or 0
             q_html = render_quality_html(s)
@@ -146,6 +176,7 @@ def render_market_page():
                 f'<div style="color:var(--muted);font-family:var(--mono);font-size:12px;width:24px;text-align:center">{i+1}</div>'
                 f'<div class="inf"><div><span class="nm">{nm}</span>{limit_tag}</div>'
                 f'<div><span class="cd">{cd}</span>'
+                f'<span style="font-size:10px;color:var(--muted);margin-left:4px">{bd}</span>'
                 f'{amt_span}'
                 f' {q_html}</div></div>'
                 f'<div style="text-align:right">'

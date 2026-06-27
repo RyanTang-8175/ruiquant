@@ -126,7 +126,8 @@ def _system_monitor():
         from src.ai.chat import AIChat
         ais = AIChat.provider_status()
         a1, a2, a3 = st.columns(3)
-        a1.metric("主模型", "DeepSeek ✓" if ais.get("ready") else "离线",
+        provider = ais.get("provider") or "OpenAI兼容"
+        a1.metric("主模型", f"{provider} ✓" if ais.get("ready") else "离线",
                   ais.get("model", "-"))
         from src.config import MIMO_API_KEY, MIMO_BASE_URL, MIMO_MODEL
         a2.metric("备选模型", "Mimo ✓" if (MIMO_API_KEY and MIMO_BASE_URL and MIMO_MODEL) else "未配置")

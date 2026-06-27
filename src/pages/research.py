@@ -10,6 +10,7 @@ import streamlit as st
 
 from src.research.harness import ResearchHarness
 from src.scoring.evidence import IFindEvidenceScorer
+from src.data.market_board import board_label, board_scope_note
 
 
 def render_research_page():
@@ -138,6 +139,7 @@ def _header(research: dict, score: dict):
     quote = (research.get("evidence") or {}).get("行情") or {}
     name = quote.get("name") or research.get("code", "")
     code = research.get("code", "")
+    board = board_label(code)
     price = float(quote.get("price") or 0.0)
     chg = float(quote.get("change_pct") or 0.0)
     color = "var(--red)" if chg > 0 else "var(--green)" if chg < 0 else "var(--muted)"
@@ -146,7 +148,7 @@ def _header(research: dict, score: dict):
         f'<div style="display:flex;justify-content:space-between;gap:16px;align-items:flex-start">'
         f'<div style="flex:1">'
         f'<div style="font-size:20px;font-weight:800;color:var(--text)">{html.escape(str(name))}</div>'
-        f'<div style="font-size:11px;color:var(--muted);font-family:var(--mono)">{html.escape(str(code))}</div>'
+        f'<div style="font-size:11px;color:var(--muted);font-family:var(--mono)">{html.escape(str(code))} · {html.escape(board)}</div>'
         f'<div style="margin-top:6px">'
         f'<span class="badge badge-ai">机会 {score.get("opportunity_score", 0):.0f}</span> '
         f'<span class="badge" style="color:var(--red);border-color:var(--red)">风险 {score.get("risk_score", 0):.0f}</span> '
@@ -162,6 +164,7 @@ def _header(research: dict, score: dict):
         f'</div>',
         unsafe_allow_html=True,
     )
+    st.caption(board_scope_note(st.session_state.get("radar_candidate_scope", "主板优先")))
 
 
 def _summary_cards(summary_cards: list, research: dict):

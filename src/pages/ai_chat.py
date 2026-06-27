@@ -88,6 +88,9 @@ def render_ai_chat_page():
             unsafe_allow_html=True)
 
     _render_memory_panel(selected_code)
+    opened_history = _opened_session_history()
+    if opened_history:
+        history = opened_history
 
     # ── 快捷任务 ──
     st.markdown('<div class="sec-h">研究模板</div>', unsafe_allow_html=True)
@@ -307,6 +310,7 @@ def _memory_row(row: dict, prefix: str):
     role = row.get("last_role") or row.get("role") or ""
     stock = row.get("stock_code") or ""
     ts = str(row.get("updated_at") or row.get("created_at") or "")[:16]
+    session_id = row.get("session_id") or row.get("id")
     label = "用户" if role == "user" else "AI" if role == "assistant" else role
     title = content[:90] or row.get("title") or "空会话"
     st.markdown(
@@ -317,9 +321,61 @@ def _memory_row(row: dict, prefix: str):
         f'</div></div>',
         unsafe_allow_html=True,
     )
-    if content and st.button("带入追问", key=f"mem_{prefix}_{row.get('id', row.get('session_id'))}", use_container_width=True):
-        st.session_state["qq"] = f"基于这条历史记录继续分析：{content[:800]}"
-        st.session_state['_nav_pending'] = True
+    c1, c2 = st.columns(2)
+    with c1:
+        if session_id and st.button("打开会话", key=f"open_mem_{prefix}_{session_id}", use_container_width=True):
+            st.session_state["ai_open_session_id"] = int(session_id)
+            st.session_state['_nav_pending'] = True
+    with c2:
+        if content and st.button("带入追问", key=f"mem_{prefix}_{session_id}", use_container_width=True):
+            st.session_state["qq"] = f"基于这条历史记录继续分析：{content[:800]}"
+            st.session_state['_nav_pending'] = True
+
+
+def _session_messages_to_pairs(messages: list[dict]) -> list[dict]:
+    pairs = []
+    last_user = None
+    for msg in messages or []:
+        if msg.get("role") == "user":
+            last_user = msg
+        elif msg.get("role") == "assistant" and last_user:
+            pairs.append({
+                "question": last_user.get("content", ""),
+                "answer": msg.get("content", ""),
+                "timestamp": msg.get("created_at", ""),
+                "tools_used": msg.get("tools_used") or [],
+                "stock_code": msg.get("stock_code") or last_user.get("stock_code") or "",
+                "session_id": msg.get("session_id") or last_user.get("session_id"),
+            })
+            last_user = None
+    return pairs
+
+
+def _opened_session_history() -> list[dict]:
+    session_id = st.session_state.get("ai_open_session_id")
+    if not session_id:
+        return []
+    try:
+        from src.memory.conversation_memory import ConversationMemory
+        memory = ConversationMemory()
+        try:
+            messages = memory.get_session_messages(int(session_id), limit=80)
+        finally:
+            memory.close()
+    except Exception as exc:
+        st.caption(f"打开历史会话失败: {exc}")
+        return []
+    pairs = _session_messages_to_pairs(messages)
+    c1, c2 = st.columns([3, 1])
+    with c1:
+        st.markdown('<div class="sec-h">已打开历史会话</div>', unsafe_allow_html=True)
+    with c2:
+        if st.button("关闭历史", key="close_open_session", use_container_width=True):
+            st.session_state.pop("ai_open_session_id", None)
+            st.session_state['_nav_pending'] = True
+    if not pairs:
+        st.caption("这条会话还没有完整问答。")
+    return pairs
 
 
 def _memory_count() -> int:
