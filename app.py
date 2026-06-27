@@ -621,18 +621,19 @@ st.session_state.setdefault("current_page", "market")
 st.session_state.setdefault("selected_stock", "")
 
 TABS = [
-    ("market", "行情", "📈"),
-    ("radar", "雷达", "🛡"),
-    ("research", "研究", "▣"),
-    ("ai_chat", "AI", "◇"),
-    ("lab", "审计", "✓"),
-    ("profile", "我的", "⚙"),
+    ("market",   "行情", "📈"),
+    ("radar",    "雷达", "🎯"),
+    ("research", "研究", "📋"),
+    ("ai_chat",  "AI",   "💬"),
+    ("lab",      "审计", "📊"),
+    ("trading",  "交易", "💹"),
+    ("profile",  "我的", "⚙"),
 ]
 cur = st.session_state["current_page"]
 st.session_state.setdefault("_last_page", cur)
 
 _tab_ids = [pid for pid, _, _ in TABS]
-_labels = {pid: label for pid, label, icon in TABS}
+_labels = {pid: label for pid, label, _ in TABS}
 nav_state = resolve_main_navigation(
     current_page=cur,
     selected_nav=st.session_state.get("main_nav"),
@@ -652,13 +653,14 @@ if nav_state["show_main_nav"]:
     if selected_nav and selected_nav != cur:
         if st.session_state.get("_last_page") == "ai_chat" and selected_nav != "ai_chat":
             st.session_state.pop("qq", None)
-            st.session_state.pop("ai_pending_prompt", None)
         st.session_state["current_page"] = selected_nav
         st.session_state["_last_page"] = selected_nav
         st.session_state["_last_nav_page"] = selected_nav
-        st.rerun()
+        st.session_state["_nav_pending"] = True
+elif st.session_state.pop("_nav_pending", False):
+    st.rerun()
 else:
-    st.caption(f"当前子页：{cur} · 可用底部返回键回到上一页")
+    st.caption(f"子页:{cur} — 点导航回主页")
 
 # ═══════════════════════════════════════════
 # Page routing

@@ -8,7 +8,7 @@ from __future__ import annotations
 from typing import Iterable
 
 
-TRANSIENT_PAGES = {"stock_detail", "trading"}
+TRANSIENT_PAGES = {"stock_detail"}
 
 
 def resolve_main_navigation(

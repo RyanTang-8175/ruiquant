@@ -17,12 +17,10 @@ def compute_regime(daily_bars: list = None, quote: dict = None) -> dict:
     for i in range(1, min(len(closes), n + 5)):
         tr = max(highs[i] - lows[i], abs(highs[i] - closes[i-1]), abs(lows[i] - closes[i-1]))
         tr_list.append(tr)
-        up = highs[i] - highs[i-1] if highs[i] > highs[i-1] and up > 0 else 0 if 'up' in dir() else 0
-        if i == 1:
-            up = max(highs[i] - highs[i-1], 0)
-        else:
-            up = highs[i] - highs[i-1] if highs[i] > highs[i-1] else 0
-        down = lows[i-1] - lows[i] if lows[i-1] > lows[i] else 0
+        up_move = highs[i] - highs[i-1]
+        down_move = lows[i-1] - lows[i]
+        up = up_move if up_move > 0 else 0
+        down = down_move if down_move > 0 else 0
         plus_dm.append(up if up > down else 0)
         minus_dm.append(down if down > up else 0)
 

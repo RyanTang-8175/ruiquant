@@ -22,7 +22,7 @@ def render_radar_page():
         st.session_state["selected_stock"] = code
         st.session_state["previous_page"] = "radar"
         st.session_state["current_page"] = "stock_detail"
-        st.rerun()
+        st.session_state["_nav_pending"] = True
 
     # ── 环境 ──
     from src.data.realtime import get_market_overview
