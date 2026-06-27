@@ -42,6 +42,30 @@ def render_lab_page():
         _system_monitor()
 
 
+def _risk_banner():
+    try:
+        from src.risk.user_state import get_user_risk_state
+
+        state = get_user_risk_state()
+        mode = state.get("mode", "normal")
+        color = {
+            "cooldown": "var(--red)",
+            "caution": "var(--amber)",
+            "normal": "var(--green)",
+        }.get(mode, "var(--muted)")
+        reasons = "；".join(state.get("reasons", [])[:3])
+        st.markdown(
+            f'<div class="card" style="border-left:3px solid {color};margin-bottom:10px">'
+            f'<div style="font-weight:750;color:var(--text);font-size:15px">执行状态：{mode} · 风险分 {state.get("score", 0)}</div>'
+            f'<div style="font-size:12px;color:var(--muted);line-height:1.55;margin-top:4px">{state.get("action_policy", "")}</div>'
+            f'<div style="font-size:12px;color:var(--muted);line-height:1.55;margin-top:4px">{reasons}</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+    except Exception:
+        pass
+
+
 def _system_monitor():
     """量化系统监控: 数据延迟/信号频率/持仓一致性/API健康"""
     st.markdown('<div class="page-kicker">实时监控数据管线、信号生成和系统健康状态。异常早发现，问题早介入。</div>', unsafe_allow_html=True)
