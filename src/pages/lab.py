@@ -163,6 +163,95 @@ def _stats_bar():
     except Exception as exc:
         st.info(f"研究审计数据库暂不可用: {exc}")
 
+    # ── 策略标准化评估 ──
+    if st.button("运行策略评估（夏普/回撤/VaR）", use_container_width=True, key="run_strategy_eval"):
+        _strategy_evaluator()
+
+
+def _strategy_evaluator():
+    """策略标准化评估: 基于审计回填数据批量计算夏普/最大回撤/VaR/Sortino"""
+    import math
+    try:
+        from src.memory.analysis_memory import AnalysisMemory
+        with AnalysisMemory() as memory:
+            rows = memory.get_verification_results()
+        if not rows:
+            st.info("暂无已完成审计的记录")
+            return
+
+        # 收集所有 T+1 收益
+        returns = []
+        for row in rows:
+            for bf in row.get("backfills") or []:
+                r = bf.get("hold_1d")
+                if r is not None:
+                    returns.append(float(r))
+
+        if len(returns) < 3:
+            st.info(f"数据不足（{len(returns)}条），至少需要3条")
+            return
+
+        n = len(returns)
+        avg_r = sum(returns) / n
+        std_r = (sum((x - avg_r) ** 2 for x in returns) / (n - 1)) ** 0.5 if n > 1 else 0
+
+        # Sharpe (假设无风险利率=0.02/252)
+        rf_daily = 0.02 / 252
+        sharpe = (avg_r / 100 - rf_daily) / (std_r / 100) * math.sqrt(252) if std_r > 0 else 0
+
+        # Sortino
+        downside = [min(x - 0, 0) for x in returns]
+        downside_std = (sum(d ** 2 for d in downside) / n) ** 0.5 if n > 0 else 0.01
+        sortino = (avg_r / 100 - rf_daily) / (downside_std / 100) * math.sqrt(252) if downside_std > 0.01 else 0
+
+        # Max Drawdown
+        peak = valley = cum = 0
+        max_dd = 0
+        for r in returns:
+            cum += r / 100
+            if cum > peak:
+                peak = cum
+            dd = (peak - cum) / (1 + peak) if peak > 0 else 0
+            if dd > max_dd:
+                max_dd = dd
+
+        # VaR 95%
+        sorted_r = sorted(returns)
+        var_idx = max(0, int(n * 0.05))
+        var95 = sorted_r[var_idx]
+
+        # 胜率
+        wins = sum(1 for r in returns if r > 0)
+        win_rate = wins / n * 100
+
+        # 显示
+        ev1, ev2, ev3, ev4, ev5, ev6 = st.columns(6)
+        ev1.metric("样本数", n)
+        ev2.metric("平均收益", f"{avg_r:+.2f}%")
+        ev3.metric("夏普比率", f"{sharpe:.2f}")
+        ev4.metric("最大回撤", f"{max_dd*100:.1f}%")
+        ev5.metric("VaR(95%)", f"{var95:+.2f}%")
+        ev6.metric("胜率", f"{win_rate:.0f}%")
+
+        st.caption(
+            f"Sortino比率 {sortino:.2f} ｜ 日标准差 {std_r:.2f}% ｜ "
+            f"无风险利率 2%年化 ｜ 基于 {n} 条 T+1 审计记录"
+        )
+
+        # 白话解读
+        if sharpe >= 1.5:
+            advice = "优秀——夏普>1.5说明策略在承担单位风险后获得了显著超额回报。但样本量不足时仍需谨慎。"
+        elif sharpe >= 1.0:
+            advice = "良好——夏普>1.0说明策略的风险调整收益合理。持续监控样本量增加后的变化。"
+        elif sharpe >= 0.5:
+            advice = "一般——夏普0.5~1.0，策略有正向预期但波动较大。检查是否有特定时期拖累。"
+        else:
+            advice = "偏低——夏普<0.5，策略可能不具备稳定超额。不要急于扩大仓位，先复盘失败记录。"
+        st.info(f"📊 {advice}")
+
+    except Exception as exc:
+        st.warning(f"策略评估暂不可用: {exc}")
+
 
 def _create_plan():
     st.markdown('<div class="page-kicker">手动补录只用于你自己临时想到的假设。AI 分析会自动进入研究审计，不需要手动复制。</div>', unsafe_allow_html=True)

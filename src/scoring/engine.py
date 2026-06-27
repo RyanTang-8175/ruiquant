@@ -17,6 +17,7 @@ from src.scoring.theme import compute_theme
 from src.scoring.continuation import compute_continuation
 from src.scoring.anti_quant import compute_anti_quant
 from src.scoring.strategy_match import compute_strategy_match
+from src.scoring.fund_flow import compute_fund_flow
 
 logger = logging.getLogger(__name__)
 
@@ -297,6 +298,9 @@ class V6ScoringEngine:
             sub_scores=sm["sub_scores"], explanation=sm["explanation"])
         result.matched_strategies = sm.get("matched_strategies", [])
 
+        # 资金流因子 (Block I): 量价协同+背离+成交额强度+换手率+K线趋势
+        ff = compute_fund_flow(quote, daily_bars)
+
         aq = compute_anti_quant(quote, intraday_bars, daily_bars, sector_data)
         result.anti_quant.total_risk = aq["total_risk"]
         result.anti_quant.risk_level = aq["risk_level"]
@@ -309,7 +313,7 @@ class V6ScoringEngine:
         result.anti_quant.sector_divergence = aq.get("sector_divergence", {})
 
         result.compute_total()
-        result.dimension_details = {"heat":h,"support":s,"theme":t,"continuation":c,"strategy_match":sm,"anti_quant":aq}
+        result.dimension_details = {"heat":h,"support":s,"theme":t,"continuation":c,"strategy_match":sm,"fund_flow":ff,"anti_quant":aq}
         self._save_score(result)
         self._save_anti_quant(result, aq)
         return result
@@ -428,6 +432,8 @@ class V6ScoringEngine:
             f"[触发项] {' | '.join(anti['triggers'][:5]) if anti.get('triggers') else '无'}",
             f"",
             f"[K线] {kline_text}",
+            f"[资金流] 评分={d.get('fund_flow',{}).get('score',0):.0f} 方向={d.get('fund_flow',{}).get('direction','未知')}",
+            f"[资金流明细] {d.get('fund_flow',{}).get('explanation','')}",
         ]
 
         if d.get('matched_strategies'):

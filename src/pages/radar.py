@@ -97,13 +97,20 @@ def _show_recommendation_candidate_pool():
 
     st.session_state.setdefault("radar_candidate_scope", "中国A股")
 
+    # 自然语言搜索框: 输入行业/概念/关键词直接查iFinD
+    nl_search = st.text_input("自然语言搜索", placeholder="新能源车 / 高股息 / 芯片 / AI",
+                               help="用日常语言搜索,自动翻译为iFinD查询词", key="radar_nl_query")
+    if nl_search:
+        st.session_state["radar_nl_query_text"] = nl_search
+        st.session_state["radar_candidate_ifind"] = _fetch_ifind_candidate_rows(nl_search)
+
     c1, c2, c3 = st.columns([1, 1, 2])
     with c1:
         refresh_public = st.button("刷新公开候选", key="candidate_refresh_public", use_container_width=True)
     with c2:
         enhance_ifind = st.button("iFinD增强候选", key="candidate_ifind_enhance", use_container_width=True)
     with c3:
-        st.caption("iFinD 增强采用单次智能选股查询并缓存到当前页面，会标注来源与置信度。")
+        st.caption("也可以用上方搜索框写日常语言(如新能源车),回车即搜。")
 
     if refresh_public or "radar_candidate_scored" not in st.session_state:
         with st.spinner("生成 A 股公开源候选…"):
@@ -142,7 +149,7 @@ def _show_recommendation_candidate_pool():
         _render_candidate_pool_card(row, index=idx)
 
 
-def _fetch_ifind_candidate_rows() -> list[dict]:
+def _fetch_ifind_candidate_rows(nl_query: str = "") -> list[dict]:
     try:
         from src.data.providers.registry import get_provider, provider_status
 
@@ -151,6 +158,29 @@ def _fetch_ifind_candidate_rows() -> list[dict]:
         if provider.source_name != "ifind" or not status.get("ready"):
             st.warning("iFinD 未就绪，候选池保持公开源评分。")
             return []
+
+        nl = (nl_query or "").strip()
+        if nl:
+            mapping = {
+                "新能源车": "新能源汽车 产业链 业绩增长 非ST",
+                "新能源": "新能源 光伏 风电 储能 业绩增长 非ST",
+                "高股息": "高股息 分红 股息率 低估值 非ST",
+                "芯片": "半导体 芯片 集成电路 国产替代 业绩增长 非ST",
+                "半导体": "半导体 芯片 集成电路 国产替代 业绩增长 非ST",
+                "电力": "电力 火电 水电 风电 光伏 非ST",
+                "医药": "医药 创新药 医疗器械 非ST",
+                "消费": "消费 食品饮料 白酒 家电 非ST",
+                "军工": "军工 航空航天 国防 国企改革 非ST",
+                "AI": "人工智能 AI 算力 大模型 非ST",
+                "人工智能": "人工智能 AI 算力 大模型 非ST",
+                "机器人": "机器人 自动化 智能制造 非ST",
+            }
+            for key, val in mapping.items():
+                if key in nl:
+                    return provider.smart_stock_picking(val, limit=12) or []
+            query = f"{nl} 非ST 非退市 业绩增长"
+            return provider.smart_stock_picking(query, limit=12) or []
+
         query = "中国A股 主力资金流入 换手活跃 非ST 非退市 业绩增长"
         return provider.smart_stock_picking(query, limit=12) or []
     except Exception as exc:
