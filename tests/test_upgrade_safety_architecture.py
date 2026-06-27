@@ -1675,6 +1675,20 @@ def test_prompt_explains_three_scores_for_beginner():
     assert "get_positions" in prompt
 
 
+def test_ai_prompt_allows_conditional_recommendations_with_news_and_market_scope():
+    from src.ai.chat import AIChat
+
+    prompt = AIChat.build_system_prompt("sector_scan", "主板里今天有什么股票可以看")
+
+    assert "可以给推荐" in prompt
+    assert "最新新闻" in prompt
+    assert "公告" in prompt
+    assert "主板优先" in prompt
+    assert "创业板/科创板" in prompt
+    assert "情绪和产业链传导参考" in prompt
+    assert "风险经理" in prompt
+
+
 def test_conversation_memory_indexes_threads_and_search(tmp_path, monkeypatch):
     db_path = tmp_path / "memory.db"
     monkeypatch.setenv("DATABASE_PATH", str(db_path))
