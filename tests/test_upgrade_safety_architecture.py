@@ -1073,6 +1073,97 @@ def test_radar_candidate_pool_risk_gate_pushes_high_risk_below_safer_candidate()
     assert rows[1]["risk_gate"] == "回避"
 
 
+def test_radar_market_scope_defaults_to_main_board_candidates():
+    from src.pages.radar import _build_candidate_pool_rows
+
+    bj_result = SimpleNamespace(
+        code="830799",
+        name="北交所样本",
+        total_score=80,
+        status_label="高热度",
+        anti_quant=SimpleNamespace(total_risk=20, risk_level="低", triggers=[]),
+        heat=SimpleNamespace(score=80),
+        support=SimpleNamespace(score=80),
+        theme=SimpleNamespace(score=80),
+        continuation=SimpleNamespace(score=80),
+        strategy_match=SimpleNamespace(score=80),
+    )
+    star_result = SimpleNamespace(
+        code="688981",
+        name="中芯国际",
+        total_score=82,
+        status_label="科创参考",
+        anti_quant=SimpleNamespace(total_risk=22, risk_level="低", triggers=[]),
+        heat=SimpleNamespace(score=82),
+        support=SimpleNamespace(score=82),
+        theme=SimpleNamespace(score=82),
+        continuation=SimpleNamespace(score=82),
+        strategy_match=SimpleNamespace(score=82),
+    )
+    sh_result = SimpleNamespace(
+        code="600900",
+        name="长江电力",
+        total_score=60,
+        status_label="等待确认",
+        anti_quant=SimpleNamespace(total_risk=25, risk_level="低", triggers=[]),
+        heat=SimpleNamespace(score=60),
+        support=SimpleNamespace(score=60),
+        theme=SimpleNamespace(score=60),
+        continuation=SimpleNamespace(score=60),
+        strategy_match=SimpleNamespace(score=60),
+    )
+
+    rows = _build_candidate_pool_rows(
+        scored_results=[
+            ({"code": "830799", "name": "北交所样本"}, bj_result),
+            ({"code": "688981", "name": "中芯国际"}, star_result),
+            ({"code": "600900", "name": "长江电力"}, sh_result),
+        ],
+        ifind_rows=[{"code": "430047", "name": "北交所iFinD样本"}, {"code": "300750", "name": "宁德时代"}],
+        market_scope="主板优先",
+    )
+
+    assert {row["code"] for row in rows} == {"600900"}
+
+
+def test_radar_market_scope_can_include_growth_and_star_but_exclude_beijing():
+    from src.pages.radar import _build_candidate_pool_rows
+
+    rows = _build_candidate_pool_rows(
+        scored_results=[],
+        ifind_rows=[
+            {"code": "430047", "name": "北交所样本"},
+            {"code": "300750", "name": "宁德时代"},
+            {"code": "688981", "name": "中芯国际"},
+            {"code": "600900", "name": "长江电力"},
+        ],
+        market_scope="沪深A股",
+    )
+
+    assert {row["code"] for row in rows} == {"300750", "688981", "600900"}
+
+
+def test_radar_candidate_pool_can_attach_latest_news_evidence():
+    from src.pages.radar import _attach_latest_news_evidence
+
+    rows = [{"code": "600900", "name": "长江电力", "source_chain": ["公开行情"], "confidence": "中"}]
+
+    def fake_fetcher(code, limit=3):
+        assert code == "600900"
+        return {
+            "items": [
+                {"title": "长江电力发布重大投资公告", "source": "公告", "published_at": "2026-06-27 09:30:00"},
+            ]
+        }
+
+    enriched = _attach_latest_news_evidence(rows, news_fetcher=fake_fetcher)
+
+    assert enriched[0]["latest_news_title"] == "长江电力发布重大投资公告"
+    assert enriched[0]["latest_news_source"] == "公告"
+    assert enriched[0]["news_freshness"] == "有最新证据"
+    assert "最新新闻" in enriched[0]["source_chain"]
+
+
 def test_ai_chat_marks_placeholder_key_as_not_ready(monkeypatch):
     from src.ai.chat import AIChat
 

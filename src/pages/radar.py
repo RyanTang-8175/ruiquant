@@ -95,7 +95,7 @@ def _show_recommendation_candidate_pool():
         unsafe_allow_html=True,
     )
 
-    st.session_state.setdefault("radar_candidate_scope", "中国A股")
+    st.session_state.setdefault("radar_candidate_scope", "主板优先")
 
     # 自然语言搜索框: 输入行业/概念/关键词直接查iFinD
     nl_search = st.text_input("自然语言搜索", placeholder="新能源车 / 高股息 / 芯片 / AI",
@@ -104,13 +104,28 @@ def _show_recommendation_candidate_pool():
         st.session_state["radar_nl_query_text"] = nl_search
         st.session_state["radar_candidate_ifind"] = _fetch_ifind_candidate_rows(nl_search)
 
-    c1, c2, c3 = st.columns([1, 1, 2])
+    scope_options = ["主板优先", "沪深A股", "全A含北交所"]
+    scope_cols = st.columns(3)
+    for idx, option in enumerate(scope_options):
+        with scope_cols[idx]:
+            if st.button(
+                option,
+                key=f"candidate_scope_{idx}",
+                use_container_width=True,
+                type="primary" if st.session_state["radar_candidate_scope"] == option else "secondary",
+            ):
+                st.session_state["radar_candidate_scope"] = option
+                st.session_state["_nav_pending"] = True
+
+    c1, c2, c3, c4 = st.columns([1, 1, 1, 2])
     with c1:
         refresh_public = st.button("刷新公开候选", key="candidate_refresh_public", use_container_width=True)
     with c2:
         enhance_ifind = st.button("iFinD增强候选", key="candidate_ifind_enhance", use_container_width=True)
     with c3:
-        st.caption("也可以用上方搜索框写日常语言(如新能源车),回车即搜。")
+        enrich_news = st.button("补最新新闻", key="candidate_news_enrich", use_container_width=True)
+    with c4:
+        st.caption("默认只推荐主板可参与标的；创业/科创仍作为情绪和产业链带动参考。")
 
     if refresh_public or "radar_candidate_scored" not in st.session_state:
         with st.spinner("生成 A 股公开源候选…"):
@@ -126,7 +141,15 @@ def _show_recommendation_candidate_pool():
 
     scored = st.session_state.get("radar_candidate_scored") or []
     ifind_rows = st.session_state.get("radar_candidate_ifind") or []
-    rows = _build_candidate_pool_rows(scored, ifind_rows, market_scope="中国A股")
+    market_scope = st.session_state.get("radar_candidate_scope", "主板优先")
+    rows = _build_candidate_pool_rows(scored, ifind_rows, market_scope=market_scope)
+    if enrich_news:
+        with st.spinner("抓取候选最新新闻与公告…"):
+            rows = _attach_latest_news_evidence(rows)
+            st.session_state["radar_candidate_news_rows"] = rows
+    elif st.session_state.get("radar_candidate_news_rows"):
+        news_by_code = {row.get("code"): row for row in st.session_state.get("radar_candidate_news_rows", [])}
+        rows = [news_by_code.get(row.get("code"), row) for row in rows]
 
     if not rows:
         st.info("暂时没有生成候选。你可以点击“刷新公开候选”，或配置 iFinD 后点击“iFinD增强候选”。")
@@ -188,6 +211,59 @@ def _fetch_ifind_candidate_rows(nl_query: str = "") -> list[dict]:
         return []
 
 
+def _market_scope_label(code: str) -> str:
+    code = str(code or "")[:6]
+    if code.startswith(("8", "4")):
+        return "北交所"
+    if code.startswith(("688", "689")):
+        return "科创板"
+    if code.startswith(("300", "301")):
+        return "创业板"
+    if code.startswith(("600", "601", "603", "605", "000", "001", "002", "003")):
+        return "主板"
+    return "其他"
+
+
+def _is_code_in_market_scope(code: str, market_scope: str) -> bool:
+    label = _market_scope_label(code)
+    if market_scope == "全A含北交所":
+        return label in {"主板", "创业板", "科创板", "北交所"}
+    if market_scope in {"沪深A股", "中国A股"}:
+        return label in {"主板", "创业板", "科创板"}
+    return label == "主板"
+
+
+def _attach_latest_news_evidence(rows: list[dict], news_fetcher=None, limit: int = 3) -> list[dict]:
+    if news_fetcher is None:
+        from src.news.radar import fetch_radar_for_stock
+        news_fetcher = fetch_radar_for_stock
+
+    enriched = []
+    for row in rows or []:
+        item = dict(row)
+        try:
+            payload = news_fetcher(item.get("code", ""), limit=limit) or {}
+            news_items = payload.get("items") if isinstance(payload, dict) else payload
+            latest = (news_items or [None])[0]
+            if latest:
+                title = str(latest.get("title") or "")[:80]
+                source = str(latest.get("source") or latest.get("category") or "新闻")
+                published_at = str(latest.get("published_at") or latest.get("time") or "")
+                item["latest_news_title"] = title
+                item["latest_news_source"] = source
+                item["latest_news_time"] = published_at
+                item["news_freshness"] = "有最新证据"
+                item["source_chain"] = list(dict.fromkeys((item.get("source_chain") or []) + ["最新新闻"]))
+                if title:
+                    item["reason"] = f"{item.get('reason', '')}；最新{source}: {title}".strip("；")
+            else:
+                item["news_freshness"] = "暂无新增"
+        except Exception as exc:
+            item["news_freshness"] = f"新闻失败: {str(exc)[:30]}"
+        enriched.append(item)
+    return enriched
+
+
 def _build_candidate_pool_rows(scored_results: list, ifind_rows: list, market_scope: str = "中国A股") -> list[dict]:
     """合并旧六维评分与 iFinD Evidence Score，生成研究候选池。
 
@@ -200,7 +276,7 @@ def _build_candidate_pool_rows(scored_results: list, ifind_rows: list, market_sc
 
     for stock, result in scored_results or []:
         code = str(stock.get("code") or getattr(result, "code", "") or "")[:6]
-        if not code:
+        if not code or not _is_code_in_market_scope(code, market_scope):
             continue
         risk = getattr(getattr(result, "anti_quant", None), "total_risk", 50) or 50
         risk_level = getattr(getattr(result, "anti_quant", None), "risk_level", "中") or "中"
@@ -210,6 +286,7 @@ def _build_candidate_pool_rows(scored_results: list, ifind_rows: list, market_sc
             "code": code,
             "name": name,
             "market_scope": market_scope,
+            "board": _market_scope_label(code),
             "price": float(stock.get("price") or 0),
             "change_pct": float(stock.get("change_pct") or 0),
             "legacy_score": round(legacy_score, 1),
@@ -227,7 +304,7 @@ def _build_candidate_pool_rows(scored_results: list, ifind_rows: list, market_sc
 
     for raw in ifind_rows or []:
         code = str(raw.get("code") or "")[:6]
-        if not code:
+        if not code or not _is_code_in_market_scope(code, market_scope):
             continue
         name = _resolve_stock_name(code, raw.get("name", code))
         research = {
@@ -255,6 +332,7 @@ def _build_candidate_pool_rows(scored_results: list, ifind_rows: list, market_sc
             "code": code,
             "name": name,
             "market_scope": market_scope,
+            "board": _market_scope_label(code),
             "price": float(raw.get("price") or 0),
             "change_pct": float(raw.get("change_pct") or 0),
             "legacy_score": 0.0,
@@ -314,34 +392,50 @@ def _render_candidate_pool_card(row: dict, index: int = 0):
     risk_badge = "badge-high" if risk in ("高", "极高") else "badge-mid" if risk == "中" else "badge-low"
     source = html.escape(str(row.get("score_source", "")))
     chain = " · ".join(row.get("source_chain") or [])
+    market_scope = html.escape(str(row.get("market_scope") or "主板优先"))
+    board = html.escape(str(row.get("board") or _market_scope_label(code)))
     reason = html.escape(str(row.get("reason", ""))[:180])
+    news_title = html.escape(str(row.get("latest_news_title") or ""))
+    news_source = html.escape(str(row.get("latest_news_source") or ""))
+    news_time = html.escape(str(row.get("latest_news_time") or ""))
     border = "var(--green)" if row.get("rank_score", 0) >= 65 and float(row.get("risk_score") or 0) < 65 else "var(--amber)"
-
-    st.markdown(
+    news_html = (
+        f'<div style="font-size:12px;color:var(--ai);line-height:1.45;margin-top:6px">'
+        f'最新{news_source}: {news_title} <span style="color:var(--hint)">{news_time}</span></div>'
+        if news_title else ""
+    )
+    ifind_html = (
+        f'<span class="score-pill" style="color:var(--ai)">iFinD{float(row["ifind_score"]):.0f}</span>'
+        if float(row.get("ifind_score") or 0) > 0 else ""
+    )
+    card_html = (
         f'<div class="recommend-card" style="border-left:3px solid {border}">'
         f'<div style="display:flex;justify-content:space-between;gap:12px">'
         f'<div style="flex:1;min-width:0">'
         f'<div style="font-size:15px;font-weight:800;color:var(--text)">{name}'
         f'<span style="font-family:var(--mono);font-size:11px;color:var(--muted);margin-left:8px">{safe_code}</span></div>'
-        f'<div style="font-size:12px;color:var(--muted);margin-top:3px">中国A股 · {source} · 置信度{html.escape(confidence)}</div>'
+        f'<div style="font-size:12px;color:var(--muted);margin-top:3px">{market_scope} · {board} · {source} · 置信度{html.escape(confidence)}</div>'
         f'</div>'
         f'<div style="text-align:right;min-width:106px">'
         f'<div style="font-family:var(--mono);font-size:18px;font-weight:850;color:var(--ai)">机会{float(row.get("opportunity_score") or 0):.0f}</div>'
         f'<div style="font-family:var(--mono);font-size:12px;color:{chg_c}">{chg:+.2f}%</div>'
         f'</div></div>'
         f'<div class="score-row">'
-        + f'<span class="score-pill" style="color:{chg_c};font-weight:700">{chg:+.1f}%</span>'
-        + f'<span class="score-pill">{html.escape(str(row.get("risk_level") or "中"))}风险</span>'
-        + (f'<span class="score-pill" style="color:var(--ai)">iFinD{float(row["ifind_score"]):.0f}</span>' if float(row.get("ifind_score") or 0) > 0 else "")
-        + f'<span class="score-pill">{html.escape(str(row.get("confidence") or "中"))}置信度</span>'
-        + f'</div>'
+        f'<span class="score-pill" style="color:{chg_c};font-weight:700">{chg:+.1f}%</span>'
+        f'<span class="score-pill">{html.escape(str(row.get("risk_level") or "中"))}风险</span>'
+        f'<span class="score-pill">{board}</span>'
+        f'{ifind_html}'
+        f'<span class="score-pill">{html.escape(str(row.get("confidence") or "中"))}置信度</span>'
+        f'</div>'
         f'<div style="font-size:12px;color:var(--text);line-height:1.55;margin-top:7px">{reason}</div>'
+        f'{news_html}'
         f'<div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px">'
         f'<div style="font-size:12px;color:var(--muted)">{html.escape(chain)}</div>'
         f'<span class="badge {risk_badge}">{html.escape(str(risk))}风险</span>'
-        f'</div></div>',
-        unsafe_allow_html=True,
+        f'</div></div>'
     )
+
+    st.markdown(card_html, unsafe_allow_html=True)
 
     c1, c2, c3, c4 = st.columns(4)
     key = f"candidate_{index}_{code}"
@@ -361,7 +455,18 @@ def _render_candidate_pool_card(row: dict, index: int = 0):
         if st.button("AI分析", key=f"{key}_ai", use_container_width=True):
             st.session_state["selected_stock"] = code
             st.session_state["current_page"] = "ai_chat"
-            st.session_state["qq"] = f"请对 {code} 做 iFinD 证据化研究，先调用 ifind_company_research 和 ifind_evidence_score，再给机会分、风险分、置信度、证据来源、失效条件。"
+            news_hint = (
+                f"候选池最新新闻参考：{row.get('latest_news_source', '')}{row.get('latest_news_title', '')}。"
+                if row.get("latest_news_title") else
+                "请同时调用新闻/信息雷达检查最新时事催化。"
+            )
+            st.session_state["qq"] = (
+                f"请对 {code} 做 iFinD 证据化研究，先调用 ifind_company_research 和 ifind_evidence_score，"
+                f"并结合最新新闻、公告、互动易和板块联动。当前候选范围是{row.get('market_scope', '主板优先')}，"
+                "如果创业板/科创板正在带动同产业链，请作为情绪和传导参考；但最终推荐要说明是否适合当前市场范围。"
+                f"{news_hint}"
+                "最后给机会分、风险分、置信度、推荐/观察条件、仓位上限、失效条件和证据来源。"
+            )
             st.session_state["_nav_pending"] = True
     with c4:
         if st.button("入审计", key=f"{key}_audit", use_container_width=True):
