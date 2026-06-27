@@ -807,6 +807,30 @@ def test_ifind_evidence_score_combines_opportunity_risk_and_confidence():
     assert score["evidence_summary"]
 
 
+def test_valuation_deviation_does_not_treat_broken_trend_as_undervaluation():
+    from src.scoring.valuation_deviation import compute_valuation_deviation
+
+    bars = [{"close": 100.0, "high": 101.0, "low": 99.0} for _ in range(60)]
+    result = compute_valuation_deviation({"price": 75.0}, bars)
+
+    assert result["score"] == 50
+    assert result["direction"] == "估值未知"
+    assert result["sub_scores"]["20日均线位置"] < 50
+    assert "不判定低估" in result["explanation"]
+
+
+def test_valuation_deviation_uses_fundamental_anchor_before_valuation_label():
+    from src.scoring.valuation_deviation import compute_valuation_deviation
+
+    bars = [{"close": 100.0, "high": 101.0, "low": 99.0} for _ in range(60)]
+    result = compute_valuation_deviation({"price": 96.0, "pe_ratio": 12.0, "pb_ratio": 1.4}, bars)
+
+    assert result["score"] >= 55
+    assert result["direction"] in {"偏低估", "估值合理"}
+    assert "PE分位" in result["sub_scores"]
+    assert "PB分位" in result["sub_scores"]
+
+
 def test_tool_executor_exposes_ifind_evidence_score(monkeypatch):
     class FakeHarness:
         def company_research(self, code, profile="quick"):

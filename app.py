@@ -18,28 +18,30 @@ st.markdown("""<style>
    Pure white background, muted borders, compact shadows, no noisy decoration.
    ═══════════════════════════════════════════ */
 :root {
-  --bg: #FFFFFF;           --surface: #F7F7F8;
-  --card: #FFFFFF;         --border: #D8D9DB;
-  --text: #111111;         --muted: #6B6B6B;
-  --ink: #111111;          --hint: #8C8C8C;
-  --ai: #002FA7;           --red: #CF0011;
-  --green: #007348;        --amber: #C74E00;
-  --cyan: #006B7A;         --risk: #C74E00;
+  --bg: #F5F5F7;           --surface: #F5F5F7;
+  --card: rgba(255,255,255,0.88); --border: rgba(60,60,67,0.16);
+  --text: #1D1D1F;         --muted: #6E6E73;
+  --ink: #1D1D1F;          --hint: #8E8E93;
+  --ai: #0A84FF;           --red: #D70015;
+  --green: #248A3D;        --amber: #B25000;
+  --cyan: #007C89;         --risk: #B25000;
   --mono: 'SF Mono','DIN Alternate','Menlo',monospace;
   --sans: 'PingFang SC','HarmonyOS Sans','Noto Sans SC',-apple-system,BlinkMacSystemFont,sans-serif;
+  --shadow-card: 0 1px 2px rgba(0,0,0,0.04), 0 10px 30px rgba(0,0,0,0.06);
+  --shadow-dock: 0 1px 2px rgba(0,0,0,0.08), 0 18px 48px rgba(0,0,0,0.18);
 }
 * { font-family: var(--sans); box-sizing: border-box; }
 html, body, [data-testid="stAppViewContainer"], [data-testid="stHeader"], .main {
-  background: #FFFFFF !important;
+  background: var(--bg) !important;
 }
-.stApp { background: #FFFFFF !important; color: var(--text); }
+.stApp { background: var(--bg) !important; color: var(--text); }
 .stApp > header { background: transparent !important; }
 #MainMenu, footer, header { visibility: hidden; }
 .stDeployButton { display: none; }
 section[data-testid="stSidebar"] { display: none; }
 
 .main .block-container {
-  padding: 0 20px 96px 20px;
+  padding: 0 20px 112px 20px;
   max-width: 1120px; margin: 0 auto;
 }
 
@@ -53,13 +55,15 @@ section[data-testid="stSidebar"] { display: none; }
 /* ── Topbar ── */
 .topbar {
   display: flex; justify-content: space-between; align-items: baseline;
-  padding: 18px 0 10px; margin-bottom: 10px;
+  padding: 16px 0 8px; margin-bottom: 8px;
   position: sticky; top: 0; z-index: 10;
-  background: #FFFFFF;
+  background: rgba(245,245,247,0.86);
+  backdrop-filter: saturate(180%) blur(18px);
+  -webkit-backdrop-filter: saturate(180%) blur(18px);
 }
 .logo {
-  font-family: var(--sans); font-size: 22px; font-weight: 800;
-  color: #111111; letter-spacing: -0.6px;
+  font-family: var(--sans); font-size: 22px; font-weight: 760;
+  color: var(--text); letter-spacing: 0;
 }
 .logo span { font-weight: 500; }
 .top-chip {
@@ -85,29 +89,35 @@ section[data-testid="stSidebar"] { display: none; }
 }
 
 /* ── Bottom nav ── */
-.nav-wrap {
+.st-key-main_nav_dock {
   position: fixed; bottom: 0; left: 50%; transform: translateX(-50%);
-  width: calc(100% - 24px); max-width: 1120px;
-  background: #FFFFFF; border-top: 1px solid #111111;
-  padding: 4px 8px max(4px, env(safe-area-inset-bottom));
-  z-index: 100; min-height: 64px;
+  width: min(100% - 18px, 680px);
+  background: rgba(255,255,255,0.82);
+  border: 1px solid rgba(60,60,67,0.18);
+  border-radius: 22px 22px 0 0;
+  padding: 8px 10px max(8px, env(safe-area-inset-bottom));
+  z-index: 100; min-height: 70px;
+  box-shadow: var(--shadow-dock);
+  backdrop-filter: saturate(180%) blur(22px);
+  -webkit-backdrop-filter: saturate(180%) blur(22px);
 }
-.nav-wrap [data-testid="stHorizontalBlock"] { gap: 2px !important; }
-.nav-wrap .stButton > button {
-  min-height: 48px !important; padding: 4px 2px !important;
-  border: none !important; border-radius: 0 !important;
+.st-key-main_nav_dock [data-testid="stHorizontalBlock"] { gap: 3px !important; }
+.st-key-main_nav_dock .stButton > button {
+  min-height: 52px !important; padding: 4px 2px !important;
+  border: none !important; border-radius: 15px !important;
   box-shadow: none !important;
-  font-size: 11px !important; line-height: 1.15 !important;
+  font-size: 11px !important; line-height: 1.12 !important;
   white-space: pre-line !important;
   background: transparent !important; color: var(--muted) !important;
-  font-weight: 500 !important; letter-spacing: 0.2px;
+  font-weight: 560 !important; letter-spacing: 0;
 }
-.nav-wrap .stButton > button:hover {
-  color: #111111 !important;
+.st-key-main_nav_dock .stButton > button:hover {
+  background: rgba(10,132,255,0.08) !important;
+  color: var(--text) !important;
 }
-.nav-wrap .stButton > button[kind="primary"] {
-  color: #111111 !important; font-weight: 700 !important;
-  border-bottom: 2px solid #111111 !important;
+.st-key-main_nav_dock .stButton > button[kind="primary"] {
+  color: var(--ai) !important; font-weight: 720 !important;
+  background: rgba(10,132,255,0.12) !important;
 }
 
 /* ── Segmented control ── */
@@ -136,7 +146,9 @@ section[data-testid="stSidebar"] { display: none; }
 .card {
   background: var(--card); border: 1px solid var(--border);
   border-radius: 8px; padding: 14px; margin-bottom: 12px;
-  box-shadow: 0 1px 2px rgba(17,17,17,0.04);
+  box-shadow: var(--shadow-card);
+  backdrop-filter: saturate(160%) blur(14px);
+  -webkit-backdrop-filter: saturate(160%) blur(14px);
 }
 .card.risk-low  { border-left: 3px solid var(--green); }
 .card.risk-mid  { border-left: 3px solid var(--amber); }
@@ -159,6 +171,7 @@ section[data-testid="stSidebar"] { display: none; }
   border: 1px solid var(--border); border-radius: 8px;
   padding: 12px 14px; text-align: left;
   margin-right: -1px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.03);
 }
 .idx-cell:last-child { margin-right: 0; }
 .idx-cell .n { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px; }
@@ -193,19 +206,19 @@ section[data-testid="stSidebar"] { display: none; }
 /* ── Buttons ── */
 .stButton > button {
   font-family: var(--sans); font-size: 13px; font-weight: 600;
-  border: 1px solid #111111; background: #FFFFFF !important;
-  color: #111111 !important; padding: 8px 16px;
+  border: 1px solid rgba(60,60,67,0.22); background: rgba(255,255,255,0.9) !important;
+  color: var(--text) !important; padding: 8px 16px;
   min-height: 44px; border-radius: 8px;
   -webkit-tap-highlight-color: transparent; touch-action: manipulation;
-  box-shadow: 0 1px 2px rgba(17,17,17,0.04);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.04);
 }
-.stButton > button:hover { background: #111111 !important; color: #FFFFFF !important; }
-.stButton > button:active { background: #333333 !important; color: #FFFFFF !important; }
+.stButton > button:hover { background: #1D1D1F !important; color: #FFFFFF !important; }
+.stButton > button:active { background: #3A3A3C !important; color: #FFFFFF !important; }
 .stButton > button[kind="primary"] {
-  background: #111111 !important; color: #FFFFFF !important;
-  border-color: #111111 !important; font-weight: 700 !important;
+  background: #1D1D1F !important; color: #FFFFFF !important;
+  border-color: #1D1D1F !important; font-weight: 700 !important;
 }
-.stButton > button[kind="primary"]:hover { background: #002FA7 !important; border-color: #002FA7 !important; }
+.stButton > button[kind="primary"]:hover { background: var(--ai) !important; border-color: var(--ai) !important; }
 .stButton > button[kind="secondary"] {
   background: #FFFFFF !important; color: #111111 !important;
   border-color: var(--border) !important;
@@ -226,7 +239,7 @@ section[data-testid="stSidebar"] { display: none; }
 [data-testid="stMetric"] {
   background: var(--card) !important; border: 1px solid var(--border) !important;
   padding: 12px 14px !important; border-radius: 8px !important;
-  box-shadow: 0 1px 2px rgba(17,17,17,0.04) !important;
+  box-shadow: var(--shadow-card) !important;
 }
 [data-testid="stMetric"] label {
   font-family: var(--sans) !important; font-size: 10px !important;
@@ -325,13 +338,14 @@ code {
 .soft-card {
   background: #FFFFFF; border: 1px solid var(--border);
   border-radius: 8px; padding: 16px; margin-bottom: 14px;
-  box-shadow: 0 1px 2px rgba(17,17,17,0.04);
+  box-shadow: var(--shadow-card);
 }
 .ai-hero {
-  background: #FFFFFF; border: 1px solid var(--border);
+  background: linear-gradient(180deg, rgba(255,255,255,0.94), rgba(255,255,255,0.78));
+  border: 1px solid var(--border);
   border-left: 4px solid var(--ai);
   border-radius: 8px; padding: 20px; margin-bottom: 16px;
-  box-shadow: 0 1px 2px rgba(17,17,17,0.04);
+  box-shadow: var(--shadow-card);
 }
 .ai-hero-title { color: var(--text); font-size: 24px; font-weight: 800; margin-bottom: 6px; letter-spacing: -0.4px; }
 .ai-hero-sub { color: var(--muted); font-size: 13px; line-height: 1.6; }
@@ -537,7 +551,18 @@ code {
 .ma-legend span { display: flex; align-items: center; gap: 4px; }
 
 @media (max-width: 400px) {
-  .main .block-container { padding: 0 12px 80px 12px; }
+  .main .block-container { padding: 0 12px 112px 12px; }
+  .top-chip { display: none; }
+  .st-key-main_nav_dock {
+    width: calc(100% - 12px);
+    border-radius: 18px 18px 0 0;
+    padding-left: 6px;
+    padding-right: 6px;
+  }
+  .st-key-main_nav_dock .stButton > button {
+    font-size: 10px !important;
+    min-height: 50px !important;
+  }
 }
 
 @media (min-width: 900px) {
@@ -642,21 +667,25 @@ nav_state = resolve_main_navigation(
 )
 
 if nav_state["show_main_nav"]:
-    selected_nav = st.segmented_control(
-        "主导航",
-        options=_tab_ids,
-        default=nav_state["selected_nav"],
-        format_func=lambda pid: _labels.get(pid, pid),
-        key="main_nav",
-        label_visibility="collapsed",
-    )
-    if selected_nav and selected_nav != cur:
-        if st.session_state.get("_last_page") == "ai_chat" and selected_nav != "ai_chat":
-            st.session_state.pop("qq", None)
-        st.session_state["current_page"] = selected_nav
-        st.session_state["_last_page"] = selected_nav
-        st.session_state["_last_nav_page"] = selected_nav
-        st.session_state["_nav_pending"] = True
+    with st.container(key="main_nav_dock"):
+        nav_cols = st.columns(len(TABS))
+        for i, (pid, label, icon) in enumerate(TABS):
+            is_active = pid == nav_state["selected_nav"]
+            with nav_cols[i]:
+                if st.button(
+                    f"{icon}\n{label}",
+                    key=f"nav_{pid}",
+                    type="primary" if is_active else "secondary",
+                    use_container_width=True,
+                ):
+                    if pid != cur:
+                        if st.session_state.get("_last_page") == "ai_chat" and pid != "ai_chat":
+                            st.session_state.pop("qq", None)
+                        st.session_state["main_nav"] = pid
+                        st.session_state["current_page"] = pid
+                        st.session_state["_last_page"] = pid
+                        st.session_state["_last_nav_page"] = pid
+                        st.session_state["_nav_pending"] = True
 elif st.session_state.pop("_nav_pending", False):
     st.rerun()
 else:
