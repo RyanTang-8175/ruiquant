@@ -123,6 +123,18 @@ def _system_monitor():
     except Exception:
         st.caption("审计数据暂不可用")
 
+    # ── 策略下线规则 ──
+    st.markdown("### 策略下线规则")
+    DEGRADE_RULES = [
+        ("连续亏损>3笔", "consecutive_losses > 3", "自动降权50%"),
+        ("单策略回撤>15%", "max_drawdown > 15%", "暂停该策略,进入观察"),
+        ("胜率<30%(>10笔)", "win_rate < 30% and trades > 10", "降低仓位至25%"),
+        ("夏普<0超过20笔", "sharpe < 0 and trades > 20", "正式下线,停止投入"),
+    ]
+    rule_text = "\n".join(f"- **{r[0]}**: {r[1]} → {r[2]}" for r in DEGRADE_RULES)
+    st.markdown(f'<div class="soft-card" style="font-size:12px;line-height:1.6">{rule_text}</div>', unsafe_allow_html=True)
+    st.caption("以上规则供参考,实际触发时会记录到审计并提示,不会自动执行实盘操作。")
+
     st.caption(f"刷新时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     if st.button("手动刷新", key="sys_mon_refresh", use_container_width=True):
         st.rerun()

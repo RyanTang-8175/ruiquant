@@ -18,6 +18,8 @@ from src.scoring.continuation import compute_continuation
 from src.scoring.anti_quant import compute_anti_quant
 from src.scoring.strategy_match import compute_strategy_match
 from src.scoring.fund_flow import compute_fund_flow
+from src.scoring.regime import compute_regime
+from src.scoring.valuation_deviation import compute_valuation_deviation
 
 logger = logging.getLogger(__name__)
 
@@ -300,6 +302,10 @@ class V6ScoringEngine:
 
         # 资金流因子 (Block I): 量价协同+背离+成交额强度+换手率+K线趋势
         ff = compute_fund_flow(quote, daily_bars)
+        # 市场Regime (Block L): ADX+波动率判定当前市态
+        rg = compute_regime(daily_bars, quote)
+        # 估值偏离度 (Block M): bp=1/pb的均线偏离代理
+        vd = compute_valuation_deviation(quote, daily_bars)
 
         aq = compute_anti_quant(quote, intraday_bars, daily_bars, sector_data)
         result.anti_quant.total_risk = aq["total_risk"]
@@ -313,7 +319,7 @@ class V6ScoringEngine:
         result.anti_quant.sector_divergence = aq.get("sector_divergence", {})
 
         result.compute_total()
-        result.dimension_details = {"heat":h,"support":s,"theme":t,"continuation":c,"strategy_match":sm,"fund_flow":ff,"anti_quant":aq}
+        result.dimension_details = {"heat":h,"support":s,"theme":t,"continuation":c,"strategy_match":sm,"fund_flow":ff,"regime":rg,"valuation_deviation":vd,"anti_quant":aq}
         self._save_score(result)
         self._save_anti_quant(result, aq)
         return result
@@ -433,7 +439,9 @@ class V6ScoringEngine:
             f"",
             f"[K线] {kline_text}",
             f"[资金流] 评分={d.get('fund_flow',{}).get('score',0):.0f} 方向={d.get('fund_flow',{}).get('direction','未知')}",
-            f"[资金流明细] {d.get('fund_flow',{}).get('explanation','')}",
+            f"[市场状态] {d.get('regime',{}).get('label','')} (ADX={d.get('regime',{}).get('adx',0):.0f} 波动率={d.get('regime',{}).get('volatility_annual',0):.0f}%)",
+            f"[市场建议] {d.get('regime',{}).get('advice','')}",
+            f"[估值偏离] 评分={d.get('valuation_deviation',{}).get('score',0):.0f} {d.get('valuation_deviation',{}).get('direction','')}",
         ]
 
         if d.get('matched_strategies'):
