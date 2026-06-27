@@ -287,7 +287,18 @@ def _build_candidate_pool_rows(scored_results: list, ifind_rows: list, market_sc
         ifind = float(row.get("ifind_score") or 0)
         risk = float(row.get("risk_score") or 0)
         source_bonus = 8 if legacy and ifind else 3 if ifind else 0
-        row["rank_score"] = round(opportunity * 0.72 + legacy * 0.22 + ifind * 0.18 - risk * 0.22 + source_bonus, 2)
+        risk_level = str(row.get("risk_level") or "")
+        if risk >= 75 or risk_level == "极高":
+            row["risk_gate"] = "回避"
+            row["action"] = "只观察"
+            risk_penalty = 34
+        elif risk >= 65 or risk_level == "高":
+            row["risk_gate"] = "降级"
+            risk_penalty = 18
+        else:
+            row["risk_gate"] = "通过"
+            risk_penalty = 0
+        row["rank_score"] = round(opportunity * 0.72 + legacy * 0.22 + ifind * 0.18 - risk * 0.22 + source_bonus - risk_penalty, 2)
 
     return sorted(merged.values(), key=lambda item: item.get("rank_score", 0), reverse=True)
 

@@ -105,10 +105,13 @@ def test_ai_fallback_handles_sector_questions_without_single_stock_demand():
     answer = ai._fallback_answer("我有1w块，想买电力行业或半导体行业，该买什么股票")
 
     assert "人话结论" in answer
-    assert "周一操作建议" in answer
-    assert "周一操作两步走" in answer
+    assert "研究计划" in answer
+    assert "模拟验证两步走" in answer
     assert "资金纪律" in answer
     assert "时间表" in answer
+    assert "操作建议" not in answer
+    assert "买入" not in answer
+    assert "该买" not in answer
     assert "雷达页分别切到" not in answer
     assert "自己筛" not in answer
     assert "贵州茅台" not in answer

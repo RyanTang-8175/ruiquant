@@ -91,7 +91,7 @@ class AIChat:
             try:
                 from openai import OpenAI
                 self.client = OpenAI(api_key=api_key, base_url=base_url, timeout=30)
-                self.client_label = "deepseek"
+                self.client_label = status.get("provider", "openai_compatible")
             except Exception as e:
                 logger.error(f"AI init: {e}")
 
@@ -121,7 +121,7 @@ class AIChat:
 
     @classmethod
     def provider_status(cls, api_key: str | None = None, base_url: str | None = None, model: str | None = None) -> dict:
-        """DeepSeek/OpenAI-compatible API 配置状态。
+        """OpenAI-compatible API 配置状态。
 
         只检查本地配置是否足以发起 API 调用，不做网络探测，避免打开页面就消耗额度。
         """
@@ -133,26 +133,33 @@ class AIChat:
         clean_url = str(base_url or "").strip()
         clean_model = str(model or "").strip()
         lowered = clean_key.lower()
+        provider = cls._infer_provider(clean_url, clean_model)
+        provider_title = {
+            "deepseek": "DeepSeek",
+            "qwen": "通义千问",
+            "mimo": "Mimo",
+            "openai_compatible": "OpenAI 兼容模型",
+        }.get(provider, "OpenAI 兼容模型")
         placeholder_tokens = ("placeholder", "test", "example", "your_key", "sk-xxx", "sk-...")
 
         if not clean_key:
             ready = False
-            message = "未配置 DeepSeek API Key，AI 会进入本地兜底。"
+            message = f"未配置{provider_title} API Key，AI 会进入本地兜底。"
         elif any(token in lowered for token in placeholder_tokens):
             ready = False
-            message = "API Key 看起来是测试/占位值，请在“我的”页面保存真实 DeepSeek Key。"
+            message = f"API Key 看起来是测试/占位值，请在“我的”页面保存真实{provider_title} Key。"
         elif not clean_url.startswith(("http://", "https://")):
             ready = False
             message = "Base URL 格式不正确，必须以 http:// 或 https:// 开头。"
         elif not clean_model:
             ready = False
-            message = "模型名为空，请配置 deepseek-chat 或兼容模型。"
+            message = "模型名为空，请配置 deepseek-chat、qwen-plus 或其他 OpenAI 兼容模型。"
         else:
             ready = True
-            message = "DeepSeek API 已配置，AI 会优先调用云端模型；本地兜底只在 API 失败时启用。"
+            message = f"{provider_title} API 已配置，AI 会优先调用云端 OpenAI 兼容模型；本地兜底只在 API 失败时启用。"
 
         return {
-            "provider": "deepseek",
+            "provider": provider,
             "ready": ready,
             "base_url": clean_url,
             "model": clean_model,
@@ -160,6 +167,17 @@ class AIChat:
             "key_tail": clean_key[-4:] if clean_key and ready else "",
             "message": message,
         }
+
+    @staticmethod
+    def _infer_provider(base_url: str, model: str = "") -> str:
+        text = f"{base_url} {model}".lower()
+        if "deepseek" in text:
+            return "deepseek"
+        if "dashscope" in text or "aliyuncs" in text or "qwen" in text or "通义" in text:
+            return "qwen"
+        if "mimo" in text or "xiaomi" in text:
+            return "mimo"
+        return "openai_compatible"
 
     def chat(self, user_message: str, context: dict = None) -> str:
         # 每轮独立保存已取得证据，最终回答校验时复用，避免重复消耗 iFinD 额度。
@@ -375,12 +393,12 @@ class AIChat:
 
             return (
                 f"### 人话结论\n"
-                f"机会分 64（机会分=当前方向值得研究的程度），风险分 58（风险分=追高或冲高回落的概率），置信度 中（置信度=公开数据够初筛但仍需盘中确认）。1 万做短线，我会先偏电力做防守模拟，半导体只做弹性观察。电力看 {primary} 这类承接稳的，半导体看 {chip} 这类主线弹性，但不能追高。\n\n"
-                "### 周一操作建议\n"
-                "你的状态：现金 1 万，适合先小样本模拟验证，不适合一把打满。今天的核心不是“买哪个行业”，而是先找低风险观察点，再决定要不要加入实验室验证。\n\n"
-                "### 周一操作两步走\n"
-                f"第一步：先处理电力。优先看 {primary}，只在低开不破、回踩有承接、反量化风险低/中的情况下加入观察或模拟验证。\n"
-                f"第二步：再看半导体。{chip} 这类弹性更大，但必须等板块联动和分时承接确认；如果放量滞涨或高开冲回落，直接放弃，不做追高验证。\n\n"
+                f"机会分 64（机会分=当前方向值得研究的程度），风险分 58（风险分=追高或冲高回落的概率），置信度 中（置信度=公开数据够初筛但仍需盘中确认）。1 万短线资金更适合先做小样本研究：电力偏防守模拟，半导体偏弹性观察。电力关注 {primary} 这类承接稳的样本，半导体关注 {chip} 这类主线弹性样本，但不追高、不输出买卖口令。\n\n"
+                "### 研究计划\n"
+                "你的状态：现金 1 万，适合先小样本模拟验证，不适合一把打满。今天的核心不是替你决定买卖，而是先找低风险观察点，再决定要不要加入实验室验证。\n\n"
+                "### 模拟验证两步走\n"
+                f"第一步：先观察电力。优先看 {primary}，只在低开不破、回踩有承接、反量化风险低/中的情况下加入观察或模拟验证。\n"
+                f"第二步：再观察半导体。{chip} 这类弹性更大，但必须等板块联动和分时承接确认；如果放量滞涨或高开冲回落，直接放弃，不做追高验证。\n\n"
                 "### 候选表\n"
                 f"{candidate_text}\n\n"
                 "### 参与条件\n"
@@ -393,12 +411,12 @@ class AIChat:
                 "2. 放量但价格推不动，放弃。\n"
                 "3. 板块不联动，只有单票硬拉，放弃。\n"
                 "4. 跌破分时均价线后 10 分钟收不回，离场或不参与。\n\n"
-                "### 周一操作时间表\n"
+                "### 时间表\n"
                 "9:15：看竞价，谁高开太多但量不跟，先剔除。\n"
                 "9:25：只保留电力/半导体里竞价不极端、成交正常的票。\n"
                 "9:30-10:00：不追第一波，只看回踩均价线能不能稳住。\n"
                 "10:00-10:30：若主候选承接稳定，可先做模拟验证；若半导体强于电力，再考虑加入弹性观察。\n"
-                "14:30-15:00：决定是否隔夜。尾盘急拉无回踩不拿，回踩不破且板块仍强才考虑留。\n\n"
+                "14:30-15:00：只复核是否保留观察。尾盘急拉无回踩不纳入验证，回踩不破且板块仍强才保留到下一轮审计。\n\n"
                 "### 资金纪律\n"
                 "1 万元建议最多拆成 2 个观察计划：主候选和备选分别写清触发条件、失效条件和止损规则。第一笔验证错了，不加码摊平；第一笔验证对了，也要等第二个确认点再行动。"
             )

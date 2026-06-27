@@ -1033,6 +1033,46 @@ def test_radar_candidate_pool_keeps_recommended_stocks_with_ifind_scores():
     assert by_code["600900"]["rank_score"] >= by_code["688981"]["rank_score"]
 
 
+def test_radar_candidate_pool_risk_gate_pushes_high_risk_below_safer_candidate():
+    from src.pages.radar import _build_candidate_pool_rows
+
+    risky_result = SimpleNamespace(
+        code="600111",
+        name="高风险样本",
+        total_score=88,
+        status_label="高热度",
+        anti_quant=SimpleNamespace(total_risk=86, risk_level="极高", triggers=["尾盘诱多", "放量滞涨"]),
+        heat=SimpleNamespace(score=92),
+        support=SimpleNamespace(score=70),
+        theme=SimpleNamespace(score=80),
+        continuation=SimpleNamespace(score=76),
+        strategy_match=SimpleNamespace(score=72),
+    )
+    safer_result = SimpleNamespace(
+        code="600900",
+        name="长江电力",
+        total_score=68,
+        status_label="等待确认",
+        anti_quant=SimpleNamespace(total_risk=26, risk_level="低", triggers=[]),
+        heat=SimpleNamespace(score=66),
+        support=SimpleNamespace(score=66),
+        theme=SimpleNamespace(score=58),
+        continuation=SimpleNamespace(score=60),
+        strategy_match=SimpleNamespace(score=62),
+    )
+
+    rows = _build_candidate_pool_rows(
+        scored_results=[
+            ({"code": "600111", "name": "高风险样本", "price": 10.0, "change_pct": 9.8}, risky_result),
+            ({"code": "600900", "name": "长江电力", "price": 25.0, "change_pct": 1.2}, safer_result),
+        ],
+        ifind_rows=[],
+    )
+
+    assert [row["code"] for row in rows[:2]] == ["600900", "600111"]
+    assert rows[1]["risk_gate"] == "回避"
+
+
 def test_ai_chat_marks_placeholder_key_as_not_ready(monkeypatch):
     from src.ai.chat import AIChat
 
@@ -1069,6 +1109,27 @@ def test_ai_chat_uses_api_when_valid_key_is_configured(monkeypatch):
     assert status["ready"] is True
     assert status["base_url"] == "https://api.deepseek.com"
     assert status["model"] == "deepseek-chat"
+
+
+def test_ai_chat_provider_status_infers_qwen_openai_compatible_endpoint():
+    from src.ai.chat import AIChat
+
+    status = AIChat.provider_status(
+        api_key="sk-live-qwen",
+        base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+        model="qwen-plus",
+    )
+
+    assert status["ready"] is True
+    assert status["provider"] == "qwen"
+    assert "OpenAI 兼容" in status["message"]
+
+
+def test_profile_page_labels_main_model_as_openai_compatible():
+    source = Path("src/pages/profile.py").read_text(encoding="utf-8")
+
+    assert "主模型（OpenAI 兼容）" in source
+    assert "DeepSeek 不可用时自动切换" in source
 
 
 def test_market_radar_includes_research_views_and_sector_moves(monkeypatch):
