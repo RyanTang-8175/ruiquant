@@ -5,6 +5,7 @@ import html, re
 from datetime import datetime
 import streamlit as st
 from src.ai.chat import AIChat
+from src.ai.prompts import INVESTOR_PROMPT_TEMPLATES
 
 # 快捷任务图标映射
 _TASK_ICONS = {
@@ -108,6 +109,16 @@ def render_ai_chat_page():
                     st.session_state['_nav_pending'] = True
 
     st.markdown("---")
+
+    # ── 投资提示词模板 ──
+    with st.expander("投资提示词模板（点击展开10个场景）", expanded=False):
+        cols = st.columns(2)
+        for i, (label, template) in enumerate(INVESTOR_PROMPT_TEMPLATES):
+            with cols[i % 2]:
+                if st.button(f"{label}：{template[:20]}...", key=f"ipt_{i}",
+                             use_container_width=True, help=template):
+                    st.session_state["qq"] = template
+                    st.session_state['_nav_pending'] = True
 
     # 快捷提问
     if "qq" in st.session_state:

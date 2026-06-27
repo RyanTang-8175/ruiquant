@@ -7,7 +7,7 @@ from datetime import datetime, date
 from src.config import get_setting
 from src.ai.tools import TOOLS
 from src.ai.tool_executor import ToolExecutor
-from src.ai.prompts import STYLE_CONTRACT, V6_SYSTEM_PROMPT, scene_prompt, AGENT_SPECIALISTS, AGENT_BULL, AGENT_BEAR, DEBATE_SUMMARIZER
+from src.ai.prompts import STYLE_CONTRACT, V6_SYSTEM_PROMPT, scene_prompt, AGENT_SPECIALISTS, AGENT_BULL, AGENT_BEAR, DEBATE_SUMMARIZER, INVESTOR_PROMPT_TEMPLATES
 from src.ai.roles import ROLES, ROLE_SUFFIXES
 
 logger = logging.getLogger(__name__)
@@ -1738,6 +1738,25 @@ class AIChat:
         # 学习
         if any(k in msg for k in ["什么是", "解释", "教我", "什么意思", "怎么用"]):
             return "learn"
+        # 空头压测: 用户主动要求反驳/找漏洞
+        if any(k in msg for k in ["反驳", "找漏洞", "质疑", "压测", "空头", "看空", "做空"]):
+            return "bear_test"
+        # 宏观传导
+        if any(k in msg for k in ["通胀", "利率", "GDP", "宏观", "货币政策", "降息", "加息",
+                                    "经济周期", "失业率"]):
+            return "macro_analysis"
+        # 财报拆解
+        if any(k in msg for k in ["财报", "年报", "季报", "利润表", "现金流", "营收",
+                                    "毛利率", "ROE", "负债率"]):
+            return "earnings_deep"
+        # 技术扫描
+        if any(k in msg for k in ["K线", "均线", "MACD", "RSI", "KDJ", "金叉", "死叉",
+                                    "支撑位", "阻力位", "背离", "量价"]):
+            return "technical_scan"
+        # 估值分析
+        if any(k in msg for k in ["估值", "贵不贵", "值不值", "低估", "高估", "PE", "PB",
+                                    "市盈率", "市净率", "安全边际"]):
+            return "valuation_check"
         return "general"
 
     @staticmethod
