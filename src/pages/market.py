@@ -126,18 +126,19 @@ def render_market_page():
         "行情榜单按板块过滤；默认全A。主板拆成沪市主板/深市主板，创业板、科创板、北交所独立查看。"
     )
 
-    # ── 四大榜单（一次性获取，避免重复消耗额度）──
+    # ── 四大榜单（按板块拉大样本再过滤，避免板块里只有1-2只刷"暂无数据"）──
+    fetch_limit = 80 if board_filter != "全A" else 20
     with st.spinner("加载榜单..."):
-        stocks_up = get_top_stocks("changepercent", False, 20)
-        stocks_dn = get_top_stocks("changepercent", True, 20)
-        stocks_amt = get_top_stocks("amount", False, 20)
-        stocks_tr = get_top_stocks("turnoverratio", False, 20)
+        stocks_up = get_top_stocks("changepercent", False, fetch_limit)
+        stocks_dn = get_top_stocks("changepercent", True, fetch_limit)
+        stocks_amt = get_top_stocks("amount", False, fetch_limit)
+        stocks_tr = get_top_stocks("turnoverratio", False, fetch_limit)
 
     if board_filter != "全A":
-        stocks_up = _filter_stocks_by_board(stocks_up, board_filter)
-        stocks_dn = _filter_stocks_by_board(stocks_dn, board_filter)
-        stocks_amt = _filter_stocks_by_board(stocks_amt, board_filter)
-        stocks_tr = _filter_stocks_by_board(stocks_tr, board_filter)
+        stocks_up = _filter_stocks_by_board(stocks_up, board_filter)[:20]
+        stocks_dn = _filter_stocks_by_board(stocks_dn, board_filter)[:20]
+        stocks_amt = _filter_stocks_by_board(stocks_amt, board_filter)[:20]
+        stocks_tr = _filter_stocks_by_board(stocks_tr, board_filter)[:20]
 
     # ── 情绪条（用已获取数据，不额外调用）──
     if stocks_up or stocks_dn:
