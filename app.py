@@ -95,49 +95,46 @@ section[data-testid="stSidebar"] { display: none; }
   background: rgba(255,255,255,0.92);
   border: 1px solid rgba(60,60,67,0.12);
   border-radius: 20px 20px 0 0;
-  padding: 6px 4px max(6px, env(safe-area-inset-bottom));
+  padding: 4px 2px max(4px, env(safe-area-inset-bottom));
   z-index: 100;
   box-shadow: 0 -1px 0 rgba(0,0,0,0.06), 0 -8px 32px rgba(0,0,0,0.08);
   backdrop-filter: saturate(180%) blur(20px);
   -webkit-backdrop-filter: saturate(180%) blur(20px);
 }
-.st-key-main_nav_dock [data-testid="stHorizontalBlock"] { gap: 2px !important; }
+.st-key-main_nav_dock [data-testid="stHorizontalBlock"] {
+  gap: 1px !important; flex-wrap: nowrap !important;
+}
 .st-key-main_nav_dock .stButton > button {
-  min-height: 54px !important; padding: 5px 2px !important;
-  border: none !important; border-radius: 14px !important;
+  min-height: 44px !important; padding: 2px 0 !important;
+  border: none !important; border-radius: 12px !important;
   box-shadow: none !important;
-  font-size: 11px !important; line-height: 1.15 !important;
+  font-size: 10px !important; line-height: 1.1 !important;
   white-space: pre-line !important;
   background: transparent !important; color: var(--muted) !important;
   font-weight: 540 !important; letter-spacing: -0.1px;
   transition: background 0.15s;
 }
 .st-key-main_nav_dock .stButton > button:hover {
-  background: rgba(10,132,255,0.06) !important;
-  color: var(--text) !important;
+  background: rgba(10,132,255,0.06) !important; color: var(--text) !important;
 }
 .st-key-main_nav_dock .stButton > button[kind="primary"] {
-  color: var(--ai) !important; font-weight: 720 !important;
+  color: var(--ai) !important; font-weight: 700 !important;
   background: rgba(10,132,255,0.10) !important;
 }
 
 @media (max-width: 430px) {
-  /* iPhone: even tighter, but still 7 equal columns */
   .st-key-main_nav_dock {
-    width: calc(100% - 8px) !important;
-    border-radius: 18px 18px 0 0 !important;
-    padding: 4px 2px max(4px, env(safe-area-inset-bottom)) !important;
+    width: 100% !important; max-width: 100% !important;
+    left: 0 !important; transform: none !important;
+    border-radius: 14px 14px 0 0 !important;
+    padding: 2px 0 max(2px, env(safe-area-inset-bottom)) !important;
   }
-  .st-key-main_nav_dock [data-testid="stHorizontalBlock"] { gap: 1px !important; }
   .st-key-main_nav_dock .stButton > button {
-    min-height: 48px !important;
-    padding: 3px 1px !important;
-    font-size: 10px !important;
-    line-height: 1.1 !important;
-    border-radius: 12px !important;
+    min-height: 38px !important; padding: 1px 0 !important;
+    font-size: 9px !important; border-radius: 10px !important;
   }
-  .main .block-container {
-    padding-bottom: 64px !important;
+  .main .block-container { padding-bottom: 54px !important; }
+}
   }
 }
 
