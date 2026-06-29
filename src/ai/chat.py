@@ -23,23 +23,36 @@ HISTORY_LEN = 20
 
 
 def _call_anthropic_api(messages: list, api_key: str, base_url: str, model: str) -> str:
-    """Mimo (Anthropic Messages API) 直调。路径 /v1/messages，不是 OpenAI 兼容。"""
+    """Mimo (Anthropic Messages API) 直调。路径 /v1/messages。"""
     import requests as _req
+    import logging as _log
     try:
+        # Anthropic API 不接受 role=system 的消息，system prompt 必须拆出来
+        system_parts = [m["content"] for m in messages if m.get("role") == "system"]
+        user_msgs = [{"role": m["role"], "content": m["content"]}
+                     for m in messages if m.get("role") in ("user", "assistant")]
+        body = {"model": model, "max_tokens": 2000, "messages": user_msgs}
+        if system_parts:
+            body["system"] = "\n\n".join(system_parts)
         r = _req.post(
-            f"{base_url}/v1/messages",
-            json={"model": model, "max_tokens": 2000,
-                  "messages": [{"role": m["role"], "content": m["content"]}
-                               for m in messages if m["role"] in ("user", "assistant", "system")]},
+            f"{base_url}/v1/messages", json=body,
             headers={"x-api-key": api_key, "anthropic-version": "2023-06-01",
                      "content-type": "application/json"},
-            timeout=20)
+            timeout=25)
+        if r.status_code == 401:
+            _log.warning("Mimo 401 认证失败——密钥可能被覆盖，请在[我的]页面重新保存")
+            return ""
+        if r.status_code != 200:
+            _log.warning(f"Mimo HTTP {r.status_code}: {r.text[:200]}")
+            return ""
         data = r.json()
         content = data.get("content", [])
         if isinstance(content, list) and content:
             return content[0].get("text", "")
+        _log.warning(f"Mimo 返回无内容: {str(data)[:200]}")
         return ""
-    except Exception:
+    except Exception as e:
+        _log.warning(f"Mimo API 调用失败: {e}")
         return ""
 
 
@@ -274,8 +287,8 @@ class AIChat:
                             scratchpad,
                             run_id,
                         )
-                    # Fallback: 第一轮 DeepSeek 失败 → 尝试切换到 Mimo 备选
-                    if rnd == 0 and self._has_mimo:
+                    # Fallback: DeepSeek 失败 → 立刻尝试切换到 Mimo 备选
+                    if self._has_mimo:
                         fb_text = _call_anthropic_api(
                             messages=messages + [{"role":"user","content":"请基于已有信息直接回答，不需要调用工具。"}],
                             api_key=self._mimo_key, base_url=self._mimo_url, model=self._mimo_model)
