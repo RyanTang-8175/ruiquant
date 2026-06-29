@@ -109,7 +109,7 @@ class AIChat:
         if status.get("ready"):
             try:
                 from openai import OpenAI
-                self.client = OpenAI(api_key=api_key, base_url=base_url, timeout=15)
+                self.client = OpenAI(api_key=api_key, base_url=base_url, timeout=25)
                 self.client_label = status.get("provider", "openai_compatible")
             except Exception as e:
                 logger.error(f"AI init: {e}")
@@ -259,7 +259,7 @@ class AIChat:
                     resp = self.client.chat.completions.create(
                         model=self.model, messages=messages,
                         tools=TOOLS, tool_choice="auto",
-                        temperature=0.35, max_tokens=MAX_TOKENS, timeout=15)
+                        temperature=0.35, max_tokens=MAX_TOKENS, timeout=25)
                 except Exception as api_err:
                     logger.error(f"API r{rnd}: {api_err}")
                     err_msg = str(api_err)[:200]
