@@ -127,11 +127,22 @@ section[data-testid="stSidebar"] { display: none; }
     width: 100% !important; max-width: 100% !important;
     left: 0 !important; transform: none !important;
     border-radius: 14px 14px 0 0 !important;
-    padding: 2px 0 max(2px, env(safe-area-inset-bottom)) !important;
+    padding: 2px 4px max(2px, env(safe-area-inset-bottom)) !important;
+  }
+  .st-key-main_nav_dock [data-testid="stHorizontalBlock"] {
+    flex-wrap: nowrap !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+    gap: 4px !important;
+  }
+  .st-key-main_nav_dock [data-testid="stHorizontalBlock"]::-webkit-scrollbar { display: none; }
+  .st-key-main_nav_dock [data-testid="column"] {
+    flex: 0 0 auto !important; width: auto !important; min-width: 62px !important;
   }
   .st-key-main_nav_dock .stButton > button {
-    min-height: 38px !important; padding: 1px 0 !important;
-    font-size: 9px !important; border-radius: 10px !important;
+    min-height: 38px !important; padding: 2px 8px !important;
+    font-size: 10px !important; white-space: nowrap !important;
+    border-radius: 10px !important;
   }
   .main .block-container { padding-bottom: 54px !important; }
 }
@@ -615,12 +626,6 @@ if not st.session_state["logged_in"]:
     st.stop()
 
 # ═══════════════════════════════════════════
-# 导航挂起标志统一处理——放在最前面，任何按钮触发后即刻 rerun
-# ═══════════════════════════════════════════
-if st.session_state.pop("_nav_pending", False):
-    st.rerun()
-
-# ═══════════════════════════════════════════
 # Topbar
 # ═══════════════════════════════════════════
 st.markdown(
@@ -699,7 +704,7 @@ if nav_state["show_main_nav"]:
                         st.session_state["current_page"] = pid
                         st.session_state["_last_page"] = pid
                         st.session_state["_last_nav_page"] = pid
-                        st.session_state["_nav_pending"] = True
+                        st.rerun()
 elif not nav_state["show_main_nav"]:
     st.caption(f"子页:{cur} — 点导航回主页")
 
