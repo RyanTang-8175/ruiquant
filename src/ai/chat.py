@@ -22,6 +22,27 @@ TOOL_ROUNDS = 6
 HISTORY_LEN = 20
 
 
+def _call_anthropic_api(messages: list, api_key: str, base_url: str, model: str) -> str:
+    """Mimo (Anthropic Messages API) 直调。路径 /v1/messages，不是 OpenAI 兼容。"""
+    import requests as _req
+    try:
+        r = _req.post(
+            f"{base_url}/v1/messages",
+            json={"model": model, "max_tokens": 2000,
+                  "messages": [{"role": m["role"], "content": m["content"]}
+                               for m in messages if m["role"] in ("user", "assistant", "system")]},
+            headers={"x-api-key": api_key, "anthropic-version": "2023-06-01",
+                     "content-type": "application/json"},
+            timeout=20)
+        data = r.json()
+        content = data.get("content", [])
+        if isinstance(content, list) and content:
+            return content[0].get("text", "")
+        return ""
+    except Exception:
+        return ""
+
+
 def _build_specialist_context(user_message: str, stock_code: str) -> str:
     """从主流程注入的完整上下文中裁剪出四个专精 Agent 都能读懂的数据段落。
 
@@ -82,8 +103,6 @@ class AIChat:
         self.model = get_setting("model","DEEPSEEK_MODEL","deepseek-chat")
         self.client = None
         self.client_label = ""  # "deepseek" / "mimo" / ""
-        self._fallback_client = None  # 备选：Mimo
-        self._fallback_model = ""
         self._fallback_label = ""
 
         status = self.provider_status(api_key=api_key, base_url=base_url, model=self.model)
@@ -95,20 +114,18 @@ class AIChat:
             except Exception as e:
                 logger.error(f"AI init: {e}")
 
-        # 初始化备选 AI 客户端（DeepSeek 失败时自动切换）
+        # 初始化备选 AI（DeepSeek 失败时自动切换）
+        # Mimo 用 Anthropic Messages API，不是 OpenAI 兼容格式，用 requests 直调
         from src.config import MIMO_API_KEY, MIMO_BASE_URL, MIMO_MODEL
-        mimo_key = MIMO_API_KEY or os.getenv("MIMO_API_KEY", "")
-        mimo_url = MIMO_BASE_URL or os.getenv("MIMO_BASE_URL", "")
-        mimo_model = MIMO_MODEL or os.getenv("MIMO_MODEL", "")
-        if mimo_key and mimo_url and mimo_model:
-            try:
-                from openai import OpenAI
-                self._fallback_client = OpenAI(api_key=mimo_key, base_url=mimo_url, timeout=30)
-                self._fallback_model = mimo_model
-                self._fallback_label = "mimo"
-                logger.info("Mimo 备选 AI 客户端已就绪")
-            except Exception as e:
-                logger.warning(f"Mimo 备选客户端初始化失败: {e}")
+        self._has_mimo = bool(MIMO_API_KEY and MIMO_BASE_URL and MIMO_MODEL)
+        self._mimo_key = MIMO_API_KEY or ""
+        self._mimo_url = MIMO_BASE_URL or ""
+        self._mimo_model = MIMO_MODEL or ""
+        self._fallback_label = "mimo"
+        if self._has_mimo:
+            logger.info("Mimo 备选 AI 已就绪(Anthropic API)")
+        else:
+            logger.info("Mimo 备选未配置")
         self.history = []
         self.tool_executor = ToolExecutor()
         self._tools_used = []
@@ -258,24 +275,18 @@ class AIChat:
                             run_id,
                         )
                     # Fallback: 第一轮 DeepSeek 失败 → 尝试切换到 Mimo 备选
-                    if rnd == 0 and self._fallback_client:
-                        try:
-                            fb_resp = self._fallback_client.chat.completions.create(
-                                model=self._fallback_model,
-                                messages=messages + [{"role":"user","content":"请基于已有信息直接回答，不需要调用工具。"}],
-                                temperature=0.35, max_tokens=MAX_TOKENS, timeout=30)
-                            fb = fb_resp.choices[0].message.content or ""
-                            if fb:
-                                self.client = self._fallback_client
-                                self.model = self._fallback_model
-                                self.client_label = self._fallback_label
-                                logger.info(f"DeepSeek 不可用，已切换到 {self._fallback_label} 备选模型")
-                                return self._finalize_response(
-                                    display_message,
-                                    fb + f"\n\n*(DeepSeek 暂不可用，已自动切换至 {self._fallback_label.upper()} 备选模型)*",
-                                    session_id, stock_code, scene, scratchpad, run_id)
-                        except Exception as fb_err:
-                            logger.warning(f"Mimo 备选也失败: {fb_err}")
+                    if rnd == 0 and self._has_mimo:
+                        fb_text = _call_anthropic_api(
+                            messages=messages + [{"role":"user","content":"请基于已有信息直接回答，不需要调用工具。"}],
+                            api_key=self._mimo_key, base_url=self._mimo_url, model=self._mimo_model)
+                        if fb_text:
+                            self.client_label = "mimo"
+                            logger.info("DeepSeek 不可用，已切换到 Mimo 备选")
+                            return self._finalize_response(
+                                display_message,
+                                fb_text + "\n\n*(DeepSeek 暂不可用，已自动切换至 MIMO 备选模型)*",
+                                session_id, stock_code, scene, scratchpad, run_id)
+                        logger.warning("Mimo 备选未能返回有效回答")
                     # Fallback: try without tools
                     try:
                         fallback = self.client.chat.completions.create(
