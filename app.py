@@ -330,6 +330,37 @@ code {
   .stButton > button { min-height: 44px; padding: 10px 16px; }
   .idx-cell { min-width: 90px; padding: 10px 8px; }
   .idx-cell .p { font-size: 16px; }
+
+  /* Mobile nav: compact single-row with horizontal scroll */
+  .st-key-main_nav_dock {
+    height: auto !important;
+    padding: 8px 12px max(8px, env(safe-area-inset-bottom)) !important;
+  }
+  .st-key-main_nav_dock [data-testid="stHorizontalBlock"] {
+    flex-wrap: nowrap !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+    gap: 6px !important;
+  }
+  .st-key-main_nav_dock [data-testid="stHorizontalBlock"]::-webkit-scrollbar {
+    display: none;
+  }
+  .st-key-main_nav_dock [data-testid="column"] {
+    flex: 0 0 auto !important;
+    width: auto !important;
+    min-width: unset !important;
+  }
+  .st-key-main_nav_dock .stButton > button {
+    min-height: 42px !important;
+    min-width: 60px !important;
+    padding: 6px 10px !important;
+    font-size: 11px !important;
+    white-space: nowrap !important;
+    border-radius: 12px !important;
+  }
+  .main .block-container {
+    padding-bottom: 72px !important;
+  }
 }
 
 .page-kicker { color: var(--muted); font-size: 12px; margin: -4px 0 14px; line-height: 1.5; }
