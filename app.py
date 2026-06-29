@@ -615,6 +615,12 @@ if not st.session_state["logged_in"]:
     st.stop()
 
 # ═══════════════════════════════════════════
+# 导航挂起标志统一处理——放在最前面，任何按钮触发后即刻 rerun
+# ═══════════════════════════════════════════
+if st.session_state.pop("_nav_pending", False):
+    st.rerun()
+
+# ═══════════════════════════════════════════
 # Topbar
 # ═══════════════════════════════════════════
 st.markdown(
@@ -694,9 +700,7 @@ if nav_state["show_main_nav"]:
                         st.session_state["_last_page"] = pid
                         st.session_state["_last_nav_page"] = pid
                         st.session_state["_nav_pending"] = True
-elif st.session_state.pop("_nav_pending", False):
-    st.rerun()
-else:
+elif not nav_state["show_main_nav"]:
     st.caption(f"子页:{cur} — 点导航回主页")
 
 # ═══════════════════════════════════════════
