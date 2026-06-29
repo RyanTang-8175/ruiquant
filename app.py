@@ -686,25 +686,22 @@ nav_state = resolve_main_navigation(
 )
 
 if nav_state["show_main_nav"]:
-    with st.container(key="main_nav_dock"):
-        nav_cols = st.columns(len(TABS))
-        for i, (pid, label, icon) in enumerate(TABS):
-            is_active = pid == nav_state["selected_nav"]
-            with nav_cols[i]:
-                if st.button(
-                    f"{icon}\n{label}",
-                    key=f"nav_{pid}",
-                    type="primary" if is_active else "secondary",
-                    use_container_width=True,
-                ):
-                    if pid != cur:
-                        if st.session_state.get("_last_page") == "ai_chat" and pid != "ai_chat":
-                            st.session_state.pop("qq", None)
-                        st.session_state["main_nav"] = pid
-                        st.session_state["current_page"] = pid
-                        st.session_state["_last_page"] = pid
-                        st.session_state["_last_nav_page"] = pid
-                        st.rerun()
+    # Streamlit 原生 segmented_control —— 零 DOM 问题，iOS 原生渲染
+    selected_nav = st.segmented_control(
+        "导航",
+        options=_tab_ids,
+        default=nav_state["selected_nav"],
+        format_func=lambda pid: _labels.get(pid, pid),
+        key="main_nav",
+        label_visibility="collapsed",
+    )
+    if selected_nav and selected_nav != cur:
+        if st.session_state.get("_last_page") == "ai_chat" and selected_nav != "ai_chat":
+            st.session_state.pop("qq", None)
+        st.session_state["current_page"] = selected_nav
+        st.session_state["_last_page"] = selected_nav
+        st.session_state["_last_nav_page"] = selected_nav
+        st.rerun()
 elif not nav_state["show_main_nav"]:
     st.caption(f"子页:{cur} — 点导航回主页")
 
